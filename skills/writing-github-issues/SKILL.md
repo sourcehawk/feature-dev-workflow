@@ -68,13 +68,13 @@ Write each paragraph as a single line and put a blank line between paragraphs. W
 
 A title is the one line a no-context reader scans in the issue list. Make it a concise, human-readable headline of the capability or fix. A clean organizing prefix is fine when the work is part of a decomposed set — `Flow 2: investigation session happy path` reads well. What doesn't:
 
-- **A trailing scaffolding parenthetical.** `Assert every launcher boot flag has its documented effect (e2e Flow 1)` buries the headline and tacks the plan's bookkeeping onto a durable artefact. Put the organizing label up front as a prefix, or leave it out — never as a `(… Flow N)` suffix.
+- **A trailing scaffolding parenthetical.** `Assert every launcher boot flag has its documented effect (e2e Flow 1)` buries the headline and tacks the plan's bookkeeping onto a durable artifact. Put the organizing label up front as a prefix, or leave it out — never as a `(… Flow N)` suffix.
 - **Decorative Unicode in the title.** Arrows (`→`, `↔`), bullets, and box-drawing characters belong in body prose and diagrams, not in the title the reader scans. Use plain words.
 - **A sentence that buries the lede.** If the headline noun-phrase comes after a clause of setup, cut the setup.
 
 ### The naming firewall
 
-Organizing labels — `Flow N`, `Phase N`, `Wave N` — are navigational: they may appear in an issue title prefix or an epic's prose, because that's where humans group the work. They must **never** propagate into the code the issue produces: not a directory, file, package, function, variable, constant, fixture/scenario name, test name, or sentinel string. The label is an artefact of how the work was split, not a property of the thing built — a reader of the code shouldn't need the planning history to parse a name, and the name lies the moment the plan is renumbered or the artefact is reused. When the issue's acceptance criteria or approach name concrete artefacts, name them for what they are (`resumable-investigation`, not `flow2-fixture`). Full rule and the allowed-surface table: `${CLAUDE_PLUGIN_ROOT}/references/naming-and-coherence.md`.
+Organizing labels — `Flow N`, `Phase N`, `Wave N` — are navigational: they may appear in an issue title prefix or an epic's prose, because that's where humans group the work. They must **never** propagate into the code the issue produces: not a directory, file, package, function, variable, constant, fixture/scenario name, test name, or sentinel string. The label is an artifact of how the work was split, not a property of the thing built — a reader of the code shouldn't need the planning history to parse a name, and the name lies the moment the plan is renumbered or the artifact is reused. When the issue's acceptance criteria or approach name concrete artifacts, name them for what they are (`resumable-investigation`, not `flow2-fixture`). Full rule and the allowed-surface table: `${CLAUDE_PLUGIN_ROOT}/references/naming-and-coherence.md`.
 
 ## Diagrams: visualize architectural changes
 
@@ -94,8 +94,7 @@ Keep it honest: the diagram supplements the prose, it does not replace Design ov
 
 ## Step 2A: No issue yet (create)
 
-1. **Draft the issue body** from the chosen template. Each section earns its keep — read the `<!-- -->` guidance in
-the template for what belongs where. The cross-template common shape:
+1. **Draft the issue body** from the chosen template. Each section earns its keep — read the `<!-- -->` guidance in the template for what belongs where. The cross-template common shape:
    - **Title**: human-readable sentence a no-context reader can parse.
    - **Problem**: a few sentences opening with the elevator pitch (the what) and naming the operational reason it matters (the why). No solution; that belongs in the PR description (bug) or in Approach / Design overview (feature / epic).
    - Template-specific sections: see the relevant template file.
@@ -109,7 +108,7 @@ the template for what belongs where. The cross-template common shape:
    BODY_END
    )"
    ```
-Drop `--assignee @me` if they declined assignment in step 2. If the body itself contains the line `BODY_END`, pick a less collision-prone sentinel (`ISSUE_BODY`, `EOF_ISSUE_42`, etc.) — the heredoc terminator must not appear inside the body.
+   Drop `--assignee @me` if they declined assignment in step 2. If the body itself contains the line `BODY_END`, pick a less collision-prone sentinel (`ISSUE_BODY`, `EOF_ISSUE_42`, etc.) — the heredoc terminator must not appear inside the body.
 
 4. **Capture the URL** and surface the number to the user.
 
@@ -160,7 +159,7 @@ The epic's body's `## Sub-issues` section auto-renders as a checklist with progr
    BODY_END
    )"
    ```
-Drop `--add-assignee @me` if declined. Drop `--add-label` if the label is already attached.
+   Drop `--add-assignee @me` if declined. Drop `--add-label` if the label is already attached.
 
 ## Step 2C: Issue exists and is sufficient (no body change)
 
@@ -169,7 +168,7 @@ Drop `--add-assignee @me` if declined. Drop `--add-label` if the label is alread
 
    > You're not currently assigned to `#<num>`. Want me to add you (`@me`)?
 
-On yes: `gh issue edit <num> --add-assignee @me`. On no: leave it.
+   On yes: `gh issue edit <num> --add-assignee @me`. On no: leave it.
 
 3. **No body changes.**
 
@@ -230,6 +229,6 @@ These thoughts mean you're about to mutate GitHub without a fresh confirm:
 | "I'll paste all the sub-issue bodies in one prompt for a single yes" | Batched bodies get rubber-stamped, not read. One sub-issue per confirmation, per create. |
 | "This change is architectural but the prose already explains the flow" | If the flow crosses modules or moves through phases, a mermaid diagram makes the seams legible at a glance. Add it (§Diagrams). |
 | "I'll append `(e2e Flow 1)` so readers know which flow this is" | Put the label up front as a `Flow 1:` prefix, or leave it out. A trailing parenthetical buries the headline (§Title hygiene). |
-| "`flow2-fixture` is the obvious name, the issue is literally Flow 2" | The label is navigational, not an identifier. Name the artefact for what it is; the firewall is one-way (§The naming firewall). |
+| "`flow2-fixture` is the obvious name, the issue is literally Flow 2" | The label is navigational, not an identifier. Name the artifact for what it is; the firewall is one-way (§The naming firewall). |
 
 All of these mean: paste the proposed body and the assignment intent into chat, wait for an explicit yes, then act.

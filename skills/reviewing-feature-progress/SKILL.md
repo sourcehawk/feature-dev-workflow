@@ -47,7 +47,7 @@ Steps 1-2 check each sub-PR against an *external* reference (plan, contract, acc
 Sweep these, against the plan's `## Conventions` block and against each other:
 
 - **Directory structure** — do new files land consistently? (tests fenced the same way, fixtures under one scheme, no one PR flat where another nests)
-- **Naming** — one scheme per kind of thing across the merged surface: files, directories, packages, functions, variables, constants, fixture/scenario names, test names. Two schemes for one kind (some fixtures named by content, others by the flow that uses them) is the signal.
+- **Naming** — one scheme per kind of thing across the merged surface: files, directories, packages, functions, variables, constants, fixture/scenario names, test names. When one kind carries two schemes — some fixtures named by content, others by the flow that uses them — that's the signal.
 - **The naming firewall** — no organizing label (`Flow N`, `Phase N`) leaked into a directory, id, function, fixture, or sentinel string. See `${CLAUDE_PLUGIN_ROOT}/references/naming-and-coherence.md`.
 - **API-surface symmetry** — sibling fields/functions share a shape; an outlier (one option a `bool`+`string` split where every sibling is a single typed value) either gets a recorded justification or gets aligned.
 - **Vocabulary** — the feature uses the project's locked terms, not a subagent's synonym.

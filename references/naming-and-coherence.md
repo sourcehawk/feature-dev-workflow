@@ -20,7 +20,7 @@ Most of this is already implied by the brainstorm and the existing codebase. The
 
 **Organizing labels are navigational only. They never become identifiers.**
 
-`Flow 1`, `Phase 2`, `Wave 3`, `Part A` are scaffolding the *plan* uses to sequence work and the *issue tracker* uses to group it. They are an artefact of how the work was decomposed — not a property of the thing being built. The moment that ordinal lands in a directory name, a runtime id, a function name, a package, or a sentinel string, it has leaked: a reader of the code now has to know the planning history to parse it, and the name lies as soon as the plan is renumbered or the artefact is reused.
+`Flow 1`, `Phase 2`, `Wave 3`, `Part A` are scaffolding the *plan* uses to sequence work and the *issue tracker* uses to group it. They are an artifact of how the work was decomposed — not a property of the thing being built. The moment that ordinal lands in a directory name, a runtime id, a function name, a package, or a sentinel string, it has leaked: a reader of the code now has to know the planning history to parse it, and the name lies as soon as the plan is renumbered or the artifact is reused.
 
 | Surface | `Flow N` allowed? | Name it instead by |
 | --- | --- | --- |
