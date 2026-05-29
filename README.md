@@ -4,13 +4,9 @@ A Claude Code plugin that turns feature development into a visible, reviewable p
 end-to-end workflow as a set of composable skills that an agent follows from a feature's conception
 through to merge.
 
-```
-brainstorm → spec (+ ADR) → GitHub issues → plan (+ contracts)
-→ develop (one PR or parallel worktree fan-out) → review → pull request → ship
-```
-
 You invoke one skill at feature conception (`feature-dev-workflow:planning-a-feature`), and the
-`REQUIRED SUB-SKILL` markers inside each skill body walk the agent to the next step.
+`REQUIRED SUB-SKILL` markers inside each skill body walk the agent to the next step. The
+[How it works](#how-it-works) diagram below shows the full flow.
 
 ## Why this exists
 
