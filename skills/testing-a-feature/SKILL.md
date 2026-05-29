@@ -86,6 +86,7 @@ Apply per surface, per change:
 - **Copy-pasting an assertion "to match the file's style"** without re-verifying that the asserted behavior is what the contract under test actually promises.
 - **One mega-test per function.** One assertion per intent. Mega-tests fail with one signal even when N intents are broken.
 - **Testing private functions directly.** If the contract is private, the test is testing implementation. Drive the private code via the public surface.
+- **Absorbing test-setup pain instead of surfacing it.** When standing the test up takes many collaborators stubbed, shared or global state to set and reset between tests, cross-module archaeology to construct a valid input, or reaching into internals to observe the result, that friction is the surface's design talking — not a testing problem. Building an ever-more-elaborate fixture hides the signal and locks the bad shape in. Surface it: fix the shape or the contract, or at minimum flag it as a finding on the PR. Do not ship the fixture as if the difficulty were normal.
 - **Rewriting a test to make it pass against a changed implementation, without verifying the contract changed.** This is how regressions slip through.
 - **Skipping edge cases because "they're unlikely."** A reviewer asks "what happens when N=0?" — the test should answer.
 
@@ -99,3 +100,5 @@ Apply per surface, per change:
 | "The docstring is wrong but the implementation is right"         | Fix the docstring (or the implementation, if the docstring is the source of truth) before testing. |
 | "Rewriting the test to match the new code is faster"             | And weakens the suite silently. Verify the contract changed first.                                 |
 | "Edge cases can wait for the next PR"                            | They get forgotten. List them now even if you don't write them all.                                |
+| "This is just fiddly setup, I'll write a fixture for it"         | Heavy setup — many stubs, global state to reset, reaching into internals — is a design signal. Escalate the shape; don't absorb it into a fixture. |
+| "I had to read the implementation (or another module) to write the test" | If you can't construct the inputs or predict the output from the contract alone, the contract or the interface is the bug. Fix that first.   |
