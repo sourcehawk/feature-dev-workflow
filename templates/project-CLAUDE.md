@@ -1,7 +1,7 @@
 <!--
 Paste this block into your project's CLAUDE.md (or AGENTS.md) after installing the
 feature-dev-workflow plugin. It gives every Claude session the orchestration overview
-and the operational rules. No placeholders to fill in — the skills discover your repo
+and the operational rules. No placeholders to fill in; the skills discover your repo
 and your test/lint/typecheck commands from context. Delete this comment after pasting.
 -->
 
@@ -38,7 +38,7 @@ flowchart TD
     PR2 --> Ship
 ```
 
-Invoke `feature-dev-workflow:planning-a-feature` at conception — it and the
+Invoke `feature-dev-workflow:planning-a-feature` at conception. It and the
 `**REQUIRED SUB-SKILL:**` markers inside each skill body drive every box above. Which
 skill owns which part of the flow:
 
@@ -52,7 +52,7 @@ skill owns which part of the flow:
 | Open / flip pull requests | `feature-dev-workflow:opening-a-pull-request` |
 
 `superpowers:*` skills come from the [superpowers](https://github.com/obra/superpowers)
-plugin (a prerequisite — see below).
+plugin (a prerequisite, see below).
 
 ### Project commands (optional)
 
@@ -72,5 +72,5 @@ so sessions don't have to guess:
 - **Commit conventions:** `feat(<area>): ...`, `fix(<area>): ...`, `refactor(<area>): ...`, `test(<area>): ...`, `chore(<area>): ...`, `docs(<area>): ...`. Area mirrors the module path.
 - **Never `--no-verify`, never `git add -A` / `git add .`.** Stage by name; pre-commit hooks exist for a reason.
 - **No GitHub mutation without a fresh confirmation against the specific body about to land.** Paste the body inline, name the target, wait for an explicit yes.
-- **PR titles outlive lifecycle state.** No `wip` / `draft` / `plan` suffixes — GitHub's chip carries lifecycle.
+- **PR titles outlive lifecycle state.** No `wip` / `draft` / `plan` suffixes; GitHub's chip carries lifecycle.
 - **Specs in `docs/superpowers/specs/` are durable; plans in `docs/superpowers/plans/` are scratch** (deleted once the plan ships). State files live beside the plan.
