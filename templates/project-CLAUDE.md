@@ -7,8 +7,7 @@ and your test/lint/typecheck commands from context. Delete this comment after pa
 
 ## Feature-development workflow
 
-This project uses the `feature-dev-workflow` plugin. Invoke `feature-dev-workflow:planning-a-feature`
-at feature conception and let the cross-references fan out from there.
+This project uses the `feature-dev-workflow` plugin. Invoke `feature-dev-workflow:planning-a-feature` at feature conception and let the cross-references fan out from there.
 
 ```mermaid
 flowchart TD
@@ -38,9 +37,7 @@ flowchart TD
     PR2 --> Ship
 ```
 
-Invoke `feature-dev-workflow:planning-a-feature` at conception. It and the
-`**REQUIRED SUB-SKILL:**` markers inside each skill body drive every box above. Which
-skill owns which part of the flow:
+Invoke `feature-dev-workflow:planning-a-feature` at conception. It and the `**REQUIRED SUB-SKILL:**` markers inside each skill body drive every box above. Which skill owns which part of the flow:
 
 | Part of the flow | Skill |
 | --- | --- |
@@ -51,15 +48,11 @@ skill owns which part of the flow:
 | Verify-before-done | `superpowers:verification-before-completion` |
 | Open / flip pull requests | `feature-dev-workflow:opening-a-pull-request` |
 
-`superpowers:*` skills come from the [superpowers](https://github.com/obra/superpowers)
-plugin (a prerequisite, see below).
+`superpowers:*` skills come from the [superpowers](https://github.com/obra/superpowers) plugin (a prerequisite, see below).
 
 ### Project commands (optional)
 
-The skills run your project's checks before claiming work done, discovering the commands
-from this file, the build config (Makefile, package.json, …), or `gh` (for the repo). If
-your test / lint / typecheck commands aren't obvious from the build config, name them here
-so sessions don't have to guess:
+The skills run your project's checks before claiming work done, discovering the commands from this file, the build config (Makefile, package.json, …), or `gh` (for the repo). If your test / lint / typecheck commands aren't obvious from the build config, name them here so sessions don't have to guess:
 
 - **Test:** `<your test command>`
 - **Lint:** `<your lint command>`
@@ -67,10 +60,8 @@ so sessions don't have to guess:
 
 ### Operational rules
 
-- **TDD is the standard.** Failing test → watch it fail for the right reason → implement. One commit per task.
-- **Before claiming done:** run the project's test + lint (+ typecheck if it has one). These are the cheapest place to catch what CI gates.
-- **Commit conventions:** `feat(<area>): ...`, `fix(<area>): ...`, `refactor(<area>): ...`, `test(<area>): ...`, `chore(<area>): ...`, `docs(<area>): ...`. Area mirrors the module path.
+The skills teach the workflow discipline when invoked — TDD, verify-before-done, the issue/PR conventions, PR-title hygiene, and the spec/plan/state lifecycle. Don't restate those here; a rule duplicated between this file and a skill drifts. This block carries only what a skill must read from here or can't enforce on its own:
+
+- **Commit conventions:** `feat(<area>): ...`, `fix(<area>): ...`, `refactor(<area>): ...`, `test(<area>): ...`, `chore(<area>): ...`, `docs(<area>): ...`. Area mirrors the module path. (`feature-dev-workflow:opening-a-pull-request` reads this convention from here.)
 - **Never `--no-verify`, never `git add -A` / `git add .`.** Stage by name; pre-commit hooks exist for a reason.
 - **No GitHub mutation without a fresh confirmation against the specific body about to land.** Paste the body inline, name the target, wait for an explicit yes.
-- **PR titles outlive lifecycle state.** No `wip` / `draft` / `plan` suffixes; GitHub's chip carries lifecycle.
-- **Specs in `docs/superpowers/specs/` are durable; plans in `docs/superpowers/plans/` are scratch** (deleted once the plan ships). State files live in `docs/superpowers/states/` and share the plan's scratch lifecycle.
