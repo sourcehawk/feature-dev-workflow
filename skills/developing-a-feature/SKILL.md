@@ -82,7 +82,7 @@ Record the choice in the state file's frontmatter as `sub_pr_approval: autonomou
 
 ### 5. Checkpoint review before opening the final PR
 
-- **Single-PR feature** → **REQUIRED SUB-SKILL:** `superpowers:verification-before-completion`. Run the project's test, lint, and (if it has one) typecheck commands. Paste the output. Forbids claiming "done" without evidence.
+- **Single-PR feature** → the implementation is now structurally complete, so this is the point to add whole-flow coverage. If the change introduced a new user- or consumer-visible flow, write the end-to-end coverage now — **REQUIRED SUB-SKILL:** `feature-dev-workflow:testing-end-to-end` for which flows earn one and what each asserts. Then **REQUIRED SUB-SKILL:** `superpowers:verification-before-completion`. Run the project's test, lint, and (if it has one) typecheck commands. Paste the output. Forbids claiming "done" without evidence.
 - **Multi-PR feature** → **REQUIRED SUB-SKILL:** `feature-dev-workflow:reviewing-feature-progress`. The orchestrator's checkpoint skill re-reads spec + plan + state, walks every self-merged sub-PR against acceptance criteria, checks state-file integrity, and runs end-to-end verification on the main feature worktree (the feature branch as a whole, not just per-sub-PR CI). Catches drift and integration-only failures before the external-review surface opens. If the checkpoint finds gaps, route back through `feature-dev-workflow:developing-a-feature` Step 4 (follow-up sub-PR) or `feature-dev-workflow:planning-a-feature` Steps 6/7 (plan/issue refinement) before continuing.
 
 ### 6. Open the PR

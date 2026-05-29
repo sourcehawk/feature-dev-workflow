@@ -69,6 +69,8 @@ If anything is out of sync, fix the state file before continuing — the resumed
 
 ### 6. End-to-end verification on the feature branch
 
+The structure is now settled — every sub-PR merged, the coherence sweep run. This is the first point at which a whole-flow test is safe to write against real seams rather than interfaces still in motion. If the feature introduced a new user- or consumer-visible flow, write or extend the end-to-end coverage now, before running the suite. **REQUIRED SUB-SKILL:** `feature-dev-workflow:testing-end-to-end` for which flows earn an end-to-end test and what each one asserts. A feature that only extends a flow an existing test already covers may need none.
+
 **REQUIRED SUB-SKILL:** `superpowers:verification-before-completion`. Run the project-wide checks on the main feature worktree (which holds the integration state — sub-worktrees only hold their own sub-branch):
 
 ```

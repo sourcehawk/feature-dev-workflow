@@ -16,6 +16,8 @@ Whenever you write a test. Especially when:
 
 Skip for generated test scaffolds where the assertions come straight from a tool you trust.
 
+This skill is about the assertion shape for a single surface — the unit and integration tests written test-first as you implement. For a whole flow that crosses components toward a user- or consumer-visible outcome, see `feature-dev-workflow:testing-end-to-end`, which fires once the feature is structurally complete. Edge cases stay here, at the unit level; they do not belong in an end-to-end test.
+
 ## Core principle
 
 **Tests assert intent, not implementation.** The intent lives in the docstring, the function comment, the spec, the issue's acceptance criteria — the public contract of the surface under test. The implementation is the body of the function.
