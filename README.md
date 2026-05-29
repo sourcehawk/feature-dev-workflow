@@ -16,9 +16,11 @@ codebase legible: every change has an intent, a reviewer, and a trail back to th
 it.
 
 AI lets you skip all of that. You can hand a model the whole feature and have it one-shot the
-implementation in a single sweep. It is faster, but you lose the visibility and the review discipline, and
-you are left with one opaque diff that has no plan behind it and nothing a reviewer can follow. Visibility
-and review are already the most neglected parts of day-to-day development. One-shotting makes them worse.
+implementation in a single sweep. It looks like the fast path, but you lose the visibility and the review
+discipline, and you are left with one opaque diff that has no plan behind it and nothing a reviewer can
+follow. Visibility and review are already the most neglected parts of day-to-day development, and
+one-shotting makes them worse. It is not even the fast path: a single sweep is serial, so the whole feature
+waits on one long session.
 
 This plugin keeps the engineering discipline while still using the agent to move fast. It makes
 agent-driven development follow the same standard a senior team already uses:
@@ -35,10 +37,10 @@ agent-driven development follow the same standard a senior team already uses:
 The result is agent speed without the output becoming a black box: legible artifacts (specs, issues,
 plans, PRs), incremental review, and a clear audit trail.
 
-Breaking the feature into independent PRs pays off a second way. The multi-PR path fans the work out
-across parallel subagents, each in its own worktree, so independent pieces are built concurrently instead
-of in one long serial session. That is faster in wall-clock time and more token-efficient, because each
-subagent holds only its own slice of context rather than the whole feature at once.
+It is also the faster path. Breaking the feature into independent PRs lets the multi-PR flow fan the work
+out across parallel subagents, each in its own worktree, so independent pieces are built concurrently
+rather than waiting in one serial sweep. That wins on wall-clock time and on tokens, because each subagent
+holds only its own slice of context instead of the whole feature at once.
 
 ## Skills
 
