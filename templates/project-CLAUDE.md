@@ -73,4 +73,4 @@ so sessions don't have to guess:
 - **Never `--no-verify`, never `git add -A` / `git add .`.** Stage by name; pre-commit hooks exist for a reason.
 - **No GitHub mutation without a fresh confirmation against the specific body about to land.** Paste the body inline, name the target, wait for an explicit yes.
 - **PR titles outlive lifecycle state.** No `wip` / `draft` / `plan` suffixes; GitHub's chip carries lifecycle.
-- **Specs in `docs/superpowers/specs/` are durable; plans in `docs/superpowers/plans/` are scratch** (deleted once the plan ships). State files live beside the plan.
+- **Specs in `docs/superpowers/specs/` are durable; plans in `docs/superpowers/plans/` are scratch** (deleted once the plan ships). State files live in `docs/superpowers/states/` and share the plan's scratch lifecycle.
