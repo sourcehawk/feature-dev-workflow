@@ -14,6 +14,7 @@ When you're the orchestrator for multi-PR feature work and these prerequisites a
 
 - The `feature/<slug>` integration branch and the main feature worktree exist (set up by `feature-dev-workflow:developing-a-feature` before invoking this skill).
 - The plan (`docs/superpowers/plans/<date>-<slug>-plan.md`) has a `## Contracts` section with a Realization strategy per row.
+- The plan also has a `## Conventions` block (directory layout, naming scheme, locked vocabulary) — it's mandatory dispatch context for every subagent (Step 2), so the fan-out can't start without it.
 - The state file (`docs/superpowers/states/<date>-<slug>-state.md`) has rows for each sub-issue.
 
 Skip for single-PR features — there's no fan-out, just one branch off main.
