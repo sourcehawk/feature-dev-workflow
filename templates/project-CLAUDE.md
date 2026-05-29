@@ -60,10 +60,8 @@ The skills run your project's checks before claiming work done, discovering the 
 
 ### Operational rules
 
-- **TDD is the standard.** Failing test → watch it fail for the right reason → implement. One commit per task.
-- **Before claiming done:** run the project's test + lint (+ typecheck if it has one). These are the cheapest place to catch what CI gates.
-- **Commit conventions:** `feat(<area>): ...`, `fix(<area>): ...`, `refactor(<area>): ...`, `test(<area>): ...`, `chore(<area>): ...`, `docs(<area>): ...`. Area mirrors the module path.
+The skills teach the workflow discipline when invoked — TDD, verify-before-done, the issue/PR conventions, PR-title hygiene, and the spec/plan/state lifecycle. Don't restate those here; a rule duplicated between this file and a skill drifts. This block carries only what a skill must read from here or can't enforce on its own:
+
+- **Commit conventions:** `feat(<area>): ...`, `fix(<area>): ...`, `refactor(<area>): ...`, `test(<area>): ...`, `chore(<area>): ...`, `docs(<area>): ...`. Area mirrors the module path. (`feature-dev-workflow:opening-a-pull-request` reads this convention from here.)
 - **Never `--no-verify`, never `git add -A` / `git add .`.** Stage by name; pre-commit hooks exist for a reason.
 - **No GitHub mutation without a fresh confirmation against the specific body about to land.** Paste the body inline, name the target, wait for an explicit yes.
-- **PR titles outlive lifecycle state.** No `wip` / `draft` / `plan` suffixes; GitHub's chip carries lifecycle.
-- **Specs in `docs/superpowers/specs/` are durable; plans in `docs/superpowers/plans/` are scratch** (deleted once the plan ships). State files live in `docs/superpowers/states/` and share the plan's scratch lifecycle.
