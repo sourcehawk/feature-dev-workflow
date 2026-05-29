@@ -106,7 +106,7 @@ The skills also assume the [`gh`](https://cli.github.com/) CLI is installed and 
 This repo is both a plugin and its own single-plugin marketplace:
 
 ```
-/plugin marketplace add <your-git-host>/feature-dev-workflow
+/plugin marketplace add sourcehawk/feature-dev-workflow
 /plugin install feature-dev-workflow@feature-dev-workflow
 ```
 
