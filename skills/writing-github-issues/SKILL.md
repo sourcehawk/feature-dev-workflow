@@ -80,7 +80,7 @@ Organizing labels — `Flow N`, `Phase N`, `Wave N` — may appear in an issue t
 
 When the change is architectural — new components, data or control flow crossing module boundaries, a phase/lifecycle progression, or sequencing between processes — embed a mermaid diagram in the issue body. A diagram earns its place when prose alone forces the reader to reconstruct the topology in their head; skip it when the change is one file with no cross-module shape.
 
-Applies to **feature** and **epic** bodies only (a bug is "what broke", not an architecture). Place it inside the section that already carries the implementation shape: the epic's `## Design overview` or the feature's `## Approach`. GitHub renders fenced ` ```mermaid ` blocks natively.
+Applies to **feature** and **epic** bodies only (a bug is "what broke", not an architecture). Place it inside the section that already carries the implementation shape: the epic's `## Design overview` or the feature's `## Approach`. GitHub renders fenced `mermaid` blocks natively.
 
 Pick the diagram type that matches what's hard to see in prose:
 
