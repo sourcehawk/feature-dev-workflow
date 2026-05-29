@@ -74,7 +74,7 @@ A title is the one line a no-context reader scans in the issue list. Make it a c
 
 ### The naming firewall
 
-Organizing labels — `Flow N`, `Phase N`, `Wave N` — are navigational: they may appear in an issue title prefix or an epic's prose, because that's where humans group the work. They must **never** propagate into the code the issue produces: not a directory, file, package, function, variable, constant, fixture/scenario name, test name, or sentinel string. The label is an artifact of how the work was split, not a property of the thing built — a reader of the code shouldn't need the planning history to parse a name, and the name lies the moment the plan is renumbered or the artifact is reused. When the issue's acceptance criteria or approach name concrete artifacts, name them for what they are (`resumable-investigation`, not `flow2-fixture`). Full rule and the allowed-surface table: `${CLAUDE_PLUGIN_ROOT}/references/naming-and-coherence.md`.
+Organizing labels — `Flow N`, `Phase N`, `Wave N` — may appear in an issue title prefix or an epic's prose, because that's where humans group the work. They must **never** propagate into the code the issue produces. When the issue's acceptance criteria or approach name concrete artifacts, name them for what they are (`resumable-investigation`, not `flow2-fixture`). The full rule and the allowed-surface table live in `feature-dev-workflow:maintaining-architectural-coherence`.
 
 ## Diagrams: visualize architectural changes
 

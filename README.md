@@ -54,6 +54,7 @@ holds only its own slice of context instead of the whole feature at once.
 | `reviewing-feature-progress` | Orchestration checkpoints: between fan-out waves, and before the integration PR. |
 | `testing-a-feature` | Writing tests for any non-trivial change. Decides the assertion shape (black-box against the contract). |
 | `opening-a-pull-request` | About to `gh pr create`/`edit`. Draft and ready body templates, issue-linking keywords. |
+| `maintaining-architectural-coherence` | Work split across PRs/agents/waves must read as one author. Invoked when agreeing conventions before parallel work, and when reviewing the merged union for structural, interface, naming, and vocabulary drift. |
 
 ## How it works
 
