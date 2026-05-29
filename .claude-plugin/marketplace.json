@@ -9,6 +9,11 @@
       "name": "feature-dev-workflow",
       "source": "./",
       "description": "Make AI feature development visible and reviewable, from spec to shipped PRs."
+    },
+    {
+      "name": "multi-repo-workflow",
+      "source": { "source": "github", "repo": "sourcehawk/multi-repo-workflow" },
+      "description": "Generic cross-repo orchestration plugin: coordinates multi-repo feature work on top of feature-dev-workflow."
     }
   ]
 }
