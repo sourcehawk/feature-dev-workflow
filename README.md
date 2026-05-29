@@ -84,7 +84,7 @@ This repo is both a plugin and its own single-plugin marketplace:
 
 A local path also works for development: `/plugin marketplace add /path/to/feature-dev-workflow`.
 
-No further setup is required; the skills derive your repo and build commands from context. Optionally, paste [`templates/project-CLAUDE.md`](templates/project-CLAUDE.md) into your project's `CLAUDE.md` to give every session the workflow overview and the operational rules (TDD, commit conventions, GitHub-mutation confirmation, and so on).
+No further setup is required; the skills derive your repo and build commands from context. Optionally, paste [`templates/project-CLAUDE.md`](templates/project-CLAUDE.md) into your project's `CLAUDE.md` to give every session the workflow overview and the operational rules (commit conventions, safe git staging, GitHub-mutation confirmation).
 
 ## Notes
 
