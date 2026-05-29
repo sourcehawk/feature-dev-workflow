@@ -17,11 +17,11 @@ consumer-wave | review | merged.
 feature: <slug>
 spec: docs/superpowers/specs/YYYY-MM-DD-<slug>-design.md
 plan: docs/superpowers/plans/YYYY-MM-DD-<slug>-plan.md
-tracking_issue: <OWNER>/<REPO>#<epic-num>
+tracking_issue: #<epic-num>
 feature_branch: feature/<slug>                # omit for single-PR features
 feature_worktree: .claude/worktrees/<slug>    # the main integration worktree; omit for single-PR
 sub_pr_approval: autonomous                   # autonomous | manual; omit for single-PR (see developing-a-feature Step 2)
-integration_pr: <OWNER>/<REPO>#<pr>      # filled in once the feature → main PR opens
+integration_pr: #<pr>      # filled in once the feature → main PR opens
 status: planning
 ---
 
@@ -36,8 +36,8 @@ sub-issues whose work runs in that phase; foundational phases
 collapse to one phase with one issue.
 -->
 
-- **Phase 1 (foundational)** — `<OWNER>/<REPO>#<n1>`, `<OWNER>/<REPO>#<n2>`
-- **Phase 2 (consumers)** — `<OWNER>/<REPO>#<n3>`, `<OWNER>/<REPO>#<n4>`
+- **Phase 1 (foundational)** — `#<n1>`, `#<n2>`
+- **Phase 2 (consumers)** — `#<n3>`, `#<n4>`
 
 ## PRs / worktrees
 
@@ -60,7 +60,7 @@ integration PR into main).
 
 | Issue                       | Branch                       | Worktree path                            | PR (→ base)                          | Status        |
 | --------------------------- | ---------------------------- | ---------------------------------------- | ------------------------------------ | ------------- |
-| <OWNER>/<REPO>#<n1>    | <sub-branch-name>            | .claude/worktrees/<slug>--<sub-name>     | <OWNER>/<REPO>#<pr> → feature/<slug> | not-started   |
+| #<n1>    | <sub-branch-name>            | .claude/worktrees/<slug>--<sub-name>     | #<pr> → feature/<slug> | not-started   |
 
 ## Contracts
 
@@ -72,7 +72,7 @@ data-only row is documented, or the producer-branch stub is ready.
 
 | Name              | Realization                                              | Realized in                          | Status            |
 | ----------------- | -------------------------------------------------------- | ------------------------------------ | ----------------- |
-| `<contract-name>` | pre-merge stub PR / stub-on-producer-branch / data-only  | <OWNER>/<REPO>#<pr> or "n/a"    | pending / locked  |
+| `<contract-name>` | pre-merge stub PR / stub-on-producer-branch / data-only  | #<pr> or "n/a"    | pending / locked  |
 
 ## Bubble-up log
 
@@ -92,7 +92,7 @@ For a fresh Claude session resuming this work:
 1. Read this state file in full.
 2. Read the plan at the path in the `plan:` frontmatter.
 3. Read the spec at the path in the `spec:` frontmatter.
-4. Verify each open PR's actual state via `gh pr view <num> --repo <OWNER>/<REPO>`.
+4. Verify each open PR's actual state via `gh pr view <num>`.
 5. For each `in-progress` or `draft` row, `cd` to the worktree path and check `git status` + `git log --oneline main..HEAD`.
 6. Re-dispatch subagents as needed per `feature-dev-workflow:developing-a-feature` (parallel waves still in flight; the orchestrator watch
    loop continues).

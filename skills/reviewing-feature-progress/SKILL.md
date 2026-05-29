@@ -38,7 +38,7 @@ Open these in order:
 - The plan (`docs/superpowers/plans/<date>-<slug>-plan.md`), with focus on the `## Contracts` section and the
   PR-by-PR breakdown.
 - The spec (`docs/superpowers/specs/<date>-<slug>-design.md`), with focus on goals + non-goals.
-- Each closed sub-issue's `## Acceptance criteria` section (`gh issue view <num> --repo <OWNER>/<REPO>`).
+- Each closed sub-issue's `## Acceptance criteria` section (`gh issue view <num>`).
 
 ### 2. Walk each self-merged sub-PR against the plan
 
@@ -83,14 +83,8 @@ worktree (which holds the integration state — sub-worktrees only hold their ow
 ```
 cd <feature_worktree>
 git pull origin feature/<slug>
-<TEST_CMD>
-<LINT_CMD>
-```
-
-If `<TYPECHECK_CMD>` applies to your project, also:
-
-```
-<TYPECHECK_CMD>
+# then run the project's full test + lint suite (and typecheck, if it has one),
+# discovered from the project's CLAUDE.md / AGENTS.md or build config
 ```
 
 Paste the output. The feature branch must be green end to end before the integration PR opens — a sub-PR's isolated
@@ -105,7 +99,7 @@ Produce a short summary for the orchestrator (and the user, if this is a pre-int
 - **Acceptance criteria uncovered** — one bullet per missing or rephrased criterion, with the classification from
   Step 3.
 - **State-file fixes** — one bullet per row corrected.
-- **Verification status** — `<TEST_CMD>` / `<LINT_CMD>` / typecheck pass/fail.
+- **Verification status** — test / lint / typecheck pass/fail.
 
 Decide:
 
@@ -134,4 +128,4 @@ Decide:
 | "The spec is old, no point checking against it"                    | Spec is the durable ADR. If it's stale, fix the spec — don't ignore it.                                            |
 | "Acceptance criteria mismatch is fine, the spirit is the same"     | Acceptance criteria are checkable conditions. Either they're met or they're not. Update the issue if the criterion changed. |
 | "I'll skip the state-file walk, I've been keeping it current"      | The resumed-session contract is what the state file SAYS — verify it; don't trust your memory.                     |
-| "<LINT_CMD> passed in my sub-worktree, no need to re-run on feature" | Lint can be scoped to changed files; project-wide issues only surface on the integrated branch.                    |
+| "Lint passed in my sub-worktree, no need to re-run on feature"      | Lint can be scoped to changed files; project-wide issues only surface on the integrated branch.                    |

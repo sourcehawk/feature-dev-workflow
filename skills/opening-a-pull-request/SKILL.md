@@ -79,7 +79,7 @@ Generic intent earlier ("yes please open a PR") is not standing consent for the 
 
 Every confirmation shows the user:
 
-- The exact target (`<OWNER>/<REPO>`, or `#<num>` for edits).
+- The exact target (the repo, or `#<num>` for edits).
 - The full proposed body.
 
 Wait for an explicit "yes" before any `gh pr` call. Treat absence of objection as a no.

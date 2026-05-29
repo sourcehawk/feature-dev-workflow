@@ -1,9 +1,8 @@
 <!--
 Paste this block into your project's CLAUDE.md (or AGENTS.md) after installing the
-feature-dev-workflow plugin. It wires the workflow's placeholders to your project's
-commands and gives every Claude session the orchestration overview.
-
-Fill in the four placeholders below, then delete this comment.
+feature-dev-workflow plugin. It gives every Claude session the orchestration overview
+and the operational rules. No placeholders to fill in — the skills discover your repo
+and your test/lint/typecheck commands from context. Delete this comment after pasting.
 -->
 
 ## Feature-development workflow
@@ -55,21 +54,21 @@ skill owns which part of the flow:
 `superpowers:*` skills come from the [superpowers](https://github.com/obra/superpowers)
 plugin (a prerequisite — see below).
 
-### Project commands (fill these in)
+### Project commands (optional)
 
-The workflow skills reference four placeholders. Set them to your project's real commands:
+The skills run your project's checks before claiming work done, discovering the commands
+from this file, the build config (Makefile, package.json, …), or `gh` (for the repo). If
+your test / lint / typecheck commands aren't obvious from the build config, name them here
+so sessions don't have to guess:
 
-| Placeholder       | Your command (example)                  |
-| ----------------- | --------------------------------------- |
-| `<TEST_CMD>`      | e.g. `make test` / `npm test` / `pytest`|
-| `<LINT_CMD>`      | e.g. `make lint` / `npm run lint` / `ruff check` |
-| `<TYPECHECK_CMD>` | e.g. `npm run typecheck` / `mypy .` — omit if N/A |
-| `<OWNER>/<REPO>`  | your GitHub repo slug, e.g. `octocat/hello-world` |
+- **Test:** `<your test command>`
+- **Lint:** `<your lint command>`
+- **Typecheck:** `<your typecheck command, or remove this line>`
 
 ### Operational rules
 
 - **TDD is the standard.** Failing test → watch it fail for the right reason → implement. One commit per task.
-- **Before claiming done:** run `<TEST_CMD>` + `<LINT_CMD>` (+ `<TYPECHECK_CMD>` if it applies). These are the cheapest place to catch what CI gates.
+- **Before claiming done:** run the project's test + lint (+ typecheck if it has one). These are the cheapest place to catch what CI gates.
 - **Commit conventions:** `feat(<area>): ...`, `fix(<area>): ...`, `refactor(<area>): ...`, `test(<area>): ...`, `chore(<area>): ...`, `docs(<area>): ...`. Area mirrors the module path.
 - **Never `--no-verify`, never `git add -A` / `git add .`.** Stage by name; pre-commit hooks exist for a reason.
 - **No GitHub mutation without a fresh confirmation against the specific body about to land.** Paste the body inline, name the target, wait for an explicit yes.

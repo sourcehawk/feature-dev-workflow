@@ -10,7 +10,7 @@ description:
 
 ## When to invoke
 
-Whenever you're about to file or edit an issue on `<OWNER>/<REPO>`, **or** immediately after a brainstorming
+Whenever you're about to file or edit a GitHub issue, **or** immediately after a brainstorming
 session lands a decision that needs an issue to hold the work.
 
 Three branches:
@@ -30,7 +30,7 @@ user). Surface the assignment in the same confirmation prompt; if they decline, 
 
 Every confirmation shows the user:
 
-- The exact target (`<OWNER>/<REPO>`, or `<OWNER>/<REPO>#<num>` for updates).
+- The exact target (the repo, or `#<num>` for updates).
 - The full proposed body.
 - Which label(s) will be attached.
 - Whether you intend to assign them (default: yes).
@@ -61,10 +61,10 @@ For brainstorm output specifically: ask whether the outcome spans multiple featu
 **epic** plus one **feature/task/bug** per chunk; link each child as a sub-issue. If no, file a single **feature**
 (or bug) and break it into PR-sized phases inside the Approach section.
 
-**Tiebreaker for feature vs task** (when work touches operator-observable state but reads mostly as plumbing): ask
+**Tiebreaker for feature vs task** (when work touches user-observable state but reads mostly as plumbing): ask
 whether the headline change a no-context reader would describe is user-observable. Yes → `feature`. No → `task`.
-Example: a launcher-state migration that changes the on-disk layout is `task` (the headline is "refactor the layout");
-the switcher UI that lets the operator pick a profile is `feature` (the headline is "you can now pick a profile").
+Example: a storage-layout migration that changes the on-disk format is `task` (the headline is "refactor the layout");
+the settings UI that lets the user pick a theme is `feature` (the headline is "you can now pick a theme").
 
 | Template          | When                                                                                 | Label              |
 | ----------------- | ------------------------------------------------------------------------------------ | ------------------ |
@@ -98,7 +98,7 @@ Pick the diagram type that matches what's hard to see in prose:
 | `stateDiagram-v2`      | Phase or lifecycle progressions (job states, request lifecycle, session state).        |
 
 Keep it honest: the diagram supplements the prose, it does not replace Design overview / Approach. Label nodes with
-the real component names the prose and code use (`mcpconfig.go`, `events.jsonl`, `<StreamProvider>`) — a diagram of
+the real component names the prose and code use (the actual file, module, and type names) — a diagram of
 invented boxes is worse than no diagram. The diagram is part of the body, so it lands in the same confirmation prompt
 as everything else (§Core principle).
 
@@ -113,12 +113,12 @@ as everything else (§Core principle).
    - Template-specific sections: see the relevant template file.
 
 2. **Confirm with the user, with the body inline.** Paste the drafted body into chat under a "About to create a
-   `<label>` issue in `<OWNER>/<REPO>` with the body below, and assign you (`@me`). Confirm?" line. Wait for
+   `<label>` issue in this repo with the body below, and assign you (`@me`). Confirm?" line. Wait for
    an explicit yes. If they push back on specific wording, redraft and re-present.
 
 3. **Create the issue** by piping the body through a heredoc:
    ```
-   gh issue create --repo <OWNER>/<REPO> --title "<title>" --label <label> --assignee @me --body "$(cat <<'BODY_END'
+   gh issue create --title "<title>" --label <label> --assignee @me --body "$(cat <<'BODY_END'
    <body>
    BODY_END
    )"
@@ -151,7 +151,7 @@ both issue node ids via `gh issue view --json id`.
 rule from §Core principle applies. Once every child issue is filed (so every number is known), present the full
 linkage set to the user in one prompt:
 
-> About to link the following sub-issues to epic `<OWNER>/<REPO>#<epic-num>`:
+> About to link the following sub-issues to epic `#<epic-num>`:
 > - `#<child-1>` (<one-line title>)
 > - `#<child-2>` (<one-line title>)
 > - ...
@@ -163,8 +163,8 @@ Wait for an explicit yes. On push-back, drop or amend specific links before runn
 Then run the mutation once per sub-issue:
 
 ```
-PARENT_ID=$(gh issue view <epic-num> --repo <OWNER>/<REPO> --json id --jq .id)
-CHILD_ID=$(gh issue view <child-num> --repo <OWNER>/<REPO> --json id --jq .id)
+PARENT_ID=$(gh issue view <epic-num> --json id --jq .id)
+CHILD_ID=$(gh issue view <child-num> --json id --jq .id)
 gh api graphql -f query="mutation { addSubIssue(input: {issueId: \"$PARENT_ID\", subIssueId: \"$CHILD_ID\"}) { subIssue { number } } }"
 ```
 
@@ -175,7 +175,7 @@ needed.
 
 1. **Read the existing issue:**
    ```
-   gh issue view <num> --repo <OWNER>/<REPO> --json title,body,labels,assignees
+   gh issue view <num> --json title,body,labels,assignees
    ```
 2. **Identify the gaps.** Compare the existing body against the matching template's section list. State each gap in
    one sentence. Pre-existing tickets are most often missing concrete acceptance criteria, verification steps, or
@@ -183,13 +183,13 @@ needed.
 3. **Draft the updated body.** Preserve content from the existing issue that the user wants to keep; merge in what's
    missing. Use the template for sections that need them.
 4. **Confirm with the user, surfacing both the gap list and the proposed body.** Paste the drafted body into chat
-   under a "The issue at `<OWNER>/<REPO>#<num>` is missing: <one-line gap list>. About to update its body to
+   under a "The issue at `#<num>` is missing: <one-line gap list>. About to update its body to
    the version below, and assign you (`@me`) if you're not already. Confirm?" line. Wait for an explicit yes. On
    push-back, redraft and re-present.
 
 5. **Update the issue** by piping the body through a heredoc:
    ```
-   gh issue edit <num> --repo <OWNER>/<REPO> --add-label <label> --add-assignee @me --body "$(cat <<'BODY_END'
+   gh issue edit <num> --add-label <label> --add-assignee @me --body "$(cat <<'BODY_END'
    <body>
    BODY_END
    )"
@@ -201,15 +201,15 @@ needed.
 1. **Surface the link to the user**.
 2. **Ask about assignment** if the user isn't listed in `assignees`:
 
-   > You're not currently assigned to `<OWNER>/<REPO>#<num>`. Want me to add you (`@me`)?
+   > You're not currently assigned to `#<num>`. Want me to add you (`@me`)?
 
-   On yes: `gh issue edit <num> --repo <OWNER>/<REPO> --add-assignee @me`. On no: leave it.
+   On yes: `gh issue edit <num> --add-assignee @me`. On no: leave it.
 
 3. **No body changes.**
 
 ## Labels
 
-The skill assumes these labels exist on `<OWNER>/<REPO>`:
+The skill assumes these labels exist in the repo:
 
 | Label     | Used for                                                                  |
 | --------- | ------------------------------------------------------------------------- |
@@ -219,7 +219,7 @@ The skill assumes these labels exist on `<OWNER>/<REPO>`:
 | `bug`     | Unintended behaviour; regression; broken contract                         |
 
 `bug` already exists on the repo from GitHub's default set. If `epic`, `feature`, or `task` is missing, surface that
-to the user and offer to create them with `gh label create <name> --repo <OWNER>/<REPO> --description "<one-line>"`
+to the user and offer to create them with `gh label create <name> --description "<one-line>"`
 — that's a GitHub mutation, gate it on confirmation like any other.
 
 ## Implementation workflow
@@ -232,7 +232,7 @@ When working a sub-issue (or a single-feature/bug issue):
 - **PR linkage depends on which branch the PR targets** (see `feature-dev-workflow:opening-a-pull-request`):
   - **Sub-PR into the feature branch** (multi-PR features) — body uses `Towards #<sub-issue>`. `Fixes` / `Closes`
     don't auto-trigger on non-default branches; `Towards` is explicit about keeping the issue open until the
-    orchestrator closes it manually after the self-merge: `gh issue close <sub-issue> --repo <OWNER>/<REPO>`.
+    orchestrator closes it manually after the self-merge: `gh issue close <sub-issue>`.
     The close is bodyless (no `--comment`) — GitHub already auto-cross-references the merge commit through the
     sub-PR's `Towards` keyword, so the closing trail is preserved without a custom comment body that would itself
     need confirmation against the user-in-the-loop rule.
@@ -264,8 +264,8 @@ When working a sub-issue (or a single-feature/bug issue):
   seams legible at a glance. Prose-only forces every reader to rebuild the topology in their head. Add the diagram in
   `## Design overview` / `## Approach` (see §Diagrams).
 - **Acceptance criteria written as aspirations.** Each bullet has to be a verifiable condition a reviewer can answer
-  "yes / no" against at done-time. "MCPs are more reliable" is not checkable; "`get_state` returns the session after
-  an MCP restart" is.
+  "yes / no" against at done-time. "the service is more reliable" is not checkable; "`get_session` returns the saved
+  record after a restart" is.
 - **Inferring consent from earlier intent.** "The user said 'file an issue' two turns ago" is not standing consent
   for the specific body you now want to publish. Re-confirm with the actual proposed body, every time.
 - **Updating an issue silently because the diff is small.** Even a one-line addition to a public issue is a public

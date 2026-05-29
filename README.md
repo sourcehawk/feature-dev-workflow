@@ -83,31 +83,19 @@ This repo is both a plugin and its own single-plugin marketplace:
 
 (Local path also works for development: `/plugin marketplace add /path/to/feature-dev-workflow`.)
 
-## Configure your project
+## Configuration — none required
 
-The skills are project-agnostic: repo-specific values are left as placeholders that you wire
-up **once per consuming project**.
+The skills are project-agnostic and **zero-config**. They derive everything they need from context:
 
-| Placeholder       | Replace with                                            |
-| ----------------- | ------------------------------------------------------- |
-| `<OWNER>/<REPO>`  | your GitHub repo slug (e.g. `octocat/hello-world`)      |
-| `<TEST_CMD>`      | your test command (e.g. `make test`, `npm test`)        |
-| `<LINT_CMD>`      | your lint command (e.g. `make lint`, `npm run lint`)    |
-| `<TYPECHECK_CMD>` | your typecheck command, or drop the references if N/A   |
+- **The repo** — `gh` commands run without `--repo`, so they target the repo of the working
+  directory automatically.
+- **Test / lint / typecheck commands** — discovered from your project's `CLAUDE.md` / `AGENTS.md`
+  or its build config (`Makefile`, `package.json`, etc.).
 
-The recommended way to wire these is to **paste [`templates/project-CLAUDE.md`](templates/project-CLAUDE.md)
-into your project's `CLAUDE.md`** and fill in the four values there — that file also carries the
-workflow overview diagram and the portable operational rules (TDD, commit conventions, GitHub-mutation
-confirmation, etc.).
-
-The skills reference the placeholders by name, so once they're defined in your `CLAUDE.md`, the
-skills resolve them in context. If you'd rather bake literal values into the skill text instead,
-the placeholders are plain strings — a one-time find/replace works:
-
-```sh
-# from a clone of this plugin, before publishing your own fork
-grep -rl '<OWNER>/<REPO>' skills | xargs sed -i 's#<OWNER>/<REPO>#octocat/hello-world#g'
-```
+The one recommended (still optional) step is to **paste [`templates/project-CLAUDE.md`](templates/project-CLAUDE.md)
+into your project's `CLAUDE.md`** — it carries the workflow overview diagram and the operational rules
+(TDD, commit conventions, GitHub-mutation confirmation, etc.) so every session follows them. If your
+check commands aren't obvious from the build config, that file has an optional spot to name them.
 
 ## Notes
 

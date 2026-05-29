@@ -37,9 +37,9 @@ changes with no cross-cutting shape. -->
 
 ## Verification
 
-<!-- Bulleted, concrete steps a reviewer or operator can run to
+<!-- Bulleted, concrete steps a reviewer or user can run to
 confirm the feature works. Mix automated checks (tests, lint) with
-operator steps when the surface is user-facing. Each bullet is
+manual steps when the surface is user-facing. Each bullet is
 checkable. -->
 
 <!-- optional -->

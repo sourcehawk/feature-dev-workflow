@@ -56,19 +56,19 @@ update the state file's rows to match reality before continuing.
 For sequential single-PR work, skip to Step 4. For multi-PR work, dispatch parallel subagents in Step 3 — but
 first, ask the user how sub-PR approval should work.
 
-**Sub-PR approval mode (multi-PR only).** Before any sub-worktree work starts, the orchestrator presents the operator
+**Sub-PR approval mode (multi-PR only).** Before any sub-worktree work starts, the orchestrator presents the user
 with a two-option choice via `AskUserQuestion`:
 
 - **Autonomous sub-worktree approval** — the orchestrator reviews each sub-PR with the `review` skill, self-merges it
-  into the feature branch, and closes its sub-issue automatically. Fastest fan-out; the operator only sees the
-  integration PR at the end. Suitable when the integration PR's external-review pass is the operator's intended
+  into the feature branch, and closes its sub-issue automatically. Fastest fan-out; the user only sees the
+  integration PR at the end. Suitable when the integration PR's external-review pass is the user's intended
   inspection point.
 - **Manual sub-worktree approval** — the orchestrator still runs the `review` skill on each sub-PR, but then pauses
-  to ask the operator for explicit approval before `gh pr merge` runs. One round-trip per sub-PR, but the operator
+  to ask the user for explicit approval before `gh pr merge` runs. One round-trip per sub-PR, but the user
   inspects every diff before it lands on the feature branch.
 
 Record the choice in the state file's frontmatter as `sub_pr_approval: autonomous` or `sub_pr_approval: manual`. The
-fan-out skill reads this field at every sub-PR ripening to decide whether to gate on operator approval. Default if
+fan-out skill reads this field at every sub-PR ripening to decide whether to gate on user approval. Default if
 the field is missing in an older state file: `autonomous` (preserves the original behaviour).
 
 ### 3. Set up the implementation environment
@@ -117,13 +117,13 @@ the field is missing in an older state file: `autonomous` (preserves the origina
   - **REQUIRED SUB-SKILL:** `feature-dev-workflow:testing-a-feature` for the assertion shape — black-box against the contract, not
     implementation.
   - Commits follow CLAUDE.md conventions: `<type>(<area>): <imperative summary> (#<feature-issue>)`.
-  - Run `<TEST_CMD>` and `<LINT_CMD>` (and `<TYPECHECK_CMD>` if it applies to your project) before claiming
-    work is done.
+  - Run the project's test and lint commands (and typecheck, if it has one) before claiming work is done.
+    Discover them from the project's CLAUDE.md / AGENTS.md or its build config (Makefile, package.json, etc.).
 
 ### 5. Checkpoint review before opening the final PR
 
-- **Single-PR feature** → **REQUIRED SUB-SKILL:** `superpowers:verification-before-completion`. Run `<TEST_CMD>`,
-  `<LINT_CMD>`, and (if it applies to your project) `<TYPECHECK_CMD>`. Paste the output. Forbids claiming
+- **Single-PR feature** → **REQUIRED SUB-SKILL:** `superpowers:verification-before-completion`. Run the project's
+  test, lint, and (if it has one) typecheck commands. Paste the output. Forbids claiming
   "done" without evidence.
 - **Multi-PR feature** → **REQUIRED SUB-SKILL:** `feature-dev-workflow:reviewing-feature-progress`. The orchestrator's checkpoint skill
   re-reads spec + plan + state, walks every self-merged sub-PR against acceptance criteria, checks state-file
@@ -159,8 +159,8 @@ pollutes the repo with stale operational state that future `grep`s have to wade 
 - **Mixing single-PR and multi-PR flows mid-feature.** Once the plan declares multi-PR, the feature-branch model is
   on. Don't quietly merge "just this small fix" directly to main while the feature branch is live — it skips
   external review on the integration PR and forks the work.
-- **Skipping `verification-before-completion` because "tests passed in my package".** `<TEST_CMD>` runs the whole
-  project because cross-package wiring breaks on edits that look local.
+- **Skipping `verification-before-completion` because "tests passed in my package".** The full test suite runs the
+  whole project because cross-package wiring breaks on edits that look local.
 - **Letting the state file drift from reality.** A resumed session reads the state file as ground truth. Update it
   on every transition (worktree assigned, PR opened, sub-PR self-merged, phase changed, feature shipped).
 - **Re-implementing fan-out logic inline.** Parallel dispatch, multi-wave ordering, the watch loop, per-sub-PR
@@ -172,7 +172,7 @@ pollutes the repo with stale operational state that future `grep`s have to wade 
 | Thought                                                              | Reality                                                                                                |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | "I'll just open one big PR, the plan is overcomplicating this"       | The PR-shape decision happened during planning. Reopening it here means re-running `feature-dev-workflow:planning-a-feature` Step 4, not skipping the model. |
-| "Tests pass, I'll skip <LINT_CMD>"                                    | Lint is a CI gate. Running it locally is the cheapest place to catch the failure.                      |
+| "Tests pass, I'll skip lint"                                         | Lint is a CI gate. Running it locally is the cheapest place to catch the failure.                      |
 | "The state file is for the planner, I don't need to update it during dev" | The state file is the resume contract. Every transition is your responsibility while dev is in flight. |
 | "I'll open the integration PR before the last sub-PR is self-merged" | The integration PR's diff is supposed to be the whole feature. An in-flight sub-PR means the integration PR will be re-pushed mid-review. Wait. |
 | "I'll create `feature/<slug>` off `origin/main` in step 3"           | Planning already created it and committed the spec/plan/state onto it. `-b feature/<slug>` errors ("already exists") and re-creating off `origin/main` orphans the planning artifacts. Reuse the existing branch; attach a worktree to it. |
