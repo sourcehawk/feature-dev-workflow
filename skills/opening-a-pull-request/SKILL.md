@@ -20,8 +20,7 @@ Two templates carry the shape and the per-section guidance:
 - `${CLAUDE_PLUGIN_ROOT}/skills/opening-a-pull-request/templates/pull-request-draft.md`: draft PR body.
 - `${CLAUDE_PLUGIN_ROOT}/skills/opening-a-pull-request/templates/pull-request-ready.md`: ready-for-review PR body.
 
-Copy the appropriate template, fill in each section per its `<!-- -->` guidance, then pass the body to
-`gh pr create` (opening) or `gh pr edit` (flipping or editing) via a `--body "$(cat <<'EOF' ... EOF)"` heredoc. GitHub doesn't render HTML comments, so leaving the template guidance in place is harmless — don't burn a step removing it.
+Copy the appropriate template, fill in each section per its `<!-- -->` guidance, then pass the body to `gh pr create` (opening) or `gh pr edit` (flipping or editing) via a `--body "$(cat <<'EOF' ... EOF)"` heredoc. GitHub doesn't render HTML comments, so leaving the template guidance in place is harmless — don't burn a step removing it.
 
 ## PR title
 
