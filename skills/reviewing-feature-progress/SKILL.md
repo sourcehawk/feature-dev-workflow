@@ -34,7 +34,7 @@ accumulates silently across waves; this skill catches it at the boundary.
 
 Open these in order:
 
-- The state file (`docs/superpowers/plans/<date>-<slug>-state.md`).
+- The state file (`docs/superpowers/states/<date>-<slug>-state.md`).
 - The plan (`docs/superpowers/plans/<date>-<slug>-plan.md`), with focus on the `## Contracts` section and the
   PR-by-PR breakdown.
 - The spec (`docs/superpowers/specs/<date>-<slug>-design.md`), with focus on goals + non-goals.

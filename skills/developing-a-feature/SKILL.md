@@ -17,7 +17,7 @@ ad-hoc fixes — those go directly through `superpowers:test-driven-development`
 
 ### 1. Read the state file first, then plan + spec
 
-The orchestration state file (`docs/superpowers/plans/<date>-<slug>-state.md`, created by `feature-dev-workflow:planning-a-feature` Step 8)
+The orchestration state file (`docs/superpowers/states/<date>-<slug>-state.md`, created by `feature-dev-workflow:planning-a-feature` Step 8)
 is the entry point — it points at the plan, the spec, the tracking issue, the open PRs, the worktrees, and any
 bubble-up concerns logged so far. Read it in full before anything else; follow the file's "Resume checklist"
 section to verify reality against the recorded state.

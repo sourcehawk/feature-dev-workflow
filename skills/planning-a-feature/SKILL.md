@@ -159,7 +159,7 @@ single "yes to all": a wall of bodies gets rubber-stamped instead of read.
 
 ### 8. Initialize the orchestration state file
 
-Before handing off, create `docs/superpowers/plans/YYYY-MM-DD-<slug>-state.md` from
+Before handing off, create `docs/superpowers/states/YYYY-MM-DD-<slug>-state.md` from
 `${CLAUDE_PLUGIN_ROOT}/skills/planning-a-feature/templates/feature-state.md`. This is the **orchestration state** — phases, PRs, worktrees, contract realization,
 bubble-up log. It's what a future Claude session reads first to resume the work without a massive user prompt.
 

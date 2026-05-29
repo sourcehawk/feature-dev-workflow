@@ -100,7 +100,8 @@ This plugin depends on the [superpowers](https://github.com/obra/superpowers) pl
 skills directly: `superpowers:brainstorming`, `superpowers:writing-plans`,
 `superpowers:test-driven-development`, `superpowers:verification-before-completion`, and
 `superpowers:dispatching-parallel-agents`. It also uses superpowers' `docs/superpowers/{specs,plans}/`
-path convention. Install superpowers first.
+path convention, adding a sibling `docs/superpowers/states/` directory for orchestration state files.
+Install superpowers first.
 
 The skills also assume the [`gh`](https://cli.github.com/) CLI is installed and authenticated.
 

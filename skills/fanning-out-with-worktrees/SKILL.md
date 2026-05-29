@@ -16,7 +16,7 @@ When you're the orchestrator for multi-PR feature work and these prerequisites a
   invoking this skill).
 - The plan (`docs/superpowers/plans/<date>-<slug>-plan.md`) has a `## Contracts` section with a Realization strategy
   per row.
-- The state file (`docs/superpowers/plans/<date>-<slug>-state.md`) has rows for each sub-issue.
+- The state file (`docs/superpowers/states/<date>-<slug>-state.md`) has rows for each sub-issue.
 
 Skip for single-PR features — there's no fan-out, just one branch off main.
 
