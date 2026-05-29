@@ -14,7 +14,15 @@ consumer-wave | review | merged.
 -->
 
 ---
-feature: <slug> spec: docs/superpowers/specs/YYYY-MM-DD-<slug>-design.md plan: docs/superpowers/plans/YYYY-MM-DD-<slug>-plan.md tracking_issue: #<epic-num> feature_branch: feature/<slug>                # omit for single-PR features feature_worktree: .claude/worktrees/<slug>    # the main integration worktree; omit for single-PR sub_pr_approval: autonomous                   # autonomous | manual; omit for single-PR (see developing-a-feature Step 2) integration_pr: #<pr>      # filled in once the feature → main PR opens status: planning
+feature: <slug>
+spec: docs/superpowers/specs/YYYY-MM-DD-<slug>-design.md
+plan: docs/superpowers/plans/YYYY-MM-DD-<slug>-plan.md
+tracking_issue: #<epic-num>
+feature_branch: feature/<slug>                # omit for single-PR features
+feature_worktree: .claude/worktrees/<slug>    # the main integration worktree; omit for single-PR
+sub_pr_approval: autonomous                   # autonomous | manual; omit for single-PR (see developing-a-feature Step 2)
+integration_pr: #<pr>      # filled in once the feature → main PR opens
+status: planning
 ---
 
 # <Feature title> — orchestration state
