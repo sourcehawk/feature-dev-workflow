@@ -33,6 +33,7 @@ It is also the faster path. Breaking the feature into independent PRs lets the m
 | `testing-a-feature` | Writing tests for any non-trivial change. Decides the assertion shape (black-box against the contract). |
 | `opening-a-pull-request` | About to `gh pr create`/`edit`. Draft and ready body templates, issue-linking keywords. |
 | `maintaining-architectural-coherence` | Work split across PRs/agents/waves must read as one author. Invoked when agreeing conventions before parallel work, and when reviewing the merged union for structural, interface, naming, and vocabulary drift. |
+| `drafting-a-release` | Standalone (not part of the feature flow). About to cut a release: drafts curated release notes that explain the why, proposes the version, and gates `gh release create` on the user. |
 
 ## How it works
 
