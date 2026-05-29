@@ -45,7 +45,7 @@ A clean docstring should already enumerate the surface's promises. If reading it
 For each behavior the contract promises, ask:
 
 - **Happy path** — the documented success case. Always test.
-- **Boundary inputs** — zero, one, many; empty string, single char, max length; nil vs empty slice.
+- **Boundary inputs** — zero, one, many; empty string, single char, max length; null/absent vs empty collection.
 - **Error paths** — every error the contract names. Every error the contract _doesn't_ name but the code clearly can return (then either name it in the docstring or make the code not return it).
 - **Invariants** — what should never happen, regardless of input. Concurrency safety, idempotency, atomicity.
 - **Failure recovery** — partial failure mid-call, retry semantics, what state survives.
@@ -54,7 +54,7 @@ Don't test for behavior the contract doesn't promise. If you're tempted to, the 
 
 ### 4. Write one test per edge case
 
-Each test name reads as a contract statement: `TestStore_PersistsMultipleSessionsAcrossRestart`, `TestGetChannelID_MissingScopeIsActionable`. The name describes the intent being verified, not the function being called. Each test's assertion is what the contract promises, not what the implementation happens to do today.
+Each test name reads as a contract statement — "persists multiple sessions across restart", "missing scope is actionable" — written in whatever naming convention the project already uses. The name describes the intent being verified, not the function being called. Each test's assertion is what the contract promises, not what the implementation happens to do today.
 
 ### 5. When tempted to rewrite a test
 
@@ -70,10 +70,10 @@ Rewriting a test "to match" a new implementation when the contract is unchanged 
 Apply per surface, per change:
 
 - [ ] **Happy path** — documented success case.
-- [ ] **Empty / zero / nil inputs** — what does the contract say happens? If it doesn't say, fix the contract.
+- [ ] **Empty / zero / absent inputs** — what does the contract say happens? If it doesn't say, fix the contract.
 - [ ] **Boundary values** — first / last / single-element / off-by-one neighbors.
 - [ ] **Error paths named in the contract** — each one triggered and asserted.
-- [ ] **Concurrency** — race detector clean (Go: `-race`); concurrent writers if the contract promises safety.
+- [ ] **Concurrency** — clean under whatever race/thread detector the toolchain provides; concurrent writers if the contract promises safety.
 - [ ] **Idempotency** — does calling twice produce the same result the contract promises?
 - [ ] **Persistence** — does on-disk / on-network state survive restart, if the contract says so?
 - [ ] **Partial failure** — what state survives a mid-call error?
@@ -93,7 +93,7 @@ Apply per surface, per change:
 | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | "The function is too small to test"                              | If it's worth writing, its contract is worth asserting.                                            |
 | "The test is fragile, let me loosen the assertion"               | Fragile = coupled to implementation. Tighten the contract or rewrite the test against intent.      |
-| "I'll skip the nil case, the caller will always pass non-nil"    | The contract should say "never call with nil" then. If it doesn't, test the nil case.              |
+| "I'll skip the absent case, the caller will always pass a value" | The contract should say "never call with an absent value" then. If it doesn't, test the absent case. |
 | "The docstring is wrong but the implementation is right"         | Fix the docstring (or the implementation, if the docstring is the source of truth) before testing. |
 | "Rewriting the test to match the new code is faster"             | And weakens the suite silently. Verify the contract changed first.                                 |
 | "Edge cases can wait for the next PR"                            | They get forgotten. List them now even if you don't write them all.                                |
