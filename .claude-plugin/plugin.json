@@ -1,0 +1,20 @@
+{
+  "name": "feature-dev-workflow",
+  "version": "0.1.0",
+  "description": "End-to-end feature-development workflow as composable skills: brainstorm → spec → issues → plan → develop (single PR or parallel fan-out) → review → PR → ship.",
+  "author": {
+    "name": "Ægir Máni Hauksson",
+    "email": "agir96@gmail.com"
+  },
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "skills",
+    "planning",
+    "github-issues",
+    "pull-requests",
+    "tdd",
+    "worktrees",
+    "code-review"
+  ]
+}

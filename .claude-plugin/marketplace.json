@@ -1,0 +1,14 @@
+{
+  "name": "feature-dev-workflow",
+  "owner": {
+    "name": "Ægir Máni Hauksson",
+    "email": "agir96@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "feature-dev-workflow",
+      "source": ".",
+      "description": "End-to-end feature-development workflow as composable skills: brainstorm → spec → issues → plan → develop (single PR or parallel fan-out) → review → PR → ship."
+    }
+  ]
+}
