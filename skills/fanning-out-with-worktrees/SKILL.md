@@ -61,9 +61,12 @@ Each dispatch prompt MUST include:
 1. **Isolation verification as the first action.** `cd <worktree-path> && pwd && git branch --show-current` — the
    subagent confirms it's on the sub-branch in the right worktree before any edit. Commits land on the wrong branch
    otherwise.
-2. **Context handoff.** State file path, plan path, spec path, the issue number it's working, and the relevant
-   contract row(s) (Name + Producer + Consumer + Shape + Realization). The subagent implements **against the
-   contract** — it does not re-discover or re-design it.
+2. **Context handoff.** State file path, plan path, spec path, the issue number it's working, the relevant
+   contract row(s) (Name + Producer + Consumer + Shape + Realization), **and the plan's `## Conventions` block**.
+   The subagent implements **against the contract and the conventions** — it does not re-discover or re-design
+   either, and it does not invent its own directory layout or naming scheme. A subagent handed contracts but not
+   conventions will name and structure locally, and the merged feature reads as written by a committee (see
+   `${CLAUDE_PLUGIN_ROOT}/references/naming-and-coherence.md`).
 3. **Implementation skills.** `superpowers:test-driven-development` + `feature-dev-workflow:testing-a-feature` for every change.
 4. **PR completion.** When the implementation is done and verified, the subagent invokes `feature-dev-workflow:opening-a-pull-request`
    with `--base feature/<slug>` and `Towards #<sub-issue>` in the body (NOT `Fixes` / `Closes` — those don't fire on
@@ -88,6 +91,11 @@ Categories of concerns to watch for:
 
 - **Contract drift.** A row in the `## Contracts` table needs to shift (reviewer feedback, an edge case the producer
   hit). Pause every affected consumer, update the plan's row, propagate.
+- **Naming / layout divergence.** A subagent introduces a path, package, file-naming scheme, identifier pattern, or
+  fixture name that doesn't match the `## Conventions` block or what a sibling PR already shipped. Reconcile before
+  the merge — pick the convention (update the block if the new choice is better), and propagate to every subagent on
+  the divergent pattern. Naming drift is invisible to contract checks; catching it here is far cheaper than at the
+  integration PR.
 - **Spec ambiguity surfaced mid-implementation.** A subagent hits a case the spec didn't cover. Surface to the user,
   get a decision, amend the spec (or add a note to the plan), and propagate to every subagent whose scope touches
   the same surface.
@@ -130,7 +138,9 @@ Per sub-PR, in order:
 
 1. **Review.** **REQUIRED SUB-SKILL:** the `review` skill — invoke it against the sub-PR number to walk the diff with
    full PR context. This review is weaker than external review (which lands at the integration PR) but stronger than
-   nothing; it catches issues that would otherwise pile onto the integration PR reviewer.
+   nothing; it catches issues that would otherwise pile onto the integration PR reviewer. Beyond bugs, check the diff
+   against the `## Conventions` block: does its layout, naming, and vocabulary match the block and the sibling PRs
+   already merged? A convention violation caught here is one the integration reviewer never sees.
 2. **Approval gate, per the state file's `sub_pr_approval` mode.** Every gate covers the **bundle**: merge + sub-issue
    close + state-file update. The close is bodyless (no `--comment` flag) — GitHub automatically cross-references
    the sub-issue from the merge commit via the sub-PR's body keyword, so no custom comment is needed and there's
@@ -180,6 +190,9 @@ integration PR (`feature/<slug>` → `main` with `Closes #<epic>`) which `featur
 - **Dispatching parallel agents without contracts.** "Two subagents on these two PRs" with no contract = divergent
   implementations that block at integration. If the plan didn't define a contract, don't dispatch — go back to
   `feature-dev-workflow:planning-a-feature` Step 6 and add one.
+- **Dispatching without the conventions block.** Contracts make the work compile; conventions make it cohere. Hand a
+  subagent contracts but no `## Conventions` and it invents its own layout and names — the drift surfaces at the
+  integration PR when it's expensive. If the plan has no conventions block, go back to `planning-a-feature` Step 6.
 - **Skipping wave dependencies.** Consumers dispatched before producers' contracts are realized produce code against
   an imagined shape. Dispatch wave N+1 only after wave N is fully self-merged and contracts locked.
 - **Self-merging without orchestrator review.** The integration PR is where external review lands, but sub-PRs still
@@ -203,4 +216,5 @@ integration PR (`feature/<slug>` → `main` with `Closes #<epic>`) which `featur
 | "The subagent will figure out the worktree on its own"               | Create the worktree yourself and embed `cd <path> && pwd && git branch --show-current` in the dispatch. |
 | "Self-review feels redundant, the integration PR catches everything" | Integration PR reviewer can't catch every issue across 5 sub-PRs in one sitting. Catch them per PR.    |
 | "The subagent already verified the diff, no need for the orchestrator to review again" | Verification (tests pass) is not review (does the diff express intent cleanly). Different signals. |
+| "Both sub-PRs pass CI, so the naming difference between them is fine" | Contract checks don't see naming. Two schemes for one kind of thing is drift — reconcile it at the wave, not the integration PR. |
 | "I'll close the sub-issue once the integration PR merges"            | Issues that read "open" while their work has shipped clutter the triage view. Close manually at self-merge. |

@@ -40,6 +40,8 @@ alternatives considered. It does **not** enumerate PRs, commits, or parallelism 
 see step 6). Slug is short ("multi-tenant-profiles", not "implement-multi-tenant-profile-system"); date is the
 conception date.
 
+The spec's section headings may use the decomposition's organizing labels (`Flow 1`, `Flow 2`, …) to index the work — that's navigational. But those labels are a one-way membrane: nothing downstream (fixture names, ids, functions, files, marker strings) may inherit them as identifiers. See the naming firewall in `${CLAUDE_PLUGIN_ROOT}/references/naming-and-coherence.md`.
+
 **ADR (only if the brainstorm surfaced a project-wide architectural decision).** A spec captures feature-scoped design.
 An ADR captures **cross-cutting** decisions that affect multiple features — choosing one architectural approach over
 another for reasons that future readers will need. Examples of ADR-worthy decisions: introducing a new IPC
@@ -147,6 +149,8 @@ exist as code or as data before either side starts. Pick one per row and put it 
 
 Sequential work doesn't need contracts. Only document them where two workers genuinely run in parallel.
 
+**Then pin the conventions.** Contracts keep parallel work *compiling*; conventions keep it *coherent*. Add a `## Conventions` section to the plan capturing the practical decisions every sub-PR inherits — directory layout for new files, file/dir naming scheme, identifier patterns, test + fixture naming/placement, and the locked vocabulary lifted from the project's CLAUDE.md / AGENTS.md. You're not inventing conventions; you're writing down the ones the brainstorm and the existing codebase already imply, so six parallel workers reach for the same answer instead of guessing. A convention you can't state in one line isn't agreed yet — agree it now, not after merge. See `${CLAUDE_PLUGIN_ROOT}/references/naming-and-coherence.md` for what a `## Conventions` block names and why. Single-PR features can keep this terse; multi-PR fan-out depends on it.
+
 ### 7. Refine issues if planning surfaced changes
 
 Planning often surfaces scope changes. If the issues from step 5 no longer match the plan's breakdown, update them
@@ -191,6 +195,10 @@ Spec + plan + state file committed and pushed on `feature/<slug>`, issues aligne
   workers blocked on each other after day one" without explicit shapes.
 - **Treating "no parallelism possible" as a defeat.** Sequential work is fine. The cost of inventing fake parallelism
   exceeds the wall-clock saved.
+- **Pinning wire contracts but not conventions.** Contracts make parallel work compile; without a `## Conventions`
+  block, each subagent invents its own layout and naming and the merged feature reads as written by a committee.
+- **Letting an organizing label become an identifier.** `Flow 2` belongs in titles and spec headings, not in
+  `flow2-fixture`, `TestFlow2…`, or `…_FLOW2_…`. The label is navigational; the code names the thing.
 
 ## Red flags
 

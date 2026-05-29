@@ -78,6 +78,18 @@ Write each paragraph as a single line and put a blank line between paragraphs. W
 
 This governs the body you publish, not this skill's source files: the template comments and this document are themselves hard-wrapped for the editor, which is a source-file convention, not a model for the body. When you lift prose out of a template comment into the body, strip the wrapping — collapse it to one line per paragraph.
 
+## Title hygiene
+
+A title is the one line a no-context reader scans in the issue list. Make it a concise, human-readable headline of the capability or fix. A clean organizing prefix is fine when the work is part of a decomposed set — `Flow 2: investigation session happy path` reads well. What doesn't:
+
+- **A trailing scaffolding parenthetical.** `Assert every launcher boot flag has its documented effect (e2e Flow 1)` buries the headline and tacks the plan's bookkeeping onto a durable artefact. Put the organizing label up front as a prefix, or leave it out — never as a `(… Flow N)` suffix.
+- **Decorative Unicode in the title.** Arrows (`→`, `↔`), bullets, and box-drawing characters belong in body prose and diagrams, not in the title the reader scans. Use plain words.
+- **A sentence that buries the lede.** If the headline noun-phrase comes after a clause of setup, cut the setup.
+
+### The naming firewall
+
+Organizing labels — `Flow N`, `Phase N`, `Wave N` — are navigational: they may appear in an issue title prefix or an epic's prose, because that's where humans group the work. They must **never** propagate into the code the issue produces: not a directory, file, package, function, variable, constant, fixture/scenario name, test name, or sentinel string. The label is an artefact of how the work was split, not a property of the thing built — a reader of the code shouldn't need the planning history to parse a name, and the name lies the moment the plan is renumbered or the artefact is reused. When the issue's acceptance criteria or approach name concrete artefacts, name them for what they are (`resumable-investigation`, not `flow2-fixture`). Full rule and the allowed-surface table: `${CLAUDE_PLUGIN_ROOT}/references/naming-and-coherence.md`.
+
 ## Diagrams: visualize architectural changes
 
 When the change is architectural — new components, data or control flow crossing module boundaries, a phase/lifecycle
@@ -249,6 +261,12 @@ When working a sub-issue (or a single-feature/bug issue):
   GitHub's progress bar, independent assignees, independent close-on-merge.
 - **Inventing a feature-id-style slug as the title.** Issue titles are human-readable sentences. Slugs belong on
   branches and PR titles, not in the issue heading a reviewer reads first.
+- **Tacking the plan's bookkeeping onto the title as a suffix.** `… (e2e Flow 1)` buries the headline; decorative
+  arrows (`→`) and box characters add noise. A clean `Flow 1:` prefix is fine — a trailing parenthetical is not (see
+  §Title hygiene).
+- **Letting an organizing label leak into code names.** `Flow N` / `Phase N` is navigational only. The fixtures,
+  ids, functions, and markers the issue produces are named for what they are, never `flow2-…` / `…_FLOW2_…` (see
+  §The naming firewall).
 - **Putting design into a feature or bug issue.** The issue is "problem + how we'll know it's done." Design belongs
   in the PR description that lands the work (or in `docs/superpowers/specs/` for spec-worthy work). The epic's
   `## Design overview` is the exception — it captures the brainstorm output, not the line-level design.
@@ -292,5 +310,7 @@ These thoughts mean you're about to mutate GitHub without a fresh confirm:
 | "I'll link the spec in the issue's Context so readers find the design" | Issues are durable; spec/plan files move and get deleted. Sub-issues reference the epic only; the epic carries design inline. The spec is linked from the plan, not the issue. |
 | "I'll paste all the sub-issue bodies in one prompt for a single yes" | Batched bodies get rubber-stamped, not read. One sub-issue per confirmation, per create. |
 | "This change is architectural but the prose already explains the flow" | If the flow crosses modules or moves through phases, a mermaid diagram makes the seams legible at a glance. Add it (§Diagrams). |
+| "I'll append `(e2e Flow 1)` so readers know which flow this is" | Put the label up front as a `Flow 1:` prefix, or leave it out. A trailing parenthetical buries the headline (§Title hygiene). |
+| "`flow2-fixture` is the obvious name, the issue is literally Flow 2" | The label is navigational, not an identifier. Name the artefact for what it is; the firewall is one-way (§The naming firewall). |
 
 All of these mean: paste the proposed body and the assignment intent into chat, wait for an explicit yes, then act.

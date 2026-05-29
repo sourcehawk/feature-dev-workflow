@@ -24,9 +24,10 @@ Skip for ad-hoc fixes that didn't go through `feature-dev-workflow:planning-a-fe
 ## Why this exists
 
 Per-sub-PR review (`review` skill, run by the orchestrator inside `feature-dev-workflow:fanning-out-with-worktrees`) checks one diff at
-one moment. It doesn't check whether all sub-PRs together still implement what the spec promised, whether the
-acceptance criteria are covered, or whether the feature branch as a whole compiles and tests cleanly. Drift
-accumulates silently across waves; this skill catches it at the boundary.
+one moment. It doesn't check whether all sub-PRs together still implement what the spec promised, whether they
+*cohere with each other* (naming, structure, vocabulary — drift that's invisible to any single diff or contract),
+whether the acceptance criteria are covered, or whether the feature branch as a whole compiles and tests cleanly.
+Drift accumulates silently across waves; this skill catches it at the boundary.
 
 ## Workflow
 
@@ -50,7 +51,21 @@ For every row in the state file's `## PRs / worktrees` table with status `self-m
   actually shipped against what the contract row in the plan documented. The contract row's `Status` should be
   `locked` and `Realized in` should point at the merged sub-PR.
 
-### 3. Acceptance-criteria coverage
+### 3. Cross-PR coherence sweep
+
+Steps 1-2 check each sub-PR against an *external* reference (plan, contract, acceptance criteria). This step checks the sub-PRs against *each other*. Read the union of what shipped — the file tree the sub-PRs added, their names, and their idioms together — and ask the question no contract can: **would one author have written it this way?** Coherence drift is invisible to every other check because each divergent choice is individually contract-satisfying, so a 100%-contract-clean feature can still read as written by a committee.
+
+Sweep these, against the plan's `## Conventions` block and against each other:
+
+- **Directory structure** — do new files land consistently? (tests fenced the same way, fixtures under one scheme, no one PR flat where another nests)
+- **Naming** — one scheme per kind of thing across the merged surface: files, directories, packages, functions, variables, constants, fixture/scenario names, test names. Two schemes for one kind (some fixtures named by content, others by the flow that uses them) is the signal.
+- **The naming firewall** — no organizing label (`Flow N`, `Phase N`) leaked into a directory, id, function, fixture, or sentinel string. See `${CLAUDE_PLUGIN_ROOT}/references/naming-and-coherence.md`.
+- **API-surface symmetry** — sibling fields/functions share a shape; an outlier (one option a `bool`+`string` split where every sibling is a single typed value) either gets a recorded justification or gets aligned.
+- **Vocabulary** — the feature uses the project's locked terms, not a subagent's synonym.
+
+Inconsistency is a smell, not just cosmetic debt: it often means a better structure is waiting. Classify each finding as **align now** (a convergence follow-up sub-PR before the integration PR — the cheap fix) or **deliberate, justified** (record the one-line why in the plan so the reviewer doesn't re-litigate it). Don't carry unexplained drift into the integration PR; the external reviewer hits it on first read and it's expensive there.
+
+### 4. Acceptance-criteria coverage
 
 For every sub-issue (whether `self-merged` or still open):
 
@@ -62,7 +77,7 @@ For every sub-issue (whether `self-merged` or still open):
   - **Rephrased / equivalent** — the implementation satisfies the criterion under a different name; update the
     criterion to match the language used in the diff.
 
-### 4. State-file integrity check
+### 5. State-file integrity check
 
 Walk the state file and verify reality against record:
 
@@ -75,7 +90,7 @@ Walk the state file and verify reality against record:
 
 If anything is out of sync, fix the state file before continuing — the resumed-session contract depends on it.
 
-### 5. End-to-end verification on the feature branch
+### 6. End-to-end verification on the feature branch
 
 **REQUIRED SUB-SKILL:** `superpowers:verification-before-completion`. Run the project-wide checks on the main feature
 worktree (which holds the integration state — sub-worktrees only hold their own sub-branch):
@@ -91,13 +106,15 @@ Paste the output. The feature branch must be green end to end before the integra
 CI passing doesn't guarantee the integration compiles, since each sub-PR's tests ran against its own branch state,
 not the post-merge state.
 
-### 6. Synthesize the gap list
+### 7. Synthesize the gap list
 
 Produce a short summary for the orchestrator (and the user, if this is a pre-integration-PR or pre-ready checkpoint):
 
 - **Drift found** — one bullet per discrepancy between spec/plan and what the diffs actually do.
+- **Coherence findings** — one bullet per cross-PR inconsistency from Step 3 (naming, structure, API shape,
+  vocabulary), each marked `align now` or `deliberate, justified`.
 - **Acceptance criteria uncovered** — one bullet per missing or rephrased criterion, with the classification from
-  Step 3.
+  Step 4.
 - **State-file fixes** — one bullet per row corrected.
 - **Verification status** — test / lint / typecheck pass/fail.
 
@@ -117,6 +134,11 @@ Decide:
   sub-branch checked out. The feature branch — where the integration shows up — lives in the main feature worktree.
 - **Marking the integration PR ready without re-running this checkpoint after external feedback.** Reviewer-requested
   changes can re-introduce drift the original review missed.
+- **Calling it "all clean" on contract + acceptance + verification alone.** Those are external-reference checks; they
+  pass while five sub-PRs use five naming schemes. Run the cross-PR coherence sweep (Step 3) before any "all clean".
+- **Treating cross-PR inconsistency as cosmetic and deferring it.** Two naming schemes for one kind of thing is a
+  smell that often means a better structure exists. Align it with a convergence sub-PR now, or record why it's
+  deliberate — don't ship unexplained drift to the external reviewer.
 - **Treating the acceptance-criteria gap as a docs problem.** A missing criterion is either missing implementation or
   a planning oversight. Don't silently delete it; classify and act.
 
@@ -129,3 +151,5 @@ Decide:
 | "Acceptance criteria mismatch is fine, the spirit is the same"     | Acceptance criteria are checkable conditions. Either they're met or they're not. Update the issue if the criterion changed. |
 | "I'll skip the state-file walk, I've been keeping it current"      | The resumed-session contract is what the state file SAYS — verify it; don't trust your memory.                     |
 | "Lint passed in my sub-worktree, no need to re-run on feature"      | Lint can be scoped to changed files; project-wide issues only surface on the integrated branch.                    |
+| "Contracts, criteria, and CI are all green — all clean"             | Those never see naming or structure. Read the union of the sub-PRs for coherence (Step 3) before declaring clean.   |
+| "The naming's a bit inconsistent but every PR is contract-correct"  | Contract-correct and coherent are different signals. Inconsistency is a smell — align it now or justify it.         |
