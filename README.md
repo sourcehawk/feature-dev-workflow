@@ -112,20 +112,10 @@ This repo is both a plugin and its own single-plugin marketplace:
 
 A local path also works for development: `/plugin marketplace add /path/to/feature-dev-workflow`.
 
-## Configuration (none required)
-
-The skills are project-agnostic and zero-config. They derive everything they need from context:
-
-- **The repo.** `gh` commands run without `--repo`, so they target the repo of the working directory
-  automatically.
-- **Test, lint, and typecheck commands.** Discovered from your project's `CLAUDE.md` or `AGENTS.md`, or
-  its build config (`Makefile`, `package.json`, and the like).
-
-The one recommended (still optional) step is to paste
-[`templates/project-CLAUDE.md`](templates/project-CLAUDE.md) into your project's `CLAUDE.md`. It carries
-the workflow overview diagram and the operational rules (TDD, commit conventions, GitHub-mutation
-confirmation, and so on) so every session follows them. If your check commands are not obvious from the
-build config, that file has an optional spot to name them.
+No further setup is required; the skills derive your repo and build commands from context. Optionally,
+paste [`templates/project-CLAUDE.md`](templates/project-CLAUDE.md) into your project's `CLAUDE.md` to give
+every session the workflow overview and the operational rules (TDD, commit conventions, GitHub-mutation
+confirmation, and so on).
 
 ## Notes
 
