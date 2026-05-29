@@ -31,6 +31,7 @@ It is also the faster path. Breaking the feature into independent PRs lets the m
 | `fanning-out-with-worktrees` | An orchestrator dispatching parallel subagents into per-PR worktrees off a feature branch. |
 | `reviewing-feature-progress` | Orchestration checkpoints: between fan-out waves, and before the integration PR. |
 | `testing-a-feature` | Writing tests for any non-trivial change. Decides the assertion shape (black-box against the contract). |
+| `testing-end-to-end` | A structurally-complete feature introduces a new user- or consumer-visible flow. Decides which flows earn an end-to-end test and what each asserts (golden path, not edge cases). |
 | `opening-a-pull-request` | About to `gh pr create`/`edit`. Draft and ready body templates, issue-linking keywords. |
 | `maintaining-architectural-coherence` | Work split across PRs/agents/waves must read as one author. Invoked when agreeing conventions before parallel work, and when reviewing the merged union for structural, interface, naming, and vocabulary drift. |
 | `drafting-a-release` | Standalone (not part of the feature flow). About to cut a release: drafts curated release notes that explain the why, proposes the version, and gates `gh release create` on the user. |
