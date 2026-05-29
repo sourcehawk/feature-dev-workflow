@@ -60,11 +60,9 @@ For brainstorm output specifically: ask whether the outcome spans multiple featu
 | `feature.md`      | One self-contained capability or refactor                                            | `feature` or `task`|
 | `bug.md`          | Unintended behaviour; broken contract; regression                                    | `bug`              |
 
-## Don't hard-wrap body prose
+## Don't hard-wrap markdown prose
 
-Write each paragraph as a single line and put a blank line between paragraphs. Write each list item as a single line too. GitHub renders issue bodies far wider than an editor's 80–100 column guide, so a body hard-wrapped at ~90 columns reflows into ragged short lines in the GitHub view — the line breaks you inserted become visible noise the reader didn't ask for. Let GitHub do the wrapping.
-
-This governs the body you publish, not this skill's source files: the template comments and this document are themselves hard-wrapped for the editor, which is a source-file convention, not a model for the body. When you lift prose out of a template comment into the body, strip the wrapping — collapse it to one line per paragraph.
+Write each paragraph as a single line and put a blank line between paragraphs. Write each list item as a single line too. This applies to everything you author: the issue/PR body you publish AND markdown source files (these skills, their templates, READMEs, docs). GitHub and editors soft-wrap far wider than an 80–100 column guide, so prose hard-wrapped at ~90 columns reflows into ragged short lines — in the rendered view and in every diff — and the breaks you inserted become visible noise nobody asked for. Let the renderer wrap; never insert a newline mid-paragraph to hit a column width. Tables, fenced code, and YAML frontmatter keep their own line structure.
 
 ## Title hygiene
 
@@ -207,7 +205,7 @@ When working a sub-issue (or a single-feature/bug issue):
 - **Letting an organizing label leak into code names.** `Flow N` / `Phase N` is navigational only. The fixtures, ids, functions, and markers the issue produces are named for what they are, never `flow2-…` / `…_FLOW2_…` (see §The naming firewall).
 - **Putting design into a feature or bug issue.** The issue is "problem + how we'll know it's done." Design belongs in the PR description that lands the work (or in `docs/superpowers/specs/` for spec-worthy work). The epic's `## Design overview` is the exception — it captures the brainstorm output, not the line-level design.
 - **Referencing the design spec (or any scratch doc) from an issue.** Issues are durable GitHub artifacts; the spec and plan are repo files that move, get renamed, or — in the plan's case — get deleted once the work ships. A sub-issue references **only its parent epic** (GitHub's native sub-issue linkage threads it); the epic captures the design context **inline** in its `## Design overview`, it does not link the spec file either. The spec is referenced from the *plan*, not from any issue. A `docs/superpowers/specs/...` or `docs/superpowers/plans/...` path in an issue body is the smell.
-- **Hard-wrapping the body at ~80–90 columns.** GitHub renders far wider; the inserted breaks reflow into ragged short lines. One line per paragraph, one line per bullet, blank line between paragraphs (see §Don't hard-wrap body prose).
+- **Hard-wrapping prose at ~80–90 columns.** GitHub and editors soft-wrap far wider; the inserted breaks reflow into ragged short lines. One line per paragraph, one line per bullet, blank line between paragraphs — in bodies and in source files alike (see §Don't hard-wrap markdown prose).
 - **Describing a multi-component flow in prose only.** When a feature/epic narrates data or control crossing several modules (client → API → queue → worker → store) or a phase progression, a five-node mermaid diagram makes the seams legible at a glance. Prose-only forces every reader to rebuild the topology in their head. Add the diagram in `## Design overview` / `## Approach` (see §Diagrams).
 - **Acceptance criteria written as aspirations.** Each bullet has to be a verifiable condition a reviewer can answer "yes / no" against at done-time. "the service is more reliable" is not checkable; "`get_session` returns the saved record after a restart" is.
 - **Inferring consent from earlier intent.** "The user said 'file an issue' two turns ago" is not standing consent for the specific body you now want to publish. Re-confirm with the actual proposed body, every time.
