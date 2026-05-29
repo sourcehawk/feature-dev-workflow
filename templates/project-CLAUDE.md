@@ -7,8 +7,7 @@ and your test/lint/typecheck commands from context. Delete this comment after pa
 
 ## Feature-development workflow
 
-This project uses the `feature-dev-workflow` plugin. Invoke `feature-dev-workflow:planning-a-feature`
-at feature conception and let the cross-references fan out from there.
+This project uses the `feature-dev-workflow` plugin. Invoke `feature-dev-workflow:planning-a-feature` at feature conception and let the cross-references fan out from there.
 
 ```mermaid
 flowchart TD
@@ -38,9 +37,7 @@ flowchart TD
     PR2 --> Ship
 ```
 
-Invoke `feature-dev-workflow:planning-a-feature` at conception. It and the
-`**REQUIRED SUB-SKILL:**` markers inside each skill body drive every box above. Which
-skill owns which part of the flow:
+Invoke `feature-dev-workflow:planning-a-feature` at conception. It and the `**REQUIRED SUB-SKILL:**` markers inside each skill body drive every box above. Which skill owns which part of the flow:
 
 | Part of the flow | Skill |
 | --- | --- |
@@ -51,15 +48,11 @@ skill owns which part of the flow:
 | Verify-before-done | `superpowers:verification-before-completion` |
 | Open / flip pull requests | `feature-dev-workflow:opening-a-pull-request` |
 
-`superpowers:*` skills come from the [superpowers](https://github.com/obra/superpowers)
-plugin (a prerequisite, see below).
+`superpowers:*` skills come from the [superpowers](https://github.com/obra/superpowers) plugin (a prerequisite, see below).
 
 ### Project commands (optional)
 
-The skills run your project's checks before claiming work done, discovering the commands
-from this file, the build config (Makefile, package.json, …), or `gh` (for the repo). If
-your test / lint / typecheck commands aren't obvious from the build config, name them here
-so sessions don't have to guess:
+The skills run your project's checks before claiming work done, discovering the commands from this file, the build config (Makefile, package.json, …), or `gh` (for the repo). If your test / lint / typecheck commands aren't obvious from the build config, name them here so sessions don't have to guess:
 
 - **Test:** `<your test command>`
 - **Lint:** `<your lint command>`

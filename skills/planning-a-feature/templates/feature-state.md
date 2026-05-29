@@ -14,15 +14,7 @@ consumer-wave | review | merged.
 -->
 
 ---
-feature: <slug>
-spec: docs/superpowers/specs/YYYY-MM-DD-<slug>-design.md
-plan: docs/superpowers/plans/YYYY-MM-DD-<slug>-plan.md
-tracking_issue: #<epic-num>
-feature_branch: feature/<slug>                # omit for single-PR features
-feature_worktree: .claude/worktrees/<slug>    # the main integration worktree; omit for single-PR
-sub_pr_approval: autonomous                   # autonomous | manual; omit for single-PR (see developing-a-feature Step 2)
-integration_pr: #<pr>      # filled in once the feature → main PR opens
-status: planning
+feature: <slug> spec: docs/superpowers/specs/YYYY-MM-DD-<slug>-design.md plan: docs/superpowers/plans/YYYY-MM-DD-<slug>-plan.md tracking_issue: #<epic-num> feature_branch: feature/<slug>                # omit for single-PR features feature_worktree: .claude/worktrees/<slug>    # the main integration worktree; omit for single-PR sub_pr_approval: autonomous                   # autonomous | manual; omit for single-PR (see developing-a-feature Step 2) integration_pr: #<pr>      # filled in once the feature → main PR opens status: planning
 ---
 
 # <Feature title> — orchestration state
@@ -94,5 +86,4 @@ For a fresh Claude session resuming this work:
 3. Read the spec at the path in the `spec:` frontmatter.
 4. Verify each open PR's actual state via `gh pr view <num>`.
 5. For each `in-progress` or `draft` row, `cd` to the worktree path and check `git status` + `git log --oneline main..HEAD`.
-6. Re-dispatch subagents as needed per `feature-dev-workflow:developing-a-feature` (parallel waves still in flight; the orchestrator watch
-   loop continues).
+6. Re-dispatch subagents as needed per `feature-dev-workflow:developing-a-feature` (parallel waves still in flight; the orchestrator watch loop continues).
