@@ -1,6 +1,6 @@
 {
   "name": "feature-dev-workflow",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Make AI feature development visible and reviewable, from spec to shipped PRs.",
   "author": {
     "name": "Ægir Máni Hauksson",
