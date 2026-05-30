@@ -76,9 +76,14 @@ One cycle, in order:
    It polls `gh api .../pulls/<pr>/reviews` for a Copilot review newer than `$SINCE` and exits 0 (printing the review) when one lands, or 124 on timeout. The harness re-invokes the session when it exits. Do **not** write a foreground `sleep`/`until` loop — foreground sleep is blocked and it freezes the session.
 4. **Triage every open review comment** — Copilot's new ones plus any human comments already on the PR. **REQUIRED SUB-SKILL:** `superpowers:receiving-code-review`. Verify each against the codebase. No performative agreement, no blind implementation. Copilot is confidently wrong often enough that "apply all suggestions" is the wrong default.
 5. **Address.** Apply the comments that are correct, one at a time, testing each; reply in the comment thread stating what changed; resolve the thread (`resolveReviewThread`). For a comment that is wrong or a judgment call, **do not silently apply or silently ignore** — handle the pushback per the calling context (below).
-6. **Re-request and loop.** Commit and push the fixes (commit convention from the project's CLAUDE.md). Capture a fresh watermark, then re-trigger Copilot with **remove-then-re-add** (`gh pr edit <pr> --remove-reviewer "@copilot"` then `--add-reviewer "@copilot"`) — a plain re-add often no-ops once Copilot has already reviewed. Launch the background wait (Step 3) against the new watermark and return to Step 4 when a new review lands.
+6. **Re-request and loop.** Capture a fresh watermark *first*, then commit and push the fixes (commit convention from the project's CLAUDE.md). Now **wait before re-requesting** — launch the background wait (Step 3) against that watermark:
 
-   **If the wait times out with no new review, the re-request did not fire — STOP, do not spin.** Re-requesting is inherently unreliable (GitHub exposes no dependable programmatic re-review; Copilot does not reliably auto-review on push either). Report that automated re-review could not be triggered and point the user at the robust path: enable a **repo ruleset that runs Copilot code review on every push**, which makes the loop reliable, or click the re-request (🔄) icon in the PR's Reviewers menu. Do not loop further against a reviewer that isn't responding.
+   - **A repo that runs Copilot review on every push will produce the new review from the push alone.** Waiting first lets that auto-review land and counts it (it is newer than the pre-push watermark). Re-requesting on top of it would double the review — so do not re-request until the wait has had a chance to catch a push-triggered review.
+   - **Only if that wait times out with no new review**, re-trigger explicitly with **remove-then-re-add** (`gh pr edit <pr> --remove-reviewer "@copilot"` then `--add-reviewer "@copilot"`) — a plain re-add often no-ops once Copilot has already reviewed — and launch the wait once more.
+
+   When a new review lands (from either path), return to Step 4.
+
+   **If the second wait also times out, STOP — do not spin.** Re-requesting is inherently unreliable (GitHub exposes no dependable programmatic re-review; Copilot does not reliably auto-review on push either). Report that automated re-review could not be triggered and point the user at the robust path: enable a **repo ruleset that runs Copilot code review on every push**, which makes the loop reliable, or click the re-request (🔄) icon in the PR's Reviewers menu. Do not loop further against a reviewer that isn't responding.
 
 ## Termination
 
@@ -119,5 +124,6 @@ Requesting the reviewer, replying in threads, resolving threads, and pushing are
 | "Still finding nits — one more round" | Past the 3-round cap, non-convergence is a signal to hand back, not to loop harder. |
 | "A Copilot review exists, so we're clean" | Only a review *after your last push* counts. An earlier-round review is stale. |
 | "I re-added Copilot, so a fresh review is coming" | Re-request is unreliable and a plain re-add often no-ops after Copilot already reviewed. Use remove-then-re-add, and confirm a new review by watermark — if none arrives before the wait times out, stop and recommend the on-push ruleset. |
+| "I pushed the fixes, now re-request immediately" | If the repo auto-reviews on push, the push already triggers a review; an immediate re-request doubles it. Capture the watermark before pushing, wait for the push-triggered review first, and re-request only if it doesn't arrive. |
 | "Copilot raised this again, so it's a new problem" | A re-review may repeat comments you already addressed or dismissed. Re-verify against the current diff before acting. |
 | "I'll auto-dismiss the comment I disagree with" | Wrong/judgment-call comments get pushback (interactive) or a bubble-up concern (fan-out) — never a silent drop. |
