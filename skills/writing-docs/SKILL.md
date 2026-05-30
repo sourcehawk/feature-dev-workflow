@@ -56,6 +56,13 @@ These are documentation, but other skills own them. Point there; do not duplicat
 - **Release notes / changelog "why"** → `feature-dev-workflow:drafting-a-release`.
 - **Spec / ADR / plan** → `feature-dev-workflow:planning-a-feature`. These are internal records of how the work was decided and built, not consumer-facing.
 
+## Anti-patterns
+
+- **Calling docs done on the strength of your own read.** You wrote them, so they always read clearly to you; that is the one judgment that cannot find a gap. Until a reader who has only the page passes, you are guessing.
+- **A diagram or section that answers no reader question.** Content that survives because it "looks thorough." If no persona's question needs it, the refactor step cuts it.
+- **Hand-drawing a diagram in ASCII.** An ASCII sketch is not a rendered diagram — it misaligns and rots. Use Mermaid, or prose if the relationship does not need a picture.
+- **Documenting an internal artifact, or re-documenting one another skill owns.** A spec, plan, or docstring written up here as public docs creates a second source of truth. Keep to consumer-facing docs; point at the owning skill for the rest.
+
 ## Red flags
 
 | Thought | Reality |
