@@ -57,7 +57,7 @@ while :; do
   # the loop simply tries again next interval — only a genuine timeout exits 124,
   # keeping the exit code unambiguous for the caller (0 found / 124 timed out).
   found=$(gh api "repos/$REPO/pulls/$PR/reviews" --paginate --jq "$filter" 2>/dev/null || true)
-  if [ -n "$found" ] && [ "$found" != "[]" ]; then
+  if [ -n "$found" ]; then
     printf '%s\n' "$found"
     exit 0
   fi
