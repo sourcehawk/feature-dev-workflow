@@ -98,7 +98,13 @@ Sub-PRs into the feature branch are owned by `feature-dev-workflow:fanning-out-w
 
 Delete the plan + state file once the work is genuinely done. The spec stays — it's the durable ADR. The plan and state file are scratch; leaving them committed past readiness pollutes the repo with stale operational state that future `grep`s have to wade through.
 
-**Do NOT tear down until the integration PR's CI is green.** The state file is the resume contract for exactly the case where the PR's CI comes back red and you have to fix forward — tear it down before CI confirms and a failed run leaves you fixing forward with no recorded state. So the teardown is the **last commit on the feature branch, pushed only after the integration PR's CI passes** — never as the commit *before opening* the PR, and never on "local green" or "flipped ready" alone (those are not the CI gate). For single-PR features, same rule: fold the deletion in only once the PR's CI is green. Until then, keep updating the state file as reality moves.
+**The teardown is the last commit on the feature branch; what gates it depends on whether the repo runs CI on the integration PR.** Settle that first by inspecting the repo's CI configuration — is a pipeline wired to run on this PR's branch? Decide from the configuration, not from a momentary `gh pr checks` reading: zero checks *reported* can mean either "no CI exists" or "CI hasn't registered yet," and you can't tell those apart by polling.
+
+**CI is configured to run on the PR →** do NOT tear down until its checks are green. The state file is the resume contract for exactly the case where CI comes back red and you have to fix forward — tear it down before CI confirms and a failed run leaves you fixing forward with no recorded state. Push the teardown only after the checks pass — never as the commit *before opening* the PR, and never on "local green" or "flipped ready" alone (those are not the CI gate).
+
+**No CI is configured to run on the PR →** the full local suite you already pasted via `superpowers:verification-before-completion` is the gate, so proceed. Nothing async can come back red, so there is no resume contract to protect and nothing to wait for — polling for checks the configuration shows will never appear only stalls the workflow.
+
+Single-PR features follow the same two branches. Until you tear down, keep updating the state file as reality moves.
 
 ## Anti-patterns
 
@@ -116,4 +122,5 @@ Delete the plan + state file once the work is genuinely done. The spec stays —
 | "The state file is for the planner, I don't need to update it during dev" | The state file is the resume contract. Every transition is your responsibility while dev is in flight. |
 | "I'll open the integration PR before the last sub-PR is self-merged" | The integration PR's diff is supposed to be the whole feature. An in-flight sub-PR means the integration PR will be re-pushed mid-review. Wait. |
 | "I'll create `feature/<slug>` off `origin/main` in step 3"           | Planning already created it and committed the spec/plan/state onto it. `-b feature/<slug>` errors ("already exists") and re-creating off `origin/main` orphans the planning artifacts. Reuse the existing branch; attach a worktree to it. |
-| "Tests pass locally and the PR is ready, so I'll tear down plan/state now" | Local green and "ready" aren't the CI gate. If the integration PR's CI comes back red you fix forward — with no state file if you deleted it. Tear down only after the PR's CI is green. |
+| "Tests pass locally and the PR is ready, so I'll tear down plan/state now" | When CI runs on the PR, local green and "ready" aren't the gate — if it comes back red you fix forward, with no state file if you deleted it. Tear down on the PR's checks going green. (Repo has no CI configured for this branch? Then the local suite *is* the gate — proceed.) |
+| "`gh pr checks` reports no checks, so I'll keep polling until CI shows up" | Zero checks reported isn't the same as CI pending. Inspect the repo's CI configuration: if no pipeline runs on this branch, none will ever appear and polling just stalls the workflow. Proceed on the local suite you already pasted. |
