@@ -46,6 +46,7 @@ Invoke `feature-dev-workflow:planning-a-feature` at conception. It and the `**RE
 | The worktree fan-out loop + wave merges | `feature-dev-workflow:fanning-out-with-worktrees` |
 | Checkpoints between waves & before the integration PR | `feature-dev-workflow:reviewing-feature-progress` |
 | End-to-end tests for a new user/consumer-visible flow (once structurally complete) | `feature-dev-workflow:testing-end-to-end` |
+| Public-facing docs for what the feature changed (once structurally complete) | `feature-dev-workflow:writing-docs` |
 | Verify-before-done | `superpowers:verification-before-completion` |
 | Open / flip pull requests | `feature-dev-workflow:opening-a-pull-request` |
 
