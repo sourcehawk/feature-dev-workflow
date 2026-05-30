@@ -39,6 +39,12 @@ DEADLINE=$(( $(date +%s) + TIMEOUT ))
 # copilot-pull-request-reviewer[bot]; the broad test() guards against the
 # identity surfacing under a variant login. The watermark is interpolated as a
 # jq string literal — safe because an ISO-8601 timestamp has no jq metacharacters.
+#
+# The `submitted_at > $SINCE` comparison is a plain string comparison. That is
+# correct here because the GitHub REST API always returns timestamps as UTC
+# ISO-8601 with a `Z` suffix (e.g. 2026-05-30T22:47:51Z), a fixed-width format
+# whose lexical order matches chronological order. Capture SINCE in the same
+# format (`date -u +%Y-%m-%dT%H:%M:%SZ`) and the comparison holds.
 filter="[.[]
   | select((.user.login==\"$BOT\") or (.user.login|test(\"[Cc]opilot\")))
   | select(.submitted_at > \"$SINCE\")
@@ -46,7 +52,11 @@ filter="[.[]
   | sort_by(.submitted_at) | reverse"
 
 while :; do
-  found=$(gh api "repos/$REPO/pulls/$PR/reviews" --paginate --jq "$filter")
+  # Tolerate transient gh/network failures: `|| true` keeps a blip or a rate-limit
+  # from killing the poller under `set -e`. A failed poll yields empty output, so
+  # the loop simply tries again next interval — only a genuine timeout exits 124,
+  # keeping the exit code unambiguous for the caller (0 found / 124 timed out).
+  found=$(gh api "repos/$REPO/pulls/$PR/reviews" --paginate --jq "$filter" 2>/dev/null || true)
   if [ -n "$found" ] && [ "$found" != "[]" ]; then
     printf '%s\n' "$found"
     exit 0
