@@ -46,6 +46,13 @@ For sequential single-PR work, skip to Step 4. For multi-PR work, dispatch paral
 
 Record the choice in the state file's frontmatter as `sub_pr_approval: autonomous` or `sub_pr_approval: manual`. The fan-out skill reads this field at every sub-PR ripening to decide whether to gate on user approval. Default if the field is missing in an older state file: `autonomous` (preserves the original behaviour).
 
+**Sub-PR review-loop (multi-PR only).** Immediately after the approval-mode choice, ask a second `AskUserQuestion`: should each sub-PR run an automated review-loop and come back clean before it is self-merged? This is opt-in and independent of the approval mode.
+
+- **On** — at each sub-PR's ripening, the orchestrator runs `feature-dev-workflow:review-loop` against the open sub-PR before the existing `review`-skill pass and self-merge. A comment the loop wants to push back on does not pause the fan-out; it is logged as a bubble-up concern and surfaced at the wave checkpoint.
+- **Off** (default) — ripening is unchanged.
+
+Record the choice as `sub_pr_review_loop: on` or `sub_pr_review_loop: off`. The fan-out skill reads it at every ripening. Default if the field is missing in an older state file: `off` (preserves the original behaviour).
+
 ### 3. Set up the implementation environment
 
 - **Multi-PR (feature-branch model)** — `feature/<slug>` already exists, created and pushed by `feature-dev-workflow:planning-a-feature` and carrying the committed spec/plan/state. **Reuse it; never re-create it** off `origin/main` — that errors (`fatal: a branch named 'feature/<slug>' already exists`) and would orphan the planning artifacts. If planning already made the integration worktree at `.claude/worktrees/<slug>`, just `cd` into it. Otherwise attach one to the existing branch:
@@ -101,6 +108,10 @@ Record the choice in the state file's frontmatter as `sub_pr_approval: autonomou
 - **Multi-PR integration PR** → PR targets `main` from `feature/<slug>` (`gh pr create --base main --head feature/<slug>`). Body opens with `Closes #<epic>` so the epic auto-closes on merge. This is the PR external reviewers see; the diff is the whole feature.
 
 Sub-PRs into the feature branch are owned by `feature-dev-workflow:fanning-out-with-worktrees`, not this step.
+
+Once the PR to main is open — the single-PR PR, or the multi-PR integration PR — ask the user (via `AskUserQuestion`) whether to run an automated review-loop on it before handing off for external human review. If yes, **OPTIONAL SUB-SKILL:** `feature-dev-workflow:review-loop` against this PR; it drives the PR's automated (Copilot) review to clean. This is the interactive context, so a comment the loop wants to push back on pauses for the user. If no, hand off as-is.
+
+Run the loop on the **final** PR diff. The Step 7 teardown is the last commit on the branch, so a review run before it goes stale against what external reviewers actually see. If the teardown will land after a clean review, defer the loop until after the teardown commit (or re-run it afterward) — and when CI gates the teardown, that means running the loop once the teardown commit is pushed and green, not at PR-open.
 
 ### 7. Tear down the planning artifacts
 
