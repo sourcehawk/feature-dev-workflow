@@ -103,6 +103,8 @@ Sub-PRs into the feature branch are owned by `feature-dev-workflow:fanning-out-w
 
 Once the PR to main is open — the single-PR PR, or the multi-PR integration PR — ask the user (via `AskUserQuestion`) whether to run an automated review-loop on it before handing off for external human review. If yes, **OPTIONAL SUB-SKILL:** `feature-dev-workflow:review-loop` against this PR; it drives the PR's automated (Copilot) review to clean. This is the interactive context, so a comment the loop wants to push back on pauses for the user. If no, hand off as-is.
 
+Run the loop on the **final** PR diff. The Step 7 teardown is the last commit on the branch, so a review run before it goes stale against what external reviewers actually see. If the teardown will land after a clean review, defer the loop until after the teardown commit (or re-run it afterward) — and when CI gates the teardown, that means running the loop once the teardown commit is pushed and green, not at PR-open.
+
 ### 7. Tear down the planning artifacts
 
 Delete the plan + state file once the work is genuinely done. The spec stays — it's the durable ADR. The plan and state file are scratch; leaving them committed past readiness pollutes the repo with stale operational state that future `grep`s have to wade through.

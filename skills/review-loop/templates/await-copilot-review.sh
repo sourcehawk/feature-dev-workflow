@@ -35,28 +35,40 @@ BOT="copilot-pull-request-reviewer[bot]"
 DEADLINE=$(( $(date +%s) + TIMEOUT ))
 
 # jq filter (run by gh's built-in engine): Copilot-authored reviews submitted
-# after the watermark, newest first. The bot's author login in /reviews is
+# after the watermark. The bot's author login in /reviews is
 # copilot-pull-request-reviewer[bot]; the broad test() guards against the
 # identity surfacing under a variant login. The watermark is interpolated as a
 # jq string literal — safe because an ISO-8601 timestamp has no jq metacharacters.
 #
-# The `submitted_at > $SINCE` comparison is a plain string comparison. That is
-# correct here because the GitHub REST API always returns timestamps as UTC
-# ISO-8601 with a `Z` suffix (e.g. 2026-05-30T22:47:51Z), a fixed-width format
-# whose lexical order matches chronological order. Capture SINCE in the same
-# format (`date -u +%Y-%m-%dT%H:%M:%SZ`) and the comparison holds.
-filter="[.[]
+# The filter emits each matching review as a bare object, NOT wrapped in an outer
+# array. This is deliberate: gh runs the --jq filter once per page under
+# --paginate and concatenates the outputs (and --slurp is rejected together with
+# --jq). An array-wrapped filter would emit an empty array for every page with no
+# match, so a multi-page no-match would print several empty arrays in a row —
+# non-empty output, which the loop would misread as "review found". Emitting bare
+# objects means a no-match prints nothing on every page, so the output is
+# genuinely empty and the -n test below is correct.
+#
+# submitted_at > SINCE is a plain string comparison, which is correct here: the
+# GitHub REST API always returns UTC ISO-8601 with a Z suffix (fixed-width, so
+# lexical order == chronological order). Capture SINCE the same way
+# (date -u +%Y-%m-%dT%H:%M:%SZ) and the comparison holds.
+filter=".[]
   | select((.user.login==\"$BOT\") or (.user.login|test(\"[Cc]opilot\")))
   | select(.submitted_at > \"$SINCE\")
-  | {id, state, submitted_at, body}]
-  | sort_by(.submitted_at) | reverse"
+  | {id, state, submitted_at, body}"
 
 while :; do
-  # Tolerate transient gh/network failures: `|| true` keeps a blip or a rate-limit
-  # from killing the poller under `set -e`. A failed poll yields empty output, so
-  # the loop simply tries again next interval — only a genuine timeout exits 124,
-  # keeping the exit code unambiguous for the caller (0 found / 124 timed out).
-  found=$(gh api "repos/$REPO/pulls/$PR/reviews" --paginate --jq "$filter" 2>/dev/null || true)
+  # Capture output ONLY when gh succeeds. On an HTTP error (404, rate-limit, a
+  # network blip) gh prints the error body to stdout AND exits non-zero; the
+  # if-guard discards that body and leaves found empty, so an error is never
+  # mistaken for a review. This also tolerates transient failures under set -e:
+  # a failed poll just retries next interval, and only a genuine timeout exits
+  # 124 — keeping the exit code unambiguous for the caller (0 found / 124 timed).
+  found=""
+  if out=$(gh api "repos/$REPO/pulls/$PR/reviews" --paginate --jq "$filter" 2>/dev/null); then
+    found="$out"
+  fi
   if [ -n "$found" ]; then
     printf '%s\n' "$found"
     exit 0
