@@ -49,6 +49,7 @@ Invoke `feature-dev-workflow:planning-a-feature` at conception. It and the `**RE
 | Public-facing docs for what the feature changed (once structurally complete) | `feature-dev-workflow:writing-docs` |
 | Verify-before-done | `superpowers:verification-before-completion` |
 | Open / flip pull requests | `feature-dev-workflow:opening-a-pull-request` |
+| Loop a PR through automated (Copilot) review until clean (opt-in) | `feature-dev-workflow:review-loop` |
 
 `superpowers:*` skills come from the [superpowers](https://github.com/obra/superpowers) plugin (a prerequisite, see below).
 
