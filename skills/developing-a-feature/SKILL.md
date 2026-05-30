@@ -81,11 +81,19 @@ Record the choice as `sub_pr_review_loop: on` or `sub_pr_review_loop: off`. The 
 
 - **Multi-PR** — **REQUIRED SUB-SKILL:** `feature-dev-workflow:fanning-out-with-worktrees`. The skill owns parallel dispatch, multi-wave ordering, the orchestrator watch loop, per-sub-PR review (via the `review` skill, orchestrator-driven — the worktree subagent does not review its own PR), self-merge into the feature branch, manual sub-issue close, and state-file maintenance. Returns control here when every sub-PR is self-merged and every contract is `locked`.
 
-- **Single-PR** — the orchestrator implements directly in the worktree from Step 3:
-  - **REQUIRED SUB-SKILL:** `superpowers:test-driven-development` for every code change.
-  - **REQUIRED SUB-SKILL:** `feature-dev-workflow:testing-a-feature` for the assertion shape — black-box against the contract, not implementation.
-  - Commits follow CLAUDE.md conventions: `<type>(<area>): <imperative summary> (#<feature-issue>)`.
-  - Run the project's test and lint commands (and typecheck, if it has one) before claiming work is done. Discover them from the project's CLAUDE.md / AGENTS.md or its build config (Makefile, package.json, etc.).
+- **Single-PR** — the build mode depends on the plan's task shape. Read the committed plan's task list and count the tasks that are **independent** (no task depends on another's output — they could, in principle, be built in any order). The integration task that ties them together does not count toward independence; it consumes the others.
+
+  - **2+ independent tasks → drive the build task-by-task with review between tasks.** **REQUIRED SUB-SKILL:** `superpowers:subagent-driven-development`. The orchestrator (this session — the main loop, which *can* dispatch subagents) runs that skill's loop engine: a fresh implementer subagent per task with full task text handed in, then review, fix-loop, and continuous execution across all tasks. Two adaptations keep it consistent with the rest of this plugin:
+    - **Per-task review is the `review` skill** (the same mechanism `feature-dev-workflow:fanning-out-with-worktrees` uses for sub-PRs), run by the orchestrator — not the implementer subagent that wrote the task. Run it as two scoped passes, spec-compliance first as a gate, then code quality; route findings back to the implementer and re-run until clean.
+    - Each implementer subagent uses **`superpowers:test-driven-development`** + **`feature-dev-workflow:testing-a-feature`** for its task, exactly as the direct path below.
+
+    Why conditional: SDD's premise is independent tasks. Below that threshold the dispatch overhead and context hand-off cost more than they return, so the direct path is correct. This is the in-session analogue of the multi-PR fan-out — same "author and reviewer are different contexts" discipline, one PR instead of many.
+
+  - **Fewer than 2 independent tasks (one cohesive change, or a strictly sequential chain) → the orchestrator implements directly in the worktree from Step 3:**
+    - **REQUIRED SUB-SKILL:** `superpowers:test-driven-development` for every code change.
+    - **REQUIRED SUB-SKILL:** `feature-dev-workflow:testing-a-feature` for the assertion shape — black-box against the contract, not implementation.
+
+  Either way: commits follow CLAUDE.md conventions (`<type>(<area>): <imperative summary> (#<feature-issue>)`), and you run the project's test and lint commands (and typecheck, if it has one) before claiming work is done. Discover them from the project's CLAUDE.md / AGENTS.md or its build config (Makefile, package.json, etc.).
 
 ### 5. Checkpoint review before opening the final PR
 
@@ -135,3 +143,5 @@ Single-PR features follow the same two branches. Until you tear down, keep updat
 | "I'll create `feature/<slug>` off `origin/main` in step 3"           | Planning already created it and committed the spec/plan/state onto it. `-b feature/<slug>` errors ("already exists") and re-creating off `origin/main` orphans the planning artifacts. Reuse the existing branch; attach a worktree to it. |
 | "Tests pass locally and the PR is ready, so I'll tear down plan/state now" | When CI runs on the PR, local green and "ready" aren't the gate — if it comes back red you fix forward, with no state file if you deleted it. Tear down on the PR's checks going green. (Repo has no CI configured for this branch? Then the local suite *is* the gate — proceed.) |
 | "`gh pr checks` reports no checks, so I'll keep polling until CI shows up" | Zero checks reported isn't the same as CI pending. Inspect the repo's CI configuration: if no pipeline runs on this branch, none will ever appear and polling just stalls the workflow. Proceed on the local suite you already pasted. |
+| "It's one PR, I'll just implement all the tasks myself in this session" | If the plan has 2+ independent tasks, that skips per-task review — the author and reviewer are the same context, so the bug that slipped into task 1 survives into the PR. Count the independent tasks; at 2+ drive it through `superpowers:subagent-driven-development`. |
+| "The tasks are independent, so I'll knock them out back-to-back myself" | Independence is the signal *for* task-by-task dispatch with review between, not against it — it's exactly when SDD pays off. Direct implementation is for one cohesive change or a strictly sequential chain. |
