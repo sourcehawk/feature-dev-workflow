@@ -26,14 +26,16 @@ You cannot be that reader. You carry the whole feature in your head, so the draf
 
 ## The loop
 
-1. **Name the reader personas and their questions.** Who reads this, and the concrete questions each must answer or tasks each must complete. A doc often serves two at once — a newcomer who needs zero-to-working, and an experienced reader scanning for depth. Name each. The personas and their questions are the test.
+1. **Locate the doc surfaces and their levels.** Before writing, go find where this project's docs actually live and what each is for — a README (entry point: what it is, install, one taste, links out), a `docs/` tree or generated site / homepage (depth: task guides and exhaustive reference), a wiki (often dev-internal). Look, don't assume: check the repo for a `docs/` directory and a docs-site config, and follow the links the README already points to. Decide which surface(s) this change belongs in and at what level, and where a pointer is needed so the surfaces cross-link instead of duplicating. Don't assume the README is the only home, and don't pour reference depth into it — a project with a docs site wants the depth there and only a pointer in the README.
 
-2. **RED — run the reader, do not imagine it.** Dispatch a fresh subagent per persona, given *only* the current doc text — no codebase, no outside knowledge, no access to you — and that persona's questions. Record verbatim where it cannot answer, answers wrong, or guesses. "It reads clearly to me" and "a new reader could probably follow this" are not the test; an actual fresh reader failing a question is. If every persona answers everything, the change is not needed — stop.
+2. **Name the reader personas and their questions.** Who reads this, and the concrete questions each must answer or tasks each must complete. A doc often serves two at once — a newcomer who needs zero-to-working, and an experienced reader scanning for depth. Name each, per surface where more than one is in play. The personas and their questions are the test.
+
+3. **RED — run the reader, do not imagine it.** Dispatch a fresh subagent per persona, given *only* the current doc text — no codebase, no outside knowledge, no access to you — and that persona's questions. Record verbatim where it cannot answer, answers wrong, or guesses. "It reads clearly to me" and "a new reader could probably follow this" are not the test; an actual fresh reader failing a question is. If every persona answers everything, the change is not needed — stop.
    If you genuinely cannot dispatch a subagent, simulate the reader: answer each question using *only* the words on the page, nothing you know from building the feature. Treat that result as provisional — a real fresh-reader pass is still owed before the docs are called done. "Dispatch is unavailable" is never a license to fall back to judging your own draft.
 
-3. **GREEN.** Write or update the doc to close exactly those gaps. A fresh subagent per persona, given only the new doc, answers all its questions and completes its task. The novice succeeds from the early sections; the advanced reader finds depth later; the advanced material does not block the novice. That ordering is progressive disclosure — proven by the test, not asserted.
+4. **GREEN.** Write or update the doc to close exactly those gaps. A fresh subagent per persona, given only the new doc, answers all its questions and completes its task. The novice succeeds from the early sections; the advanced reader finds depth later; the advanced material does not block the novice. That ordering is progressive disclosure — proven by the test, not asserted.
 
-4. **REFACTOR.** Cut anything that served no persona's question. Length is justified only by a question it answers. "Shorter" is never the goal; "no unearned content" is.
+5. **REFACTOR.** Cut anything that served no persona's question. Length is justified only by a question it answers. "Shorter" is never the goal; "no unearned content" is.
 
 ## Device and depth selection
 
@@ -58,6 +60,7 @@ These are documentation, but other skills own them. Point there; do not duplicat
 
 ## Anti-patterns
 
+- **Assuming the README is the only doc home.** Writing without checking where the project's docs live. A project with a docs site or `docs/` tree wants the depth there and a pointer in the README; dumping everything into the README duplicates that content and rots.
 - **Calling docs done on the strength of your own read.** You wrote them, so they always read clearly to you; that is the one judgment that cannot find a gap. Until a reader who has only the page passes, you are guessing.
 - **A diagram or section that answers no reader question.** Content that survives because it "looks thorough." If no persona's question needs it, the refactor step cuts it.
 - **Hand-drawing a diagram in ASCII.** An ASCII sketch is not a rendered diagram — it misaligns and rots. Use Mermaid, or prose if the relationship does not need a picture.
@@ -67,6 +70,7 @@ These are documentation, but other skills own them. Point there; do not duplicat
 
 | Thought | Reality |
 |---------|---------|
+| "I'll document it in the README" | Check where the docs actually live first. If the project has a docs site or `docs/` tree, the README may warrant only a pointer to the real home. |
 | "It reads clearly to me" / "a new reader could probably follow this" | You hold the whole feature in your head. Run an actual fresh reader with only the doc; your read proves nothing. |
 | "I'll write the docs from what I just built and check them myself" | Self-check is not the test. The reader who has only the page is. |
 | "ASCII renders fine in plain markdown, no Mermaid dependency" | It renders as literal characters, not a diagram. Mermaid is not a dependency — GitHub renders it natively from source. Use a `mermaid` block. |
