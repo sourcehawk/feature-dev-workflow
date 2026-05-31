@@ -39,6 +39,8 @@ Requires `gh` ≥ 2.88.0 (`gh --version`). Not available on GitHub Enterprise Se
 
 ```dot
 digraph review_loop {
+    "Un-triaged review on\ncurrent head?" [shape=diamond];
+    "Repo auto-reviews on push?\n(review arrives without a request)" [shape=diamond];
     "Capture watermark, request Copilot" [shape=box];
     "Attached?" [shape=diamond];
     "Copilot unavailable:\ntriage existing human comments, exit" [shape=box];
@@ -50,6 +52,10 @@ digraph review_loop {
     "Done: clean" [shape=doublecircle];
     "Stop, report what remains" [shape=box];
 
+    "Un-triaged review on\ncurrent head?" -> "Triage every open comment\n(receiving-code-review)" [label="yes"];
+    "Un-triaged review on\ncurrent head?" -> "Repo auto-reviews on push?\n(review arrives without a request)" [label="no"];
+    "Repo auto-reviews on push?\n(review arrives without a request)" -> "Wait in BACKGROUND for new review" [label="yes: wait for it"];
+    "Repo auto-reviews on push?\n(review arrives without a request)" -> "Capture watermark, request Copilot" [label="no: request"];
     "Capture watermark, request Copilot" -> "Attached?";
     "Attached?" -> "Copilot unavailable:\ntriage existing human comments, exit" [label="no"];
     "Attached?" -> "Wait in BACKGROUND for new review" [label="yes"];
@@ -63,10 +69,17 @@ digraph review_loop {
 }
 ```
 
+**On entry, before the first request — take stock.** Before you touch the reviewer, look at what is already on the PR:
+
+- **An un-triaged review on the current head is this round's review — triage it, do not request another.** List Copilot reviews (`gh api .../pulls/<pr>/reviews`, author `copilot-pull-request-reviewer[bot]`) and the open threads. If a Copilot review already covers the current head commit and its comments are unaddressed, go straight to triage (Step 4). Firing `--add-reviewer` on top of an un-triaged review just duplicates the request and re-surfaces the same comments.
+- **If the repo auto-reviews on push, pushing is the trigger — never stack an explicit request on it.** Check the PR timeline for "review requested due to automatic review settings", or a ruleset that runs Copilot review on push. When that is on, a push produces the review by itself, so an explicit `--add-reviewer` on top double-fires. This is the same rule Step 6 relies on for re-requests, applied to the first request too.
+
+Fall through to Step 1's explicit request only when there is nothing current to triage **and** a push will not produce the review for you — the PR has never been reviewed and the repo does not auto-review, or the only existing review predates the latest push (its comments are on stale code).
+
 One cycle, in order:
 
-1. **Capture the watermark, then request.** `SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)` *before* `gh pr edit <pr> --add-reviewer "@copilot"`. The watermark is what distinguishes the new review from a stale one left by an earlier round.
-2. **Confirm Copilot attached.** `gh pr view <pr> --json reviewRequests`. If Copilot is **not** in the list, it is unavailable for this repo/plan (or `gh` is too old / this is GHES). Do **not** start waiting — there is no reviewer to produce a review. Instead do one triage pass over any human comments already on the PR (Step 3), state that Copilot review is unavailable, and exit. There is no loop without an automated reviewer to re-request.
+1. **Capture the watermark, then request — only when the entry check says you need to.** `SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)` *before* `gh pr edit <pr> --add-reviewer "@copilot"`. The watermark is what distinguishes the new review from a stale one left by an earlier round. Skip this step and go straight to triage (Step 4) when a current un-triaged review already exists, or when a push you are about to make will auto-trigger the review.
+2. **Confirm Copilot attached.** `gh pr view <pr> --json reviewRequests`. If Copilot is **not** in the list, it is unavailable for this repo/plan (or `gh` is too old / this is GHES). Do **not** start waiting — there is no reviewer to produce a review. Instead do one triage pass over any human comments already on the PR (Step 4), state that Copilot review is unavailable, and exit. There is no loop without an automated reviewer to re-request.
 3. **Wait in the background.** Launch the wait script with `run_in_background: true` so the session is not held hostage:
 
    ```
@@ -79,7 +92,7 @@ One cycle, in order:
 6. **Re-request and loop.** Capture a fresh watermark *first*, then commit and push the fixes (commit convention from the project's CLAUDE.md). Now **wait before re-requesting** — launch the background wait (Step 3) against that watermark:
 
    - **A repo that runs Copilot review on every push will produce the new review from the push alone.** Waiting first lets that auto-review land and counts it (it is newer than the pre-push watermark). Re-requesting on top of it would double the review — so do not re-request until the wait has had a chance to catch a push-triggered review.
-   - **Only if that wait times out with no new review**, re-trigger explicitly with **remove-then-re-add** (`gh pr edit <pr> --remove-reviewer "@copilot"` then `--add-reviewer "@copilot"`) — a plain re-add often no-ops once Copilot has already reviewed — and launch the wait once more.
+   - **What a wait timeout means depends on whether the repo auto-reviews on push — and only one case authorizes a re-trigger.** On a repo that auto-reviews on push, the push already queued the review, so a timeout means it is *latent, not absent* (auto-review can lag the push by hours). Re-triggering then stacks a second review of the same commit — do **not** re-trigger; stop and report that the push-triggered review is still pending and will land on its own schedule, and the user can resume the loop when it appears. Re-trigger explicitly with **remove-then-re-add** (`gh pr edit <pr> --remove-reviewer "@copilot"` then `--add-reviewer "@copilot"` — a plain re-add often no-ops once Copilot has already reviewed) **only** when the repo does *not* auto-review on push, so the push genuinely will not produce a review by itself; then launch the wait once more.
 
    When a new review lands (from either path), return to Step 4.
 
@@ -123,7 +136,9 @@ Requesting the reviewer, replying in threads, resolving threads, and pushing are
 | "Copilot suggested it, so apply it" | Copilot is confidently wrong often. Triage via `receiving-code-review`; verify before applying. |
 | "Still finding nits — one more round" | Past the 3-round cap, non-convergence is a signal to hand back, not to loop harder. |
 | "A Copilot review exists, so we're clean" | Only a review *after your last push* counts. An earlier-round review is stale. |
+| "There's already a review on the PR, but I'll request a fresh one to be safe" | An un-triaged review on the current head IS this round's review — triage it first. A new request duplicates it and re-surfaces the same comments. Request only when there is nothing current to act on. |
 | "I re-added Copilot, so a fresh review is coming" | Re-request is unreliable and a plain re-add often no-ops after Copilot already reviewed. Use remove-then-re-add, and confirm a new review by watermark — if none arrives before the wait times out, stop and recommend the on-push ruleset. |
-| "I pushed the fixes, now re-request immediately" | If the repo auto-reviews on push, the push already triggers a review; an immediate re-request doubles it. Capture the watermark before pushing, wait for the push-triggered review first, and re-request only if it doesn't arrive. |
+| "I pushed the fixes, now re-request immediately" | If the repo auto-reviews on push, the push already triggers a review; an immediate re-request doubles it. Capture the watermark before pushing, wait for the push-triggered review first, and re-request explicitly only on a repo that does *not* auto-review on push. |
+| "The wait timed out, so re-trigger the review" | On an auto-review-on-push repo a timeout means the review is *latent* (it can lag hours), not absent — re-triggering stacks a second review. Stop and report it is pending; only re-trigger when the repo does not auto-review on push. |
 | "Copilot raised this again, so it's a new problem" | A re-review may repeat comments you already addressed or dismissed. Re-verify against the current diff before acting. |
 | "I'll auto-dismiss the comment I disagree with" | Wrong/judgment-call comments get pushback (interactive) or a bubble-up concern (fan-out) — never a silent drop. |
