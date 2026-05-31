@@ -20,19 +20,25 @@ Copy it, fill each section per its `<!-- -->` guidance, then pass the body to `g
 
 ## Choreography
 
-Work the steps in order. Steps 2, 4, and 5 are gates — do not run ahead of the user on any of them.
+Work the steps in order. Steps 1, 3, 5, and 6 are gates — do not run ahead of the user on any of them.
 
-1. **Establish the baseline.** Find the last release and what shipped since: `gh release list` (or `git describe --tags --abbrev=0`) for the last tag, then `git log <last-tag>..` and the merged PRs in that range. This range is the raw material for both the curated sections and the changelog.
+1. **Establish the release point — ask, don't assume HEAD.** Before anything else, ask whether to cut from the current tip of the default branch or from a specific commit. Ask this on every release: even when the branch tip looks obviously fine, and even when an unfinished commit sitting on top looks obviously skippable. Where the tag lands is the user's call, not an inference you make from how the commits read.
 
-2. **Propose the version — never pick it silently.** Read the change types in the range and propose a semver bump with one line of reasoning (a breaking change forces a major; new capability is a minor; fixes-only is a patch — adjust for a pre-1.0 `0.x` line, where breaking bumps the minor). State your proposal and the reasoning, then let the user confirm or override. The version is the user's call; your job is the recommendation.
+   If they choose a specific commit, accept whatever form they give it — a commit SHA, any resolvable ref (a tag or a branch), or a description of intent ("the commit where the X landed", "everything up to PR #N"). Resolve a description to one concrete commit from `git log` and the merged-PR history, then echo back the short SHA, subject, and date and wait for an explicit yes before using it. Confirm the resolved commit even when they hand you a literal SHA — show its subject so they can catch a typo or a stale paste.
 
-3. **Draft the body from the template, reasoning about the why.** This is the work the merge list can't do for you. For each entry, lead with what the user couldn't do before and what it solves — not the PR title reworded. The raw "what" belongs in the collapsed changelog; the sections above it are the curated "why". Put any breaking change first and call it out loudly.
+   The resolved commit (or the branch tip, if that's what they chose) is `<target>` for the rest of the run: it sets the upper bound of the next step's range and the `--target` of the publish.
 
-4. **Present the full body and proposed tag, and let the user refine.** Paste the complete drafted body and the tag in chat. Invite edits and iterate until they're happy. Do not move to publishing off a body they haven't seen in full.
+2. **Establish the baseline.** Find the last release and what shipped between it and the release point: `gh release list` (or `git describe --tags --abbrev=0`) for the last tag, then `git log <last-tag>..<target>` and the merged PRs in that range. Bounding the range at `<target>` rather than HEAD keeps anything past the release point out of the notes. This range is the raw material for both the curated sections and the changelog.
 
-5. **Ask whether it's a draft or a published release.** This is the user's choice — ask it explicitly, don't default. A draft (`--draft`) stages the notes on GitHub for a final human look without going live; omitting the flag publishes immediately. If they're unsure, recommend draft (it's the reversible option) but let them decide.
+3. **Propose the version — never pick it silently.** Read the change types in the range and propose a semver bump with one line of reasoning (a breaking change forces a major; new capability is a minor; fixes-only is a patch — adjust for a pre-1.0 `0.x` line, where breaking bumps the minor). State your proposal and the reasoning, then let the user confirm or override. The version is the user's call; your job is the recommendation.
 
-6. **Confirmation gate, then create.** See below.
+4. **Draft the body from the template, reasoning about the why.** This is the work the merge list can't do for you. For each entry, lead with what the user couldn't do before and what it solves — not the PR title reworded. The raw "what" belongs in the collapsed changelog; the sections above it are the curated "why". Put any breaking change first and call it out loudly.
+
+5. **Present the full body and proposed tag, and let the user refine.** Paste the complete drafted body and the tag in chat. Invite edits and iterate until they're happy. Do not move to publishing off a body they haven't seen in full.
+
+6. **Ask whether it's a draft or a published release.** This is the user's choice — ask it explicitly, don't default. A draft (`--draft`) stages the notes on GitHub for a final human look without going live; omitting the flag publishes immediately. If they're unsure, recommend draft (it's the reversible option) but let them decide.
+
+7. **Confirmation gate, then create.** See below.
 
 ## Core principle: user-in-the-loop for the publish
 
@@ -40,7 +46,7 @@ Don't run `gh release create` without an explicit confirmation **for the exact r
 
 The confirmation you show the user spells out all four:
 
-- The **tag / version** (and target ref if not the default branch).
+- The **tag / version**, and the **commit it lands on** — the resolved short SHA when a specific commit was chosen, or the default branch tip.
 - **Draft or published.**
 - The **full notes body**.
 - The **repo**, if there's any chance of ambiguity about which one.
@@ -59,6 +65,8 @@ gh release create <tag> \
 
 ## Anti-patterns
 
+- **Tagging the branch tip because no commit was named.** Where the release is cut from is a gate, like the version. Ask whether it's the branch tip or a specific commit; don't read silence as HEAD.
+- **Picking the release point yourself from how the commits read.** A trailing "WIP" commit doesn't authorize you to silently target the one below it. Surface the choice, then confirm the resolved commit with the user.
 - **A changelog masquerading as release notes.** Grouped PR titles under Features / Fixes headings, with no reasoning, is a changelog. The curated sections must answer *why it matters*; the bare list lives in the collapsed `<details>`.
 - **No overview.** Skipping straight to bullets robs the reader of the through-line — is this routine, a headline feature, or a migration?
 - **Burying a breaking change** in the middle of a list. It goes first, flagged.
@@ -78,5 +86,8 @@ These thoughts mean the release isn't ready to publish:
 | "Breaking change is in there, the reader will see it"         | They skim. Put it first, flag it loudly, give the migration.                               |
 | "They said cut a release a minute ago, that's a yes"          | That's intent to start. Confirm the exact tag, body, and draft state now.                  |
 | "Semver is obvious, I'll just tag it"                         | Propose the bump with reasoning; the version is the user's to confirm.                     |
+| "They didn't name a commit, so cutting from HEAD is fine"     | Where the tag lands is a gate. Ask: the branch tip, or a specific commit?                  |
+| "The top commit is obviously WIP — I'll target the one below" | Don't infer the release point. Ask, then confirm the resolved commit before using it.      |
+| "They gave me a SHA, so I don't need to confirm it"           | Echo its subject and date — a typo or stale paste tags the wrong commit.                    |
 
 All of these mean: finish the curated body, present tag + body + draft state, and wait for an explicit yes.
