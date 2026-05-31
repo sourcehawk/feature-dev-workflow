@@ -39,7 +39,8 @@ Requires `gh` ≥ 2.88.0 (`gh --version`). Not available on GitHub Enterprise Se
 
 ```dot
 digraph review_loop {
-    "Take stock: un-triaged review on current head?\nrepo auto-reviews on push?" [shape=diamond];
+    "Un-triaged review on\ncurrent head?" [shape=diamond];
+    "Repo auto-reviews on push?\n(review arrives without a request)" [shape=diamond];
     "Capture watermark, request Copilot" [shape=box];
     "Attached?" [shape=diamond];
     "Copilot unavailable:\ntriage existing human comments, exit" [shape=box];
@@ -51,8 +52,10 @@ digraph review_loop {
     "Done: clean" [shape=doublecircle];
     "Stop, report what remains" [shape=box];
 
-    "Take stock: un-triaged review on current head?\nrepo auto-reviews on push?" -> "Triage every open comment\n(receiving-code-review)" [label="review already present"];
-    "Take stock: un-triaged review on current head?\nrepo auto-reviews on push?" -> "Capture watermark, request Copilot" [label="none to triage"];
+    "Un-triaged review on\ncurrent head?" -> "Triage every open comment\n(receiving-code-review)" [label="yes"];
+    "Un-triaged review on\ncurrent head?" -> "Repo auto-reviews on push?\n(review arrives without a request)" [label="no"];
+    "Repo auto-reviews on push?\n(review arrives without a request)" -> "Wait in BACKGROUND for new review" [label="yes: wait for it"];
+    "Repo auto-reviews on push?\n(review arrives without a request)" -> "Capture watermark, request Copilot" [label="no: request"];
     "Capture watermark, request Copilot" -> "Attached?";
     "Attached?" -> "Copilot unavailable:\ntriage existing human comments, exit" [label="no"];
     "Attached?" -> "Wait in BACKGROUND for new review" [label="yes"];
