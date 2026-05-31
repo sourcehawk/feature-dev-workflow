@@ -1,9 +1,9 @@
 ---
 name: writing-github-issues
 description:
-  Use when about to call `gh issue create` or `gh issue edit`, or
-  immediately after concluding a brainstorming session that needs an
-  issue to hold the work.
+  Use when about to call `gh issue create`, `gh issue edit`, or
+  `gh issue comment`, or immediately after concluding a brainstorming
+  session that needs an issue to hold the work.
 ---
 
 # writing-github-issues
@@ -12,11 +12,12 @@ description:
 
 Whenever you're about to file or edit a GitHub issue, **or** immediately after a brainstorming session lands a decision that needs an issue to hold the work.
 
-Three branches:
+Four branches:
 
 - **No issue yet**: create one (§Step 2A).
 - **Issue exists but is missing context**: update it (§Step 2B).
 - **Issue exists and is sufficient**: no GitHub-side action (§Step 2C).
+- **A development decision diverged from what the issue states**: record the decision and reconcile the body (§Step 2D).
 
 ## Core principle: user-in-the-loop for every GitHub mutation
 
@@ -172,6 +173,44 @@ The epic's body's `## Sub-issues` section auto-renders as a checklist with progr
 
 3. **No body changes.**
 
+## Step 2D: A development decision changed what the issue states (record + reconcile)
+
+When implementation diverges from what the tracking issue currently states — an acceptance criterion changes, the stated approach no longer matches what's being built, scope expands or contracts, or a described contract ships in a different shape — the issue must be brought back into truth *and* the decision recorded. A bare body edit reconciles the *what* but destroys the *why*; doing nothing leaves the issue stale and the divergence lost to history. Both are failures. This branch does both, as one confirmed change, before the feature merges.
+
+**The materiality test.** Would a reader of the issue, as it stands, be misled by what is now true on the branch? If yes, it is material — run this branch. If the change is an implementation detail the issue never claimed, or pure wording, it is not material — do nothing.
+
+**This is not the "design belongs in the PR, not the issue" case.** You are not adding fresh line-level design to the issue (§Anti-patterns still forbids that). You are recording that a decision already made changed the issue's *durable content* — its problem, stated approach, or acceptance criteria — and restoring the body to match. Keeping that content true is the issue's own job; the PR still carries the line-level design.
+
+**Which issue.** Single-PR feature → the one tracking issue. Multi-PR → the **sub-issue** when the change is scoped to that sub-PR's work; the **epic** when the change is to the design-overview-level shape the epic carries.
+
+**Commit it first.** The record links the commit that embodies the change, so the change must be committed and pushed before this branch runs. In a multi-PR feature that commit is on `feature/<slug>`, which is pushed and linkable on GitHub before the feature merges.
+
+The record and the reconcile are one logical change, confirmed together:
+
+1. **Draft the decision comment.** It states three things and nothing else:
+   - **What the issue said before** — the prior approach / criterion / scope.
+   - **What it is now** — the decision that replaced it.
+   - **Why it changed** — the operational reason the prior shape didn't hold.
+
+   It links the commit, and nothing else: `owner/repo@<sha>` (GitHub renders it) or the full commit URL. It references **no** spec path, plan path, state file, or other scratch/agent artifact — the same rule as the §Anti-patterns "Referencing the design spec ... from an issue" entry. The commit is the only pointer; the issue's own thread carries the rest.
+
+2. **Draft the reconciled body** — the existing body with the now-false content corrected to match the decision, following §Step 2B's body-drafting rules (preserve what's still true; the naming firewall still applies).
+
+3. **Confirm both together, inline.** Paste the full comment body and the full reconciled body into chat under an "About to comment on `#<num>` recording this decision, then update its body to match — both shown below. Confirm?" line. Wait for an explicit yes; the user-in-the-loop rule (§Core principle) governs both mutations — a comment is as public as an edit. On push-back, redraft and re-present.
+
+4. **Post the comment, then update the body** — comment first, so the prior state is preserved verbatim in the thread before the edit overwrites it:
+   ```
+   gh issue comment <num> --body "$(cat <<'BODY_END'
+   <comment>
+   BODY_END
+   )"
+   gh issue edit <num> --body "$(cat <<'BODY_END'
+   <reconciled body>
+   BODY_END
+   )"
+   ```
+   If either body contains the line `BODY_END`, pick a less collision-prone sentinel.
+
 ## Labels
 
 The skill assumes these labels exist in the repo:
@@ -209,6 +248,8 @@ When working a sub-issue (or a single-feature/bug issue):
 - **Acceptance criteria written as aspirations.** Each bullet has to be a verifiable condition a reviewer can answer "yes / no" against at done-time. "the service is more reliable" is not checkable; "`get_session` returns the saved record after a restart" is.
 - **Inferring consent from earlier intent.** "The user said 'file an issue' two turns ago" is not standing consent for the specific body you now want to publish. Re-confirm with the actual proposed body, every time.
 - **Updating an issue silently because the diff is small.** Even a one-line addition to a public issue is a public action the user didn't approve. Show the diff first.
+- **Reconciling a changed issue with a bare body edit.** When a development decision made the issue's stated approach or criteria false, a lone `gh issue edit` restores the *what* and erases the *why*. A material divergence gets a decision comment (before / now / why + commit link) **and** the body update, together (§Step 2D). The thread is the durable record of why the shipped thing differs from the plan.
+- **Letting "design belongs in the PR" leave the issue stale.** That rule bars dumping new line-level design into the issue; it does not excuse an issue whose stated approach or acceptance criteria are now false. Reconcile the durable content and record the decision (§Step 2D) — the PR still carries the design.
 - **Proceeding on absence of objection.** "I'll go ahead unless they stop me" is not consent. Wait for an explicit yes; the cost of waiting is low, the cost of an unwanted public mutation is high.
 - **Skipping the assignee question.** Default is to assign the user. If they decline once, note it and move on; don't keep asking on later edits.
 - **Skipping the label.** Every issue gets exactly one of `epic`, `feature`, `task`, `bug`. The label is how the issue list is navigable; an unlabeled issue is invisible to filters.
