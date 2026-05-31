@@ -1,12 +1,12 @@
 ---
-name: review-loop
+name: copilot-review-loop
 description:
   Use when asked to run a review loop on a PR, drive a PR's automated
   (Copilot) review to clean, or repeatedly request-and-address review
   until nothing new comes back.
 ---
 
-# review-loop
+# copilot-review-loop
 
 ## When to invoke
 
@@ -83,7 +83,7 @@ One cycle, in order:
 3. **Wait in the background.** Launch the wait script with `run_in_background: true` so the session is not held hostage:
 
    ```
-   ${CLAUDE_PLUGIN_ROOT}/skills/review-loop/templates/await-copilot-review.sh <pr> "$SINCE"
+   ${CLAUDE_PLUGIN_ROOT}/skills/copilot-review-loop/templates/await-copilot-review.sh <pr> "$SINCE"
    ```
 
    It polls `gh api .../pulls/<pr>/reviews` for a Copilot review newer than `$SINCE` and exits 0 (printing the review) when one lands, or 124 on timeout. The harness re-invokes the session when it exits. Do **not** write a foreground `sleep`/`until` loop — foreground sleep is blocked and it freezes the session.

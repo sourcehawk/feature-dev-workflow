@@ -48,7 +48,7 @@ Record the choice in the state file's frontmatter as `sub_pr_approval: autonomou
 
 **Sub-PR review-loop (multi-PR only).** Immediately after the approval-mode choice, ask a second `AskUserQuestion`: should each sub-PR run an automated review-loop and come back clean before it is self-merged? This is opt-in and independent of the approval mode.
 
-- **On** — at each sub-PR's ripening, the orchestrator runs `feature-dev-workflow:review-loop` against the open sub-PR before the existing `review`-skill pass and self-merge. A comment the loop wants to push back on does not pause the fan-out; it is logged as a bubble-up concern and surfaced at the wave checkpoint.
+- **On** — at each sub-PR's ripening, the orchestrator runs `feature-dev-workflow:copilot-review-loop` against the open sub-PR before the existing `review`-skill pass and self-merge. A comment the loop wants to push back on does not pause the fan-out; it is logged as a bubble-up concern and surfaced at the wave checkpoint.
 - **Off** (default) — ripening is unchanged.
 
 Record the choice as `sub_pr_review_loop: on` or `sub_pr_review_loop: off`. The fan-out skill reads it at every ripening. Default if the field is missing in an older state file: `off` (preserves the original behaviour).
@@ -109,7 +109,7 @@ Record the choice as `sub_pr_review_loop: on` or `sub_pr_review_loop: off`. The 
 
 Sub-PRs into the feature branch are owned by `feature-dev-workflow:fanning-out-with-worktrees`, not this step.
 
-Once the PR to main is open — the single-PR PR, or the multi-PR integration PR — ask the user (via `AskUserQuestion`) whether to run an automated review-loop on it before handing off for external human review. If yes, **OPTIONAL SUB-SKILL:** `feature-dev-workflow:review-loop` against this PR; it drives the PR's automated (Copilot) review to clean. This is the interactive context, so a comment the loop wants to push back on pauses for the user. If no, hand off as-is.
+Once the PR to main is open — the single-PR PR, or the multi-PR integration PR — ask the user (via `AskUserQuestion`) whether to run an automated review-loop on it before handing off for external human review. If yes, **OPTIONAL SUB-SKILL:** `feature-dev-workflow:copilot-review-loop` against this PR; it drives the PR's automated (Copilot) review to clean. This is the interactive context, so a comment the loop wants to push back on pauses for the user. If no, hand off as-is.
 
 Run the loop on the **final** PR diff. The Step 7 teardown is the last commit on the branch, so a review run before it goes stale against what external reviewers actually see. If the teardown will land after a clean review, defer the loop until after the teardown commit (or re-run it afterward) — and when CI gates the teardown, that means running the loop once the teardown commit is pushed and green, not at PR-open.
 
