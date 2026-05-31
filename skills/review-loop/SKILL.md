@@ -79,7 +79,7 @@ Fall through to Step 1's explicit request only when there is nothing current to 
 One cycle, in order:
 
 1. **Capture the watermark, then request — only when the entry check says you need to.** `SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)` *before* `gh pr edit <pr> --add-reviewer "@copilot"`. The watermark is what distinguishes the new review from a stale one left by an earlier round. Skip this step and go straight to triage (Step 4) when a current un-triaged review already exists, or when a push you are about to make will auto-trigger the review.
-2. **Confirm Copilot attached.** `gh pr view <pr> --json reviewRequests`. If Copilot is **not** in the list, it is unavailable for this repo/plan (or `gh` is too old / this is GHES). Do **not** start waiting — there is no reviewer to produce a review. Instead do one triage pass over any human comments already on the PR (Step 3), state that Copilot review is unavailable, and exit. There is no loop without an automated reviewer to re-request.
+2. **Confirm Copilot attached.** `gh pr view <pr> --json reviewRequests`. If Copilot is **not** in the list, it is unavailable for this repo/plan (or `gh` is too old / this is GHES). Do **not** start waiting — there is no reviewer to produce a review. Instead do one triage pass over any human comments already on the PR (Step 4), state that Copilot review is unavailable, and exit. There is no loop without an automated reviewer to re-request.
 3. **Wait in the background.** Launch the wait script with `run_in_background: true` so the session is not held hostage:
 
    ```
