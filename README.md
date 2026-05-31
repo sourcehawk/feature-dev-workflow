@@ -35,6 +35,7 @@ It is also the faster path. Breaking the feature into independent PRs lets the m
 | `writing-docs` | A structurally-complete feature changed public-facing docs (README, usage guide, tutorial, API/reference). Writes them to an OSS-grade bar and verifies a reader can use them via a fresh-reader test; defers docstrings, release notes, and specs to their owning skills. |
 | `opening-a-pull-request` | About to `gh pr create`/`edit`. Draft and ready body templates, issue-linking keywords. |
 | `maintaining-architectural-coherence` | Work split across PRs/agents/waves must read as one author. Invoked when agreeing conventions before parallel work, and when reviewing the merged union for structural, interface, naming, and vocabulary drift. |
+| `product-epic` | Standalone, upstream of the flow. A product manager has a rough epic — an idea, a few bullets, a draft — that must be scoped and clarified before an engineer can design against it. Surfaces the gaps with a fresh-reader test, refines them with the PM (challenging scope and feasibility), and files the result. |
 | `drafting-a-release` | Standalone (not part of the feature flow). About to cut a release: drafts curated release notes that explain the why, proposes the version, and gates `gh release create` on the user. |
 
 ## How it works
