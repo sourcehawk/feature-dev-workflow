@@ -1,8 +1,5 @@
 <!--
-Paste this block into your project's CLAUDE.md (or AGENTS.md) after installing the
-feature-dev-workflow plugin. It gives every Claude session the orchestration overview
-and the operational rules. No placeholders to fill in; the skills discover your repo
-and your test/lint/typecheck commands from context. Delete this comment after pasting.
+Paste this block into your project's CLAUDE.md (or AGENTS.md) after installing the feature-dev-workflow plugin. It gives every Claude session the orchestration overview and the operational rules. No placeholders to fill in; the skills discover your repo and your test/lint/typecheck commands from context. Delete this comment after pasting.
 -->
 
 ## Feature-development workflow

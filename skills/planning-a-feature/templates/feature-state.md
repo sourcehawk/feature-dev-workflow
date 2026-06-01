@@ -1,16 +1,9 @@
 <!--
-Orchestration state file for a planned feature. See
-${CLAUDE_PLUGIN_ROOT}/skills/planning-a-feature/SKILL.md for when this is created
-and ${CLAUDE_PLUGIN_ROOT}/skills/developing-a-feature/SKILL.md for how it's updated
-during implementation.
+Orchestration state file for a planned feature. See ${CLAUDE_PLUGIN_ROOT}/skills/planning-a-feature/SKILL.md for when this is created and ${CLAUDE_PLUGIN_ROOT}/skills/developing-a-feature/SKILL.md for how it's updated during implementation.
 
-This file is scratch — same lifecycle as the plan. Tracked in git so
-it survives sessions, worktrees, and machines; deleted by the
-orchestrator's last commit when the feature ships (every sub-issue
-closed and the epic closed).
+This file is scratch — same lifecycle as the plan. Tracked in git so it survives sessions, worktrees, and machines; deleted by the orchestrator's last commit when the feature ships (every sub-issue closed and the epic closed).
 
-The `status:` field is one of: planning | foundational-wave |
-consumer-wave | review | merged.
+The `status:` field is one of: planning | foundational-wave | consumer-wave | review | merged.
 -->
 
 ---
@@ -30,10 +23,7 @@ status: planning
 ## Phases
 
 <!--
-Implementation phases as the plan defines them. Each phase names the
-sub-issues whose work runs in that phase; foundational phases
-(contract producers) come before consumer phases. Single-PR features
-collapse to one phase with one issue.
+Implementation phases as the plan defines them. Each phase names the sub-issues whose work runs in that phase; foundational phases (contract producers) come before consumer phases. Single-PR features collapse to one phase with one issue.
 -->
 
 - **Phase 1 (foundational)** — `#<n1>`, `#<n2>`
@@ -42,20 +32,11 @@ collapse to one phase with one issue.
 ## PRs / worktrees
 
 <!--
-One row per sub-issue. For multi-PR features each sub-PR targets the
-feature branch (NOT main) and the orchestrator self-merges it after a
-self-review; sub-issues close manually because Fixes/Closes only auto-
-fires on merge to the default branch. The integration PR
-(feature → main, tracked via the `integration_pr` frontmatter field)
-is the one that uses `Closes #<epic>` to auto-close the epic.
+One row per sub-issue. For multi-PR features each sub-PR targets the feature branch (NOT main) and the orchestrator self-merges it after a self-review; sub-issues close manually because Fixes/Closes only auto-fires on merge to the default branch. The integration PR (feature → main, tracked via the `integration_pr` frontmatter field) is the one that uses `Closes #<epic>` to auto-close the epic.
 
-Branch and worktree are filled in when the work starts; PR and status
-are filled in as the work progresses. Keep this in sync with reality
-— a stale row is worse than no row.
+Branch and worktree are filled in when the work starts; PR and status are filled in as the work progresses. Keep this in sync with reality — a stale row is worse than no row.
 
-Status values: not-started | in-progress | draft | ready |
-self-merged (multi-PR, into feature branch) | merged (single-PR or
-integration PR into main).
+Status values: not-started | in-progress | draft | ready | self-merged (multi-PR, into feature branch) | merged (single-PR or integration PR into main).
 -->
 
 | Issue                       | Branch                       | Worktree path                            | PR (→ base)                          | Status        |
@@ -65,9 +46,7 @@ integration PR into main).
 ## Contracts
 
 <!--
-Mirror of the plan's `## Contracts` table with a Realized-in pointer
-and a Status. Status flips to `locked` once the stub PR merges, the
-data-only row is documented, or the producer-branch stub is ready.
+Mirror of the plan's `## Contracts` table with a Realized-in pointer and a Status. Status flips to `locked` once the stub PR merges, the data-only row is documented, or the producer-branch stub is ready.
 -->
 
 | Name              | Realization                                              | Realized in                          | Status            |
@@ -77,10 +56,7 @@ data-only row is documented, or the producer-branch stub is ready.
 ## Bubble-up log
 
 <!--
-Concerns raised by any subagent during fan-out, the resolution, and
-how it was propagated. One entry per concern; newest at the top. The
-orchestrator owns appending here. Subagents surface concerns; they
-don't write to this log directly.
+Concerns raised by any subagent during fan-out, the resolution, and how it was propagated. One entry per concern; newest at the top. The orchestrator owns appending here. Subagents surface concerns; they don't write to this log directly.
 -->
 
 - _No concerns yet._
