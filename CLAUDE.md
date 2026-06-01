@@ -37,6 +37,7 @@ A single Claude Code plugin, packaged as its own single-plugin marketplace.
 - **Never `git add -A` or `git add .`.** Stage by name.
 - **No GitHub mutation without a fresh confirmation** against the specific body about to land.
 - **Writing style:** lead with the rule, then the why. One idea per paragraph. Do not overuse em dashes.
+- **Never hard-wrap markdown.** Write one line per paragraph and per list item; let it soft-wrap in the editor. A hard break turns a one-word edit into a reflow and bloats every diff. Applies to all markdown authored here — skill bodies, templates (including their HTML-comment guidance), and generated issue / PR / release bodies.
 
 ## Verify before done
 
