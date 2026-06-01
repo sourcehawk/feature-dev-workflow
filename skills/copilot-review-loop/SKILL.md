@@ -100,12 +100,13 @@ One cycle, in order:
 
 ## Termination
 
-Stop and declare clean when **both**:
+Stop and declare clean when **all** hold:
 
 - a fresh Copilot review (newer than the latest watermark) returns **no new actionable comments**, AND
-- every review thread is **resolved or replied** (a verified-and-declined comment with a stated reason counts as resolved — do not thrash re-litigating it).
+- every review thread is **resolved or replied** (a verified-and-declined comment with a stated reason counts as resolved — do not thrash re-litigating it), AND
+- any artifact the loop's fixes drifted has been reconciled (§Reconcile what the loop's fixes changed) — or, in autonomous fan-out, logged as a bubble-up for the checkpoint to reconcile.
 
-Then, before handing back, reconcile any artifact the loop's fixes drifted (§Reconcile what the loop's fixes changed). A loop that ends with a PR body — or tracking issue — contradicting its own diff is not clean, even with every thread resolved.
+A loop that ends with a PR body — or tracking issue — contradicting its own diff is not clean, even with every thread resolved.
 
 **Safety cap: 3 request→address rounds.** If the loop has not converged by the cap, **stop** and report what remains unresolved. Do not raise the cap to keep going — non-convergence (Copilot surfacing churny or contradictory nits round after round) is a signal to hand back to the user, not to loop harder. Only count a review as "clean" if it arrived *after* your last push; a review from before the push is stale and must not end the loop.
 
