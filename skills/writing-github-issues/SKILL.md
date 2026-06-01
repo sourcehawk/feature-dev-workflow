@@ -196,7 +196,7 @@ The record and the reconcile are one logical change, confirmed together:
 
 2. **Draft the reconciled body** — the existing body with the now-false content corrected to match the decision, following §Step 2B's body-drafting rules (preserve what's still true; the naming firewall still applies).
 
-3. **Confirm both together, inline.** Paste the full comment body and the full reconciled body into chat under an "About to comment on `#<num>` recording this decision, then update its body to match — both shown below. Confirm?" line. Wait for an explicit yes; the user-in-the-loop rule (§Core principle) governs both mutations — a comment is as public as an edit. On push-back, redraft and re-present.
+3. **Confirm both together, inline.** Paste the full comment body and the full reconciled body into chat under an "About to comment on `#<num>` recording this decision, then update its body to match — and assign you (`@me`) if you're not already. Both shown below. Confirm?" line. Wait for an explicit yes; the user-in-the-loop rule (§Core principle) governs both mutations — a comment is as public as an edit. On push-back, redraft and re-present.
 
 4. **Post the comment, then update the body** — comment first, so the prior state is preserved verbatim in the thread before the edit overwrites it:
    ```
@@ -204,12 +204,12 @@ The record and the reconcile are one logical change, confirmed together:
    <comment>
    BODY_END
    )"
-   gh issue edit <num> --body "$(cat <<'BODY_END'
+   gh issue edit <num> --add-assignee @me --body "$(cat <<'BODY_END'
    <reconciled body>
    BODY_END
    )"
    ```
-   If either body contains the line `BODY_END`, pick a less collision-prone sentinel.
+   Drop `--add-assignee @me` if the user declined assignment (or is already assigned). If either body contains the line `BODY_END`, pick a less collision-prone sentinel.
 
 ## Labels
 
