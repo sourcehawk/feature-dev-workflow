@@ -100,10 +100,13 @@ One cycle, in order:
 
 ## Termination
 
-Stop and declare clean when **both**:
+Stop and declare clean when **all** hold:
 
 - a fresh Copilot review (newer than the latest watermark) returns **no new actionable comments**, AND
-- every review thread is **resolved or replied** (a verified-and-declined comment with a stated reason counts as resolved — do not thrash re-litigating it).
+- every review thread is **resolved or replied** (a verified-and-declined comment with a stated reason counts as resolved — do not thrash re-litigating it), AND
+- any artifact the loop's fixes drifted has been reconciled (§Reconcile what the loop's fixes changed) — or, in autonomous fan-out, logged as a bubble-up for the checkpoint to reconcile.
+
+A loop that ends with a PR body — or tracking issue — contradicting its own diff is not clean, even with every thread resolved.
 
 **Safety cap: 3 request→address rounds.** If the loop has not converged by the cap, **stop** and report what remains unresolved. Do not raise the cap to keep going — non-convergence (Copilot surfacing churny or contradictory nits round after round) is a signal to hand back to the user, not to loop harder. Only count a review as "clean" if it arrived *after* your last push; a review from before the push is stale and must not end the loop.
 
@@ -115,6 +118,13 @@ The skill is told its context when invoked. This controls Step 5 pushback only.
 
 - **Standalone, or the PR-to-main gate (interactive):** pause and surface the pushback to the user with technical reasoning, then act on their direction.
 - **Autonomous multi-PR fan-out (sub-PR gate):** do **not** pause interactively — that breaks "autonomous fan-out has no per-sub-PR round-trips". Log the pushback as a bubble-up concern in the state file's `## Bubble-up log`, apply the rest, and let `feature-dev-workflow:reviewing-feature-progress` surface it at the wave checkpoint.
+
+## Reconcile what the loop's fixes changed
+
+Addressing review changes code, and a substantive fix can leave the PR body — or the tracking issue — describing something the diff no longer does. The loop does not own those artifacts and must not edit them silently, but it must not declare clean while they lie either. When a fix materially changed what the PR or its issue describes (the test: would a reader of the body be misled by what the diff now does?), reconcile before handing back, routed by the same context split as pushback above:
+
+- **Interactive (standalone or the PR-to-main gate):** reconcile now. PR body → **REQUIRED SUB-SKILL:** `feature-dev-workflow:opening-a-pull-request` (reconcile the open PR body — body only, no comment). Tracking issue → **REQUIRED SUB-SKILL:** `feature-dev-workflow:writing-github-issues` Step 2D (decision comment + body, linking the commit). Each carries its own confirmation; you are not editing either artifact silently.
+- **Autonomous multi-PR fan-out (sub-PR gate):** do **not** reconcile inline — that reintroduces the per-sub-PR round-trip the autonomous mode exists to avoid. Log the drift as a bubble-up concern in the state file's `## Bubble-up log`, and let `feature-dev-workflow:reviewing-feature-progress` reconcile it at the wave checkpoint (it already routes drift through the owning skills).
 
 ## GitHub-mutation discipline
 
@@ -147,3 +157,4 @@ Not every GitHub mutation in the loop is the same kind of action, and conflating
 | "I'll auto-dismiss the comment I disagree with" | Wrong/judgment-call comments get pushback (interactive) or a bubble-up concern (fan-out) — never a silent drop. |
 | "Replying is a mutation, so I'll confirm first / batch it" | The reply records a decision you're already authorized to make; it's mandatory and ungated. Confirmation is for pushing and (re-)requesting review, not for the audit trail. |
 | "I fixed and resolved it; the diff shows what changed" | A resolved thread with no reply destroys the trace — the diff shows what, not why. Reply, then resolve. |
+| "Every thread is resolved, so the loop is clean" | If a fix changed what the PR body or its tracking issue describes, "clean" with a body that lies about the diff isn't clean. Reconcile the PR body (no comment) and the issue (Step 2D) — or log a bubble-up in fan-out — before handing back (§Reconcile what the loop's fixes changed). |

@@ -53,8 +53,8 @@ For every sub-issue (whether `self-merged` or still open):
 - Is every bullet in the issue's `## Acceptance criteria` section now testable / observable in the feature branch?
 - If a criterion isn't covered, classify:
   - **Missing implementation** — file or surface a follow-up sub-PR; do not open the integration PR yet.
-  - **De-scoped during planning** — update the issue body to remove the criterion (via `feature-dev-workflow:writing-github-issues` Step 2B, with confirmation); do not silently drop it.
-  - **Rephrased / equivalent** — the implementation satisfies the criterion under a different name; update the criterion to match the language used in the diff.
+  - **De-scoped** — removing a criterion changes what the issue promises: a material change. Record it and reconcile the body via `feature-dev-workflow:writing-github-issues` Step 2D (decision comment + body update, linking the commit that de-scoped it); do not silently drop it.
+  - **Rephrased / equivalent** — if the implementation genuinely satisfies the criterion under different language, update the wording to match (`feature-dev-workflow:writing-github-issues` Step 2B). If the criterion's substance changed, that is material — use Step 2D.
 
 ### 5. State-file integrity check
 
@@ -107,6 +107,7 @@ Decide:
 - **Marking the integration PR ready without re-running this checkpoint after external feedback.** Reviewer-requested changes can re-introduce drift the original review missed.
 - **Calling it "all clean" on contract + acceptance + verification alone.** Those are external-reference checks; they pass while the merged surface drifts. Run the Step 3 coherence sweep before any "all clean".
 - **Treating the acceptance-criteria gap as a docs problem.** A missing criterion is either missing implementation or a planning oversight. Don't silently delete it; classify and act.
+- **Reconciling a de-scoped criterion with a bare body edit.** Dropping a criterion changes what the issue promises; the *why* and the commit that decided it belong in the issue's thread, not just trimmed out of the body. Use `feature-dev-workflow:writing-github-issues` Step 2D — comment, then edit.
 
 ## Red flags
 
@@ -118,3 +119,4 @@ Decide:
 | "I'll skip the state-file walk, I've been keeping it current"      | The resumed-session contract is what the state file SAYS — verify it; don't trust your memory.                     |
 | "Lint passed in my sub-worktree, no need to re-run on feature"      | Lint can be scoped to changed files; project-wide issues only surface on the integrated branch.                    |
 | "Contracts, criteria, and CI are all green — all clean"             | Those never see cross-PR coherence. Run the Step 3 sweep before declaring clean.                                   |
+| "Everyone agreed to drop it verbally, I'll just trim the body"      | A verbal agreement isn't the durable record; the issue is. A de-scoped criterion gets a decision comment + commit link, then the body edit (`feature-dev-workflow:writing-github-issues` Step 2D). |
