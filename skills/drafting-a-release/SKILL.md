@@ -26,7 +26,7 @@ Work the steps in order. Steps 1, 3, 5, and 6 are gates — do not run ahead of 
 
    If they choose a specific commit, accept whatever form they give it — a commit SHA, any resolvable ref (a tag or a branch), or a description of intent ("the commit where the X landed", "everything up to PR #N"). Resolve a description to one concrete commit from `git log` and the merged-PR history, then echo back the short SHA, subject, and date and wait for an explicit yes before using it. Confirm the resolved commit even when they hand you a literal SHA — show its subject so they can catch a typo or a stale paste.
 
-   The resolved commit (or the branch tip, if that's what they chose) is `<target>` for the rest of the run: it sets the upper bound of the next step's range and the `--target` of the publish.
+   The resolved commit (or the branch tip, if that's what they chose) is `<target>` for the rest of the run: it sets the upper bound of the next step's range and the `--target` of the publish. The short SHA you echo here is for the human-readable confirmation only — when `<target>` reaches `--target`, pass the full 40-char SHA (`git rev-parse <target>`) or the branch name, never the abbreviated form. The publish step says why.
 
 2. **Establish the baseline.** Find the last release and what shipped between it and the release point: `gh release list` (or `git describe --tags --abbrev=0`) for the last tag, then `git log <last-tag>..<target>` and the merged PRs in that range. Bounding the range at `<target>` rather than HEAD keeps anything past the release point out of the notes. This range is the raw material for both the curated sections and the changelog.
 
@@ -59,9 +59,11 @@ Once confirmed:
 gh release create <tag> \
   --title "<tag>" \
   --notes-file <body-file> \
-  [--target <ref>] \
+  [--target <full-sha-or-branch>] \
   [--draft]
 ```
+
+`--target` takes a **branch name or the full 40-char commit SHA — never an abbreviated SHA.** GitHub's release API rejects an abbreviated `target_commitish` and reports it as `tag_name is not a valid tag` / `Release.target_commitish is invalid`, which reads like a tag problem but is the short SHA. Resolve it with `git rev-parse <target>`. Omit `--target` entirely only when cutting from the default branch's current tip (the API's default).
 
 ## Anti-patterns
 
@@ -73,6 +75,7 @@ gh release create <tag> \
 - **Picking the version yourself** and moving on. Propose, then let the user decide.
 - **Defaulting draft-vs-published** instead of asking. The user owns that call.
 - **Running `gh release create` on inferred consent.** Every release is a fresh confirmation against the specific tag, body, and draft state.
+- **Passing an abbreviated SHA to `--target`.** GitHub rejects it as an invalid `target_commitish`, surfacing as "tag_name is not a valid tag". Use the full 40-char SHA (`git rev-parse`) or a branch name.
 
 ## Red flags: STOP before running `gh release create`
 
@@ -89,5 +92,6 @@ These thoughts mean the release isn't ready to publish:
 | "They didn't name a commit, so cutting from HEAD is fine"     | Where the tag lands is a gate. Ask: the branch tip, or a specific commit?                  |
 | "The top commit is obviously WIP — I'll target the one below" | Don't infer the release point. Ask, then confirm the resolved commit before using it.      |
 | "They gave me a SHA, so I don't need to confirm it"           | Echo its subject and date — a typo or stale paste tags the wrong commit.                    |
+| "I'll pass the short SHA I echoed back as `--target`"         | GitHub rejects an abbreviated `target_commitish` ("tag_name is not a valid tag" is the misleading symptom). Pass the full 40-char SHA or a branch name. |
 
 All of these mean: finish the curated body, present tag + body + draft state, and wait for an explicit yes.
