@@ -53,6 +53,13 @@ Record the choice in the state file's frontmatter as `sub_pr_approval: autonomou
 
 Record the choice as `sub_pr_review_loop: on` or `sub_pr_review_loop: off`. The fan-out skill reads it at every ripening. Default if the field is missing in an older state file: `off` (preserves the original behaviour).
 
+**Sub-PR target model (multi-PR only).** Immediately after the review-loop choice, ask a third `AskUserQuestion`: should sub-PRs target the feature branch (with one integration PR to main at the end) or main directly (with each sub-PR reviewed and merged independently)?
+
+- **Feature branch (default)** — sub-PRs target `feature/<slug>`; the orchestrator self-merges each one into the feature branch; the feature culminates in a single integration PR (`feature/<slug>` → `main`) with `Closes #<epic>` that closes the epic and gives external reviewers a combined diff. Choose this when sub-PRs are coupled by shared contracts and a unified review surface matters.
+- **Directly to main** — sub-PRs target `main` directly; each is reviewed and merged on its own timeline; no integration PR at the end. Choose this when sub-PRs are truly independent and individually deliverable, and a combined review surface isn't needed.
+
+Record the choice as `sub_pr_target: feature-branch` or `sub_pr_target: main`. The fan-out skill reads this field to set the base ref for sub-worktrees and the `--base` flag for each PR. Default if the field is missing in an older state file: `feature-branch` (preserves the original behaviour).
+
 ### 3. Set up the implementation environment
 
 - **Multi-PR (feature-branch model)** — `feature/<slug>` already exists, created and pushed by `feature-dev-workflow:planning-a-feature` and carrying the committed spec/plan/state. **Reuse it; never re-create it** off `origin/main` — that errors (`fatal: a branch named 'feature/<slug>' already exists`) and would orphan the planning artifacts. If planning already made the integration worktree at `.claude/worktrees/<slug>`, just `cd` into it. Otherwise attach one to the existing branch:
@@ -107,7 +114,8 @@ Record the choice as `sub_pr_review_loop: on` or `sub_pr_review_loop: off`. The 
 **REQUIRED SUB-SKILL:** `feature-dev-workflow:opening-a-pull-request`. Base + body keyword depend on which model is in play:
 
 - **Single-PR feature** → PR targets `main` from `feature/<slug>`. Body opens with `Fixes #<feature-issue>` (bug) or `Closes #<feature-issue>` (feature/task) so the issue auto-closes on merge.
-- **Multi-PR integration PR** → PR targets `main` from `feature/<slug>` (`gh pr create --base main --head feature/<slug>`). Body opens with `Closes #<epic>` so the epic auto-closes on merge. This is the PR external reviewers see; the diff is the whole feature.
+- **Multi-PR (feature-branch) integration PR** → PR targets `main` from `feature/<slug>` (`gh pr create --base main --head feature/<slug>`). Body opens with `Closes #<epic>` so the epic auto-closes on merge. This is the PR external reviewers see; the diff is the whole feature.
+- **Multi-PR (directly to main)** → there is no integration PR. Sub-PRs were already PRs to `main`; the epic closes via the last sub-PR's `Closes #<epic>` keyword or a manual `gh issue close <epic>` if none of the sub-PRs carry it. Skip to Step 7.
 
 Sub-PRs into the feature branch are owned by `feature-dev-workflow:fanning-out-with-worktrees`, not this step.
 
