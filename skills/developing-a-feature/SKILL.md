@@ -30,12 +30,13 @@ If the plan is missing, stale, or the state file's recorded state doesn't match 
 ### 2. Decide: single-PR or multi-PR (feature-branch model)
 
 - **Single PR** → one worktree on the `feature/<slug>` branch `feature-dev-workflow:planning-a-feature` created, one Claude session, one PR from it targeting main. Skip the integration-PR step at the end.
-- **Multi-PR** → feature-branch model:
+- **Multi-PR** → two sub-models, selected by the Sub-PR target model question below. The default is the **feature-branch model**:
   - `feature-dev-workflow:planning-a-feature` already created `feature/<slug>` (off `origin/main`) and committed the spec + plan + state file onto it. The orchestrator **reuses** that branch — it does not re-create it — attaching the integration worktree at `.claude/worktrees/<slug>` (recorded as `feature_branch` + `feature_worktree` in the state file's frontmatter).
   - Every sub-PR is a real GitHub PR targeting `feature/<slug>`, not main. Each sub-worktree is created off the feature branch with `git worktree add .claude/worktrees/<slug>--<sub-name> -b <sub-branch> feature/<slug>` (raw git is the simplest path here; `EnterWorktree` defaults to branching from origin/main).
   - When a sub-PR is ready, the orchestrator runs a self-review pass, then **self-merges** the sub-PR into `feature/<slug>`. The dispatching agent owns this merge — sub-agents don't merge their own PRs.
   - Sub-issue closure: `Fixes #<sub-issue>` / `Closes #<sub-issue>` only auto-fires on merge to the **default branch**. Sub-PRs into the feature branch therefore use `Towards #<sub-issue>` (the explicit "keep this issue open" keyword); the orchestrator runs `gh issue close <sub-issue>` after each self-merge.
   - When every sub-PR has been self-merged into the feature branch, the orchestrator opens the **integration PR** `feature/<slug>` → `main`, with `Closes #<epic>` in its body, for external review and the final merge.
+  The alternative sub-model — sub-PRs targeting main directly, no integration PR — is configured by the Sub-PR target model question below.
 
 For sequential single-PR work, skip to Step 4. For multi-PR work, dispatch parallel subagents in Step 3 — but first, ask the user how sub-PR approval should work.
 
@@ -115,7 +116,7 @@ Record the choice as `sub_pr_target: feature-branch` or `sub_pr_target: main`. T
 
 - **Single-PR feature** → PR targets `main` from `feature/<slug>`. Body opens with `Fixes #<feature-issue>` (bug) or `Closes #<feature-issue>` (feature/task) so the issue auto-closes on merge.
 - **Multi-PR (feature-branch) integration PR** → PR targets `main` from `feature/<slug>` (`gh pr create --base main --head feature/<slug>`). Body opens with `Closes #<epic>` so the epic auto-closes on merge. This is the PR external reviewers see; the diff is the whole feature.
-- **Multi-PR (directly to main)** → there is no integration PR. Sub-PRs were already PRs to `main`; the epic closes via the last sub-PR's `Closes #<epic>` keyword or a manual `gh issue close <epic>` if none of the sub-PRs carry it. Skip to Step 7.
+- **Multi-PR (directly to main)** → there is no integration PR. Sub-PRs were already PRs to `main`; close the epic manually with `gh issue close <epic>` before proceeding to Step 7 — sub-PRs carry `Closes #<sub-issue>` only and do not auto-close the epic.
 
 Sub-PRs into the feature branch are owned by `feature-dev-workflow:fanning-out-with-worktrees`, not this step.
 
