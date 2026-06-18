@@ -45,7 +45,7 @@ When the PR has a tracking issue, link it as the **first line of the body's open
 
 Which keyword belongs depends on **which branch the PR targets**:
 
-- **PR targets `main` (the default branch)** — use `Fixes` / `Closes` if the merge should close the issue; use `Towards` if the issue should stay open.
+- **PR targets `main` (the default branch)** — use `Fixes` / `Closes` if the merge should close the issue; use `Towards` if the issue should stay open. This includes sub-PRs in the `sub_pr_target: main` model (see `feature-dev-workflow:fanning-out-with-worktrees`): each sub-PR targets main directly with `Closes #<sub-issue>`; the epic is closed manually by the orchestrator after all sub-PRs merge.
 - **PR targets a feature branch** (`feature/<slug>` in the multi-PR feature-branch model — see `feature-dev-workflow:developing-a-feature`) — use `Towards #<sub-issue>`. `Fixes` / `Closes` keywords only auto-trigger on merges to the default branch, so writing them on a feature-branch-bound PR creates a misleading promise that nothing will fulfill. The sub-issue is closed manually by the orchestrator after the self-merge. The integration PR (feature → main) gets `Closes #<epic>` because that PR does merge to main.
 
 If there is no tracking issue, drop the line entirely and open the section with prose.
