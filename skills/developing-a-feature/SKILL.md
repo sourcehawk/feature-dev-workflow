@@ -116,13 +116,15 @@ Record the choice as `sub_pr_target: feature-branch` or `sub_pr_target: main`. T
 
 - **Single-PR feature** → PR targets `main` from `feature/<slug>`. Body opens with `Fixes #<feature-issue>` (bug) or `Closes #<feature-issue>` (feature/task) so the issue auto-closes on merge.
 - **Multi-PR (feature-branch) integration PR** → PR targets `main` from `feature/<slug>` (`gh pr create --base main --head feature/<slug>`). Body opens with `Closes #<epic>` so the epic auto-closes on merge. This is the PR external reviewers see; the diff is the whole feature.
-- **Multi-PR (directly to main)** → there is no integration PR. Sub-PRs were already PRs to `main`; close the epic manually with `gh issue close <epic>` before proceeding to Step 7 — sub-PRs carry `Closes #<sub-issue>` only and do not auto-close the epic.
+- **Multi-PR (directly to main)** → there is no integration PR and nothing to open here. Epic closure already happened at fan-out hand-back — `feature-dev-workflow:fanning-out-with-worktrees` Step 7 owns the `gh issue close <epic>` (sub-PR keywords only close sub-issues, never the epic). Verify it with `gh issue view <epic> --json state`, then proceed to Step 7.
 
 Sub-PRs into the feature branch are owned by `feature-dev-workflow:fanning-out-with-worktrees`, not this step.
 
 Once the PR to main is open — the single-PR PR, or the multi-PR integration PR — ask the user (via `AskUserQuestion`) whether to run an automated review-loop on it before handing off for external human review. If yes, **OPTIONAL SUB-SKILL:** `feature-dev-workflow:copilot-review-loop` against this PR; it drives the PR's automated (Copilot) review to clean. This is the interactive context, so a comment the loop wants to push back on pauses for the user. If no, hand off as-is.
 
 Run the loop on the **final** PR diff. The Step 7 teardown is the last commit on the branch, so a review run before it goes stale against what external reviewers actually see. If the teardown will land after a clean review, defer the loop until after the teardown commit (or re-run it afterward) — and when CI gates the teardown, that means running the loop once the teardown commit is pushed and green, not at PR-open.
+
+**The merge to main is the user's — always.** This step's terminal state is *ready-to-merge*: PR open, review loop clean (if run), teardown landed per Step 7. The orchestrator never runs `gh pr merge` on the single-PR feature PR or the integration PR. The only merges this workflow executes itself are the sub-PR merges governed by the state file's explicit `sub_pr_approval`/`sub_pr_target` configuration (`feature-dev-workflow:fanning-out-with-worktrees` Step 5) — configuration the user answered as specific questions, not inferred consent. A blanket autonomy grant — "do this all autonomously", "I'm going AFK" — authorizes everything up to and including the review loop and the teardown, and ends there. Merge-ish phrasing in passing ("merge it when you're done", "merge to the main worktree") is not the merge button either: it usually means "bring the result into the local checkout and verify it", and even when it doesn't, merging the feature to main is a fresh decision the user takes looking at the specific, final PR. Finish everything else, report the PR ready-to-merge, and stop — an open clean PR waiting for the user costs nothing; an unwanted merge to main costs a revert on the default branch.
 
 ### 7. Tear down the planning artifacts
 
@@ -136,12 +138,15 @@ Delete the plan + state file once the work is genuinely done. The spec stays —
 
 Single-PR features follow the same two branches. Until you tear down, keep updating the state file as reality moves.
 
+The teardown does not change where the flow ends. In the models that end in a final PR (single-PR; feature-branch integration PR), the terminal state is still *ready-to-merge* — report and stop; the user merges (see the merge guard in Step 6). In the `sub_pr_target: main` model there is no final PR — the deliverables already merged as sub-PRs and the epic is closed — so report completion and stop.
+
 ## Anti-patterns
 
 - **Mixing single-PR and multi-PR flows mid-feature.** Once the plan declares multi-PR, the feature-branch model is on. Don't quietly merge "just this small fix" directly to main while the feature branch is live — it skips external review on the integration PR and forks the work.
 - **Skipping `verification-before-completion` because "tests passed in my package".** The full test suite runs the whole project because cross-package wiring breaks on edits that look local.
 - **Letting the state file drift from reality.** A resumed session reads the state file as ground truth. Update it on every transition (worktree assigned, PR opened, sub-PR self-merged, phase changed, feature shipped).
 - **Re-implementing fan-out logic inline.** Parallel dispatch, multi-wave ordering, the watch loop, per-sub-PR self-review and self-merge — all of that is in `feature-dev-workflow:fanning-out-with-worktrees`. Don't paste it into the dispatch prompt or the developing-a-feature flow; reference the sub-skill instead.
+- **Merging the final PR to main yourself.** The single-PR feature PR and the integration PR are external-review surfaces; the user holds that merge button. No blanket autonomy grant covers it — the workflow's terminal state is ready-to-merge, not merged (see the merge guard in Step 6).
 
 ## Red flags
 
@@ -150,6 +155,9 @@ Single-PR features follow the same two branches. Until you tear down, keep updat
 | "I'll just open one big PR, the plan is overcomplicating this"       | The PR-shape decision happened during planning. Reopening it here means re-running `feature-dev-workflow:planning-a-feature` Step 4, not skipping the model. |
 | "Tests pass, I'll skip lint"                                         | Lint is a CI gate. Running it locally is the cheapest place to catch the failure.                      |
 | "The state file is for the planner, I don't need to update it during dev" | The state file is the resume contract. Every transition is your responsibility while dev is in flight. |
+| "The user said 'do this all autonomously', so merging to main is covered" | Blanket autonomy ends at ready-to-merge (review loop clean, teardown landed). The merge to main is the user's fresh decision on the specific final PR. Report and stop. |
+| "They wrote 'merge it / merge to the main worktree' earlier — that's authorization" | Merge-ish phrasing in passing isn't the merge button; it usually means "bring the result into the local checkout and verify it". Stop at ready-to-merge; if they want you to merge, they'll say so against the open PR. |
+| "`Closes #<epic>` is in the body — merging just completes the design"   | The keyword describes what happens when the *user* merges. It is not an instruction to merge.          |
 | "I'll open the integration PR before the last sub-PR is self-merged" | The integration PR's diff is supposed to be the whole feature. An in-flight sub-PR means the integration PR will be re-pushed mid-review. Wait. |
 | "I'll create `feature/<slug>` off `origin/main` in step 3"           | Planning already created it and committed the spec/plan/state onto it. `-b feature/<slug>` errors ("already exists") and re-creating off `origin/main` orphans the planning artifacts. Reuse the existing branch; attach a worktree to it. |
 | "Tests pass locally and the PR is ready, so I'll tear down plan/state now" | When CI runs on the PR, local green and "ready" aren't the gate — if it comes back red you fix forward, with no state file if you deleted it. Tear down on the PR's checks going green. (Repo has no CI configured for this branch? Then the local suite *is* the gate — proceed.) |
