@@ -138,7 +138,7 @@ Delete the plan + state file once the work is genuinely done. The spec stays —
 
 Single-PR features follow the same two branches. Until you tear down, keep updating the state file as reality moves.
 
-The teardown does not change where the flow ends: once it lands and its gate passes, the terminal state is still *ready-to-merge* — report and stop. The user merges (see the merge guard in Step 6).
+The teardown does not change where the flow ends. In the models that end in a final PR (single-PR; feature-branch integration PR), the terminal state is still *ready-to-merge* — report and stop; the user merges (see the merge guard in Step 6). In the `sub_pr_target: main` model there is no final PR — the deliverables already merged as sub-PRs and the epic is closed — so report completion and stop.
 
 ## Anti-patterns
 

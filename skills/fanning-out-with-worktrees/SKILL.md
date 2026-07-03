@@ -122,7 +122,7 @@ Repeat Steps 2 → 6 for each wave.
 
 When every wave is complete (every sub-issue closed, every row `self-merged`, every contract `locked`), update the state file's frontmatter `status:` to `review` and return control to `feature-dev-workflow:developing-a-feature`.
 - **`sub_pr_target: feature-branch`**: the next step is the integration PR (`feature/<slug>` → `main` with `Closes #<epic>`), which `feature-dev-workflow:developing-a-feature` Step 6 owns — opening and review-looping only; the merge to main itself is the user's (see that skill's merge guard).
-- **`sub_pr_target: main`**: the sub-PRs were already the deliverables to main; there is no integration PR. `feature-dev-workflow:developing-a-feature` skips Step 6 and proceeds directly to Step 7 (teardown). Close the epic manually with `gh issue close <epic>` before handing back — sub-PRs carry `Closes #<sub-issue>` only, so the epic does not auto-close.
+- **`sub_pr_target: main`**: the sub-PRs were already the deliverables to main; there is no integration PR. `feature-dev-workflow:developing-a-feature` passes through Step 6 (verification only — no PR to open) and proceeds to Step 7 (teardown). Close the epic manually with `gh issue close <epic>` before handing back — sub-PR closing keywords (`Fixes`/`Closes`) only close sub-issues, so the epic does not auto-close.
 
 ## Anti-patterns
 
