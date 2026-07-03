@@ -116,7 +116,7 @@ Record the choice as `sub_pr_target: feature-branch` or `sub_pr_target: main`. T
 
 - **Single-PR feature** → PR targets `main` from `feature/<slug>`. Body opens with `Fixes #<feature-issue>` (bug) or `Closes #<feature-issue>` (feature/task) so the issue auto-closes on merge.
 - **Multi-PR (feature-branch) integration PR** → PR targets `main` from `feature/<slug>` (`gh pr create --base main --head feature/<slug>`). Body opens with `Closes #<epic>` so the epic auto-closes on merge. This is the PR external reviewers see; the diff is the whole feature.
-- **Multi-PR (directly to main)** → there is no integration PR. Sub-PRs were already PRs to `main`; close the epic manually with `gh issue close <epic>` before proceeding to Step 7 — sub-PRs carry `Closes #<sub-issue>` only and do not auto-close the epic.
+- **Multi-PR (directly to main)** → there is no integration PR and nothing to open here. Epic closure already happened at fan-out hand-back — `feature-dev-workflow:fanning-out-with-worktrees` Step 7 owns the `gh issue close <epic>` (sub-PR keywords only close sub-issues, never the epic). Verify it with `gh issue view <epic> --json state`, then proceed to Step 7.
 
 Sub-PRs into the feature branch are owned by `feature-dev-workflow:fanning-out-with-worktrees`, not this step.
 
