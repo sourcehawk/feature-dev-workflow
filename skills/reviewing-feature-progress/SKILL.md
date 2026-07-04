@@ -56,7 +56,17 @@ For every sub-issue (whether `self-merged` or still open):
   - **De-scoped** — removing a criterion changes what the issue promises: a material change. Record it and reconcile the body via `feature-dev-workflow:writing-github-issues` Step 2D (decision comment + body update, linking the commit that de-scoped it); do not silently drop it.
   - **Rephrased / equivalent** — if the implementation genuinely satisfies the criterion under different language, update the wording to match (`feature-dev-workflow:writing-github-issues` Step 2B). If the criterion's substance changed, that is material — use Step 2D.
 
-### 5. State-file integrity check
+### 5. GitHub-surface sweep
+
+Steps 1-4 verify the code against the plan and the criteria; this step verifies the prose an external reviewer reads first. A long review cycle changes decisions faster than bodies get reconciled: the per-decision mechanisms (`feature-dev-workflow:writing-github-issues` Step 2D, `feature-dev-workflow:opening-a-pull-request`'s body reconciliation) each cover the surface where the decision was made, and under momentum some surface is always missed. This sweep is the backstop. Walk every GitHub surface the feature owns and read each against the final shape of the branch:
+
+- **The epic body** — design overview, any mermaid diagrams, the framing of each sub-issue.
+- **Every sub-issue body** — the approach and context prose, not just the `## Acceptance criteria` sections Step 4 already covered.
+- **Every open PR body** — draft or ready, including the integration PR.
+
+A body that names a mechanism the review cycle replaced (a removed field, a renamed method, a dropped phase, a diagram showing a state that no longer exists) misleads the reader in the first ten seconds. Fix through the matching mechanism: issue bodies via `feature-dev-workflow:writing-github-issues` Step 2B (wording) or Step 2D (material change), PR bodies via `feature-dev-workflow:opening-a-pull-request`'s reconciliation (body only, no comment). Sweep all surfaces, not only the ones you remember touching — the misleading body is precisely the one whose divergence went unnoticed at the decision.
+
+### 6. State-file integrity check
 
 Walk the state file and verify reality against record:
 
@@ -67,7 +77,7 @@ Walk the state file and verify reality against record:
 
 If anything is out of sync, fix the state file before continuing — the resumed-session contract depends on it.
 
-### 6. End-to-end verification on the feature branch
+### 7. End-to-end verification on the feature branch
 
 The structure is now settled — every sub-PR merged, the coherence sweep run. This is the first point at which a whole-flow test is safe to write against real seams rather than interfaces still in motion. If the feature introduced a new user- or consumer-visible flow, write or extend the end-to-end coverage now, before running the suite. **REQUIRED SUB-SKILL:** `feature-dev-workflow:testing-end-to-end` for which flows earn an end-to-end test and what each one asserts. A feature that only extends a flow an existing test already covers may need none.
 
@@ -84,13 +94,14 @@ git pull origin feature/<slug>
 
 Paste the output. The feature branch must be green end to end before the integration PR opens — a sub-PR's isolated CI passing doesn't guarantee the integration compiles, since each sub-PR's tests ran against its own branch state, not the post-merge state.
 
-### 7. Synthesize the gap list
+### 8. Synthesize the gap list
 
 Produce a short summary for the orchestrator (and the user, if this is a pre-integration-PR or pre-ready checkpoint):
 
 - **Drift found** — one bullet per discrepancy between spec/plan and what the diffs actually do.
 - **Coherence findings** — one bullet per cross-PR inconsistency from Step 3 (naming, structure, API shape, vocabulary), each marked `align now` or `deliberate, justified`.
 - **Acceptance criteria uncovered** — one bullet per missing or rephrased criterion, with the classification from Step 4.
+- **Body-sweep fixes** — one bullet per stale GitHub body reconciled in Step 5 (epic, sub-issue, or PR).
 - **State-file fixes** — one bullet per row corrected.
 - **Verification status** — test / lint / typecheck pass/fail.
 
@@ -120,3 +131,4 @@ Decide:
 | "Lint passed in my sub-worktree, no need to re-run on feature"      | Lint can be scoped to changed files; project-wide issues only surface on the integrated branch.                    |
 | "Contracts, criteria, and CI are all green — all clean"             | Those never see cross-PR coherence. Run the Step 3 sweep before declaring clean.                                   |
 | "Everyone agreed to drop it verbally, I'll just trim the body"      | A verbal agreement isn't the durable record; the issue is. A de-scoped criterion gets a decision comment + commit link, then the body edit (`feature-dev-workflow:writing-github-issues` Step 2D). |
+| "The issues and PRs were reconciled at each decision, no need to re-read them" | Per-decision reconciliation covers the surface where the decision was made; the Step 5 sweep exists for the surfaces it missed. Re-read every body against the final shape — the stale diagram or claim hides exactly where you didn't look. |
