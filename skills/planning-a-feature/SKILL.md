@@ -108,7 +108,7 @@ Planning often surfaces scope changes. If the issues from step 5 no longer match
 
 ### 8. Initialize the orchestration state file
 
-Before handing off, create `docs/superpowers/states/YYYY-MM-DD-<slug>-state.md` from `${CLAUDE_PLUGIN_ROOT}/skills/planning-a-feature/templates/feature-state.md`. This is the **orchestration state** — phases, PRs, worktrees, contract realization, bubble-up log. It's what a future Claude session reads first to resume the work without a massive user prompt.
+Before handing off, create `docs/superpowers/states/YYYY-MM-DD-<slug>-state.md` from `${CLAUDE_PLUGIN_ROOT}/skills/planning-a-feature/templates/feature-state.md`. This is the **orchestration state** — phases, PRs, worktrees, contract realization, bubble-up log, pending snapshot. It's what a future Claude session resumes from via `feature-dev-workflow:resuming-a-feature`, without a massive user prompt.
 
 The state file is scratch (same lifecycle as the plan): tracked in git so it survives sessions / worktrees / machines, and deleted in the orchestrator's last commit once every sub-issue is closed and the feature has shipped. Update it as the work progresses — see `feature-dev-workflow:developing-a-feature` for the update choreography.
 
