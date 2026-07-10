@@ -105,6 +105,6 @@ These thoughts mean the PR isn't actually ready to publish or flip:
 | "The user said yes a turn ago, this is the same thing"             | Bodies change between turns. Confirm the exact body about to land.                                                                     |
 | "I'll just append a note and they can edit later if needed"        | They shouldn't have to clean up after the agent. Confirm first.                                                                        |
 | "The PR's already open/ready, the stale body isn't worth re-editing" | The body is what the reviewer reads first; once the diff moves past it, it misleads. Reconcile the body to match the diff — body only, no comment (§Reconciling an open PR's body with reality). |
-| "The sub-issue shows no linked PR, the keyword must be wrong"        | Closing-keyword linkage only materializes while the PR's base is the default branch. On a stacked draft it's deferred until retarget — verify with `gh pr view --json closingIssuesReferences` then, not before. |
+| "The sub-issue shows no linked PR, the keyword must be wrong"        | Closing-keyword linkage only materializes while the PR's base is the default branch. On a stacked draft it's deferred until retarget — verify with `gh pr view <num> --json closingIssuesReferences` then, not before. |
 
 All of these mean: rewrite the body from the right template, paste it inline in chat, and wait for an explicit yes.
