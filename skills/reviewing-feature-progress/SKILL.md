@@ -61,7 +61,7 @@ For every sub-issue (whether `self-merged` or still open):
 Steps 1-4 verify the code against the plan and the criteria; this step verifies the prose an external reviewer reads first. A long review cycle changes decisions faster than bodies get reconciled: the per-decision mechanisms (`feature-dev-workflow:writing-github-issues` Step 2D, `feature-dev-workflow:opening-a-pull-request`'s body reconciliation) each cover the surface where the decision was made, and under momentum some surface is always missed. This sweep is the backstop. Walk every GitHub surface the feature owns and read each against the final shape of the branch:
 
 - **The epic body** — design overview, any mermaid diagrams, the framing of each sub-issue.
-- **Every sub-issue body** — the approach and context prose, not just the `## Acceptance criteria` sections Step 4 already covered.
+- **Every sub-issue body** — the approach and context prose, not just the `## Acceptance criteria` sections that Step 4 already covered.
 - **Every open PR body** — draft or ready, including the integration PR.
 
 A body that names a mechanism the review cycle replaced (a removed field, a renamed method, a dropped phase, a diagram showing a state that no longer exists) misleads the reader in the first ten seconds. Fix through the matching mechanism: issue bodies via `feature-dev-workflow:writing-github-issues` Step 2B (wording) or Step 2D (material change), PR bodies via `feature-dev-workflow:opening-a-pull-request`'s reconciliation (body only, no comment). Sweep all surfaces, not only the ones you remember touching — the misleading body is precisely the one whose divergence went unnoticed at the decision.
