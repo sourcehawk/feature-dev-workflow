@@ -61,13 +61,21 @@ Concerns raised by any subagent during fan-out, the resolution, and how it was p
 
 - _No concerns yet._
 
+## Pending snapshot
+
+<!--
+The ordered next actions, refreshed at the end of every work burst and always when the user signals a pause or session end. This is what a cold session executes from: each item names what, where, which skill owns it, and what gates it. `feature-dev-workflow:resuming-a-feature` reads this section after verifying the PR table against GitHub. A snapshot the user has to supplement with a hand-written resume prompt has failed its job.
+-->
+
+- _Nothing pending._
+
 ## Resume checklist
 
-For a fresh Claude session resuming this work:
+For a fresh Claude session resuming this work: invoke `feature-dev-workflow:resuming-a-feature` — it executes the steps below, routes by the `status:` frontmatter, and works the `## Pending snapshot`. Fallback if that skill is unavailable:
 
 1. Read this state file in full.
 2. Read the plan at the path in the `plan:` frontmatter.
 3. Read the spec at the path in the `spec:` frontmatter.
 4. Verify each open PR's actual state via `gh pr view <num>`.
-5. For each `in-progress` or `draft` row, `cd` to the worktree path and check `git status` + `git log --oneline main..HEAD`.
-6. Re-dispatch subagents as needed per `feature-dev-workflow:developing-a-feature` (parallel waves still in flight; the orchestrator watch loop continues).
+5. For each `in-progress` or `draft` row, `cd` to the worktree path and check `git status -sb` — an `ahead` count in the header means unpushed commits, and no upstream in the header means the branch was never pushed at all.
+6. Re-dispatch subagents as needed per `feature-dev-workflow:developing-a-feature` (parallel waves still in flight; the orchestrator watch loop continues), or work the `## Pending snapshot` when development is past.
