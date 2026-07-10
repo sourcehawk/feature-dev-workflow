@@ -28,6 +28,7 @@ It is also the faster path. Breaking the feature into independent PRs lets the m
 | `planning-a-feature` | At feature conception, before any code, issue, or plan. Sequences brainstorm, spec, issues, and plan. |
 | `writing-github-issues` | About to `gh issue create`/`edit`, or right after a brainstorm that needs an issue. Templates for bug, feature, and epic. |
 | `developing-a-feature` | Starting implementation against a committed plan. Routes single-PR vs multi-PR. |
+| `resuming-a-feature` | A fresh session picking up in-flight feature work recorded in an orchestration state file — at any phase. Verifies the file against live git/GitHub, then routes to the skill that owns each remaining action. |
 | `fanning-out-with-worktrees` | An orchestrator dispatching parallel subagents into per-PR worktrees off a feature branch. |
 | `reviewing-feature-progress` | Orchestration checkpoints: between fan-out waves, and before the integration PR. |
 | `testing-a-feature` | Writing tests for any non-trivial change. Decides the assertion shape (black-box against the contract). |
