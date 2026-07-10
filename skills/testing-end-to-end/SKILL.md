@@ -32,7 +32,7 @@ That fixes both the timing and the selection:
 
 ## When to write them
 
-Write only after the feature is **structurally complete**: every sub-PR merged into the feature branch, the coherence sweep run, the structure settled. In the workflow that is the integration checkpoint (`feature-dev-workflow:reviewing-feature-progress` Step 6), not during implementation and not mid-fan-out.
+Write only after the feature is **structurally complete**: every sub-PR merged into the feature branch, the coherence sweep run, the structure settled. In the workflow that is the integration checkpoint (`feature-dev-workflow:reviewing-feature-progress` Step 7), not during implementation and not mid-fan-out.
 
 Earlier is premature. An end-to-end test written while pieces are in flight either fails against a branch that doesn't have the flow yet, or pins itself to interfaces two unmerged worktrees are still changing. Both are fiction until the pieces land, and both generate churn when the real shapes differ. The per-component tests written test-first during implementation (`superpowers:test-driven-development`) are what give confidence in flight; the end-to-end test is what proves the assembled seam.
 
