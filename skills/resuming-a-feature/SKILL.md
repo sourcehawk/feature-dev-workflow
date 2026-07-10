@@ -35,7 +35,7 @@ The state file is authoritative for intent, decisions, pointers, and recorded us
 | Plan/spec paths, slug, issue and PR numbers, branch names, worktree paths | Each PR's actual state: `gh pr view <num> --json state,isDraft,baseRefName,headRefOid,mergedAt` vs the recorded row |
 | `sub_pr_approval` / `sub_pr_review_loop` / `sub_pr_target` — explicit user answers; don't re-ask | Each issue's open/closed state (`gh issue view <num> --json state`) |
 | Bubble-up resolutions and their propagation records | Each worktree: exists, clean, no unpushed commits (`git -C <path> status --porcelain`; `git -C <path> log --oneline @{u}..`) |
-| The `## Pending snapshot`'s intent and ordering | Branch existence (`git rev-parse --verify`), CI state (`gh pr checks`) |
+| The `## Pending snapshot`'s intent and ordering | Branch existence (`git rev-parse --verify <branch>`), CI state (`gh pr checks <num>`) |
 
 ### 4. Treat the bubble-up log as settled
 
