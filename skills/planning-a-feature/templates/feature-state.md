@@ -77,5 +77,5 @@ For a fresh Claude session resuming this work: invoke `feature-dev-workflow:resu
 2. Read the plan at the path in the `plan:` frontmatter.
 3. Read the spec at the path in the `spec:` frontmatter.
 4. Verify each open PR's actual state via `gh pr view <num>`.
-5. For each `in-progress` or `draft` row, `cd` to the worktree path and check `git status` + `git log --oneline @{u}..` (unpushed commits; sub-branches are based on the feature branch, so `main..HEAD` would show inherited commits too).
+5. For each `in-progress` or `draft` row, `cd` to the worktree path and check `git status -sb` — an `ahead` count in the header means unpushed commits, and no upstream in the header means the branch was never pushed at all.
 6. Re-dispatch subagents as needed per `feature-dev-workflow:developing-a-feature` (parallel waves still in flight; the orchestrator watch loop continues), or work the `## Pending snapshot` when development is past.
