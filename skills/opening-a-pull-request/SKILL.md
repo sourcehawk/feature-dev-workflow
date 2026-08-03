@@ -33,6 +33,17 @@ Set the title once when opening and don't rename it. Match the project's commit-
 
 Types: `feat`, `fix`, `refactor`, `test`, `chore`, `docs`. Area mirrors the module path (`api`, `auth`, `ui`, `db`). When the PR bundles unrelated areas, lead with the headline change and acknowledge the others in the body — don't try to encode both in the title.
 
+**The summary names the effect or the cause, whichever a human recognizes faster.** Choose one:
+
+| Shape | Reads as | Use when |
+| --- | --- | --- |
+| Impact-first | `fix(api): stop stale sessions from blocking every newer one` | The reader cares what starts or stops happening. |
+| Cause-first | `fix(api): expire sessions whose backend lookup never answers` | The trigger is the surprising part and names the bug better than its effect does. |
+
+If both read equally well, take impact-first. The title is the squash-merge subject and the line that appears in every notification, release note, and `git log`, read by people who know the codebase but have never seen this diff. Keep the whole thing inside roughly 72 characters so it survives those surfaces without truncation — if it won't fit, the summary is carrying detail that belongs in the body.
+
+The failure to avoid is the third shape, the mechanic: `fix(api): move the expiry check above the backend lookup`. It names the code motion that achieved the fix. It is accurate, it satisfies every part of the convention above, and it still leaves the reader unable to tell whether the PR matters to them — because the code motion is the one thing the diff already shows. Check the drafted summary against this: does it say what changed **for the system**, or only what changed **in the code**? A title whose meaning only arrives once the diff is open has failed.
+
 **Do not suffix the title with lifecycle wording** (`wip`, `draft`, `plan`, `scaffolding`, etc.). GitHub's draft / ready chip carries the lifecycle state. A single title that survives from open through merge avoids renames and avoids shipping stale wording into the merged record.
 
 ## Linking the tracking issue
@@ -46,7 +57,7 @@ When the PR has a tracking issue, link it as the **first line of the body's open
 Which keyword belongs depends on **which branch the PR targets**:
 
 - **PR targets `main` (the default branch)** — use `Fixes` / `Closes` if the merge should close the issue; use `Towards` if the issue should stay open. This includes sub-PRs in the `sub_pr_target: main` model (see `feature-dev-workflow:fanning-out-with-worktrees`): each sub-PR targets main directly with the type-appropriate closing keyword (`Fixes #<sub-issue>` for a bug sub-issue, `Closes #<sub-issue>` otherwise); the epic is closed manually by the orchestrator after all sub-PRs merge.
-- **PR targets a feature branch** (`feature/<slug>` in the multi-PR feature-branch model — see `feature-dev-workflow:developing-a-feature`) — use `Towards #<sub-issue>`. `Fixes` / `Closes` keywords only auto-trigger on merges to the default branch, so writing them on a feature-branch-bound PR creates a misleading promise that nothing will fulfill. The sub-issue is closed manually by the orchestrator after the self-merge. The integration PR (feature → main) gets `Closes #<epic>` because that PR does merge to main.
+- **PR targets a feature branch** (`<type>/<slug>` in the multi-PR feature-branch model — see `feature-dev-workflow:developing-a-feature`) — use `Towards #<sub-issue>`. `Fixes` / `Closes` keywords only auto-trigger on merges to the default branch, so writing them on a feature-branch-bound PR creates a misleading promise that nothing will fulfill. The sub-issue is closed manually by the orchestrator after the self-merge. The integration PR (`<type>/<slug>` → `main`) gets `Closes #<epic>` because that PR does merge to main.
 - **PR temporarily targets a sibling branch and will be retargeted to `main`** (stacked sub-PRs in the `sub_pr_target: main` model: each draft opens against its parent branch so its diff shows only its own commits, then retargets to `main` when the parent merges) — use the type-appropriate closing keyword (`Fixes #<sub-issue>` for a bug sub-issue, `Closes #<sub-issue>` otherwise) from the start. It describes the merge that will eventually happen on `main`, and it survives the retarget with no body edit; a `Towards` placed "because the base isn't main yet" has to be remembered and upgraded at every retarget, and a forgotten upgrade means the sub-issue never auto-closes. Know what the keyword does NOT do while the base is a sibling branch: GitHub only creates the issue's linked-PR association (and only auto-closes) for closing keywords on default-branch-base PRs, so until the retarget the sub-issue shows a plain timeline mention and **no linked PR** — deferred, not broken. At each retarget, verify the linkage materialized (`gh pr view <num> --json closingIssuesReferences` lists the sub-issue); if it stays empty, re-save the body so GitHub re-evaluates the keyword against the new base.
 
 If there is no tracking issue, drop the line entirely and open the section with prose.
@@ -89,6 +100,8 @@ The mechanic:
 ## Anti-patterns
 
 - **Lifecycle suffix in PR titles** (`... wip`, `... draft`, `... scaffolding`). The title outlives the state that named it. The body and GitHub's chip carry lifecycle; the title doesn't need to.
+- **Mechanic-first titles** (`... move the check above the lookup`, `... reorder the gates`, `... extract the handler`). They describe the code motion, which is the one thing the diff already shows. Lead with the effect or the cause (§PR title).
+- **`Challenges` as the body's overflow section.** Consequences, tradeoffs, follow-up work, and the history of review rounds all get filed there because the heading is sitting in the template. Each has a home: the Description's third part, `Related`, or the commits. The section earns its place only when the diff hides a system fact a reviewer needs — otherwise the heading gets deleted.
 - **Flipping ready with the draft body unchanged.** Different shape, different audience. Rewrite from the ready template.
 - **Marking ready before the Testing section is filled in.** That section is what gives the reviewer confidence the PR is shippable; leaving it blank silently drops the claim.
 - **Running `gh pr create` / `gh pr edit` on inferred consent.** Every body is a fresh confirmation. The cost of pausing is low; the cost of an unwanted public mutation is high.
@@ -106,5 +119,8 @@ These thoughts mean the PR isn't actually ready to publish or flip:
 | "I'll just append a note and they can edit later if needed"        | They shouldn't have to clean up after the agent. Confirm first.                                                                        |
 | "The PR's already open/ready, the stale body isn't worth re-editing" | The body is what the reviewer reads first; once the diff moves past it, it misleads. Reconcile the body to match the diff — body only, no comment (§Reconciling an open PR's body with reality). |
 | "The sub-issue shows no linked PR, the keyword must be wrong"        | Closing-keyword linkage only materializes while the PR's base is the default branch. On a stacked draft it's deferred until retarget — verify with `gh pr view <num> --json closingIssuesReferences` then, not before. |
+| "The title is accurate and follows the convention, so it's fine"     | Accuracy is not the bar; recognition is. If the summary names the code motion, a reader can't tell whether the PR matters to them without opening the diff. Lead with the effect or the cause. |
+| "This part was genuinely hard, so it belongs in `Challenges`"        | Hard for the author is not the test. The test is whether the diff hides a system fact the reviewer needs. Difficulty you already resolved, review rounds, and wrong turns live in the commits. |
+| "Better to include it than leave the reviewer guessing"              | A reviewer's attention is finite and spending it on filler costs the sections that matter. Every fact needs a section that's actually for it, or it comes out. |
 
 All of these mean: rewrite the body from the right template, paste it inline in chat, and wait for an explicit yes.

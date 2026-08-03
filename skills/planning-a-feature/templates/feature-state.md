@@ -11,10 +11,10 @@ feature: <slug>
 spec: docs/superpowers/specs/YYYY-MM-DD-<slug>-design.md
 plan: docs/superpowers/plans/YYYY-MM-DD-<slug>-plan.md
 tracking_issue: #<epic-num>
-feature_branch: feature/<slug>                # omit for single-PR features
+feature_branch: <type>/<slug>                # omit for single-PR features
 feature_worktree: .claude/worktrees/<slug>    # the main integration worktree; omit for single-PR
 sub_pr_approval: autonomous                   # autonomous | manual; omit for single-PR (see developing-a-feature Step 2)
-integration_pr: #<pr>      # filled in once the feature → main PR opens
+integration_pr: #<pr>      # filled in once the <type>/<slug> → main PR opens
 status: planning
 ---
 
@@ -32,16 +32,16 @@ Implementation phases as the plan defines them. Each phase names the sub-issues 
 ## PRs / worktrees
 
 <!--
-One row per sub-issue. For multi-PR features each sub-PR targets the feature branch (NOT main) and the orchestrator self-merges it after a self-review; sub-issues close manually because Fixes/Closes only auto-fires on merge to the default branch. The integration PR (feature → main, tracked via the `integration_pr` frontmatter field) is the one that uses `Closes #<epic>` to auto-close the epic.
+One row per sub-issue. For multi-PR features each sub-PR targets the feature branch (NOT main) and the orchestrator self-merges it after a self-review; sub-issues close manually because Fixes/Closes only auto-fires on merge to the default branch. The integration PR (`<type>/<slug>` → main, tracked via the `integration_pr` frontmatter field) is the one that uses `Closes #<epic>` to auto-close the epic.
 
 Branch and worktree are filled in when the work starts; PR and status are filled in as the work progresses. Keep this in sync with reality — a stale row is worse than no row.
 
 Status values: not-started | in-progress | draft | ready | self-merged (multi-PR, into feature branch) | merged (single-PR or integration PR into main).
 -->
 
-| Issue                       | Branch                       | Worktree path                            | PR (→ base)                          | Status        |
-| --------------------------- | ---------------------------- | ---------------------------------------- | ------------------------------------ | ------------- |
-| #<n1>    | <sub-branch-name>            | .claude/worktrees/<slug>--<sub-name>     | #<pr> → feature/<slug> | not-started   |
+| Issue                       | Branch                        | Worktree path                            | PR (→ base)                          | Status        |
+| --------------------------- | ----------------------------- | ---------------------------------------- | ------------------------------------ | ------------- |
+| #<n1>                       | <sub-type>/<slug>--<sub-name> | .claude/worktrees/<slug>--<sub-name>     | #<pr> → <type>/<slug>                | not-started   |
 
 ## Contracts
 

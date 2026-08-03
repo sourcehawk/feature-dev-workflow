@@ -183,7 +183,7 @@ When implementation diverges from what the tracking issue currently states — a
 
 **Which issue.** Single-PR feature → the one tracking issue. Multi-PR → the **sub-issue** when the change is scoped to that sub-PR's work; the **epic** when the change is to the design-overview-level shape the epic carries.
 
-**Commit it first.** The record links the commit that embodies the change, so the change must be committed and pushed before this branch runs. In a multi-PR feature that commit is on `feature/<slug>`, which is pushed and linkable on GitHub before the feature merges.
+**Commit it first.** The record links the commit that embodies the change, so the change must be committed and pushed before this branch runs. In a multi-PR feature that commit is on `<type>/<slug>`, which is pushed and linkable on GitHub before the feature merges.
 
 The record and the reconcile are one logical change, confirmed together:
 

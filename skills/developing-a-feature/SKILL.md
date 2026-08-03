@@ -29,13 +29,13 @@ If the plan is missing, stale, or the state file's recorded state doesn't match 
 
 ### 2. Decide: single-PR or multi-PR (feature-branch model)
 
-- **Single PR** → one worktree on the `feature/<slug>` branch `feature-dev-workflow:planning-a-feature` created, one Claude session, one PR from it targeting main. Skip the integration-PR step at the end.
+- **Single PR** → one worktree on the `<type>/<slug>` branch `feature-dev-workflow:planning-a-feature` created, one Claude session, one PR from it targeting main. Skip the integration-PR step at the end.
 - **Multi-PR** → two sub-models, selected by the Sub-PR target model question below. The default is the **feature-branch model**:
-  - `feature-dev-workflow:planning-a-feature` already created `feature/<slug>` (off `origin/main`) and committed the spec + plan + state file onto it. The orchestrator **reuses** that branch — it does not re-create it — attaching the integration worktree at `.claude/worktrees/<slug>` (recorded as `feature_branch` + `feature_worktree` in the state file's frontmatter).
-  - Every sub-PR is a real GitHub PR targeting `feature/<slug>`, not main. Each sub-worktree is created off the feature branch with `git worktree add .claude/worktrees/<slug>--<sub-name> -b <sub-branch> feature/<slug>` (raw git is the simplest path here; `EnterWorktree` defaults to branching from origin/main).
-  - When a sub-PR is ready, the orchestrator runs a self-review pass, then **self-merges** the sub-PR into `feature/<slug>`. The dispatching agent owns this merge — sub-agents don't merge their own PRs.
+  - `feature-dev-workflow:planning-a-feature` already created `<type>/<slug>` (off `origin/main`) and committed the spec + plan + state file onto it. The orchestrator **reuses** that branch — it does not re-create it — attaching the integration worktree at `.claude/worktrees/<slug>` (recorded as `feature_branch` + `feature_worktree` in the state file's frontmatter).
+  - Every sub-PR is a real GitHub PR targeting `<type>/<slug>`, not main. Each sub-worktree is created off the feature branch with `git worktree add .claude/worktrees/<slug>--<sub-name> -b <sub-type>/<slug>--<sub-name> <type>/<slug>` (raw git is the simplest path here; `EnterWorktree` defaults to branching from origin/main).
+  - When a sub-PR is ready, the orchestrator runs a self-review pass, then **self-merges** the sub-PR into `<type>/<slug>`. The dispatching agent owns this merge — sub-agents don't merge their own PRs.
   - Sub-issue closure: `Fixes #<sub-issue>` / `Closes #<sub-issue>` only auto-fires on merge to the **default branch**. Sub-PRs into the feature branch therefore use `Towards #<sub-issue>` (the explicit "keep this issue open" keyword); the orchestrator runs `gh issue close <sub-issue>` after each self-merge.
-  - When every sub-PR has been self-merged into the feature branch, the orchestrator opens the **integration PR** `feature/<slug>` → `main`, with `Closes #<epic>` in its body, for external review and the final merge.
+  - When every sub-PR has been self-merged into the feature branch, the orchestrator opens the **integration PR** `<type>/<slug>` → `main`, with `Closes #<epic>` in its body, for external review and the final merge.
   The alternative sub-model — sub-PRs targeting main directly, no integration PR — is configured by the Sub-PR target model question below.
 
 For sequential single-PR work, skip to Step 4. For multi-PR work, dispatch parallel subagents in Step 3 — but first, ask the user how sub-PR approval should work.
@@ -56,34 +56,34 @@ Record the choice as `sub_pr_review_loop: on` or `sub_pr_review_loop: off`. The 
 
 **Sub-PR target model (multi-PR only).** Immediately after the review-loop choice, ask a third `AskUserQuestion`: should sub-PRs target the feature branch (with one integration PR to main at the end) or main directly (with each sub-PR reviewed and merged independently)?
 
-- **Feature branch (default)** — sub-PRs target `feature/<slug>`; the orchestrator self-merges each one into the feature branch; the feature culminates in a single integration PR (`feature/<slug>` → `main`) with `Closes #<epic>` that closes the epic and gives external reviewers a combined diff. Choose this when sub-PRs are coupled by shared contracts and a unified review surface matters.
+- **Feature branch (default)** — sub-PRs target `<type>/<slug>`; the orchestrator self-merges each one into the feature branch; the feature culminates in a single integration PR (`<type>/<slug>` → `main`) with `Closes #<epic>` that closes the epic and gives external reviewers a combined diff. Choose this when sub-PRs are coupled by shared contracts and a unified review surface matters.
 - **Directly to main** — sub-PRs target `main` directly; each is reviewed and merged on its own timeline; no integration PR at the end. Choose this when sub-PRs are truly independent and individually deliverable, and a combined review surface isn't needed.
 
 Record the choice as `sub_pr_target: feature-branch` or `sub_pr_target: main`. The fan-out skill reads this field to set the base ref for sub-worktrees and the `--base` flag for each PR. Default if the field is missing in an older state file: `feature-branch` (preserves the original behaviour).
 
 ### 3. Set up the implementation environment
 
-- **Multi-PR (feature-branch model)** — `feature/<slug>` already exists, created and pushed by `feature-dev-workflow:planning-a-feature` and carrying the committed spec/plan/state. **Reuse it; never re-create it** off `origin/main` — that errors (`fatal: a branch named 'feature/<slug>' already exists`) and would orphan the planning artifacts. If planning already made the integration worktree at `.claude/worktrees/<slug>`, just `cd` into it. Otherwise attach one to the existing branch:
+- **Multi-PR (feature-branch model)** — `<type>/<slug>` already exists, created and pushed by `feature-dev-workflow:planning-a-feature` and carrying the committed spec/plan/state. **Reuse it; never re-create it** off `origin/main` — that errors (`fatal: a branch named '<type>/<slug>' already exists`) and would orphan the planning artifacts. If planning already made the integration worktree at `.claude/worktrees/<slug>`, just `cd` into it. Otherwise attach one to the existing branch:
 
   ```
   git fetch origin
-  git switch main                                       # vacate feature/<slug> if planning left you on it
-  git worktree add .claude/worktrees/<slug> feature/<slug>
+  git switch main                                       # vacate <type>/<slug> if planning left you on it
+  git worktree add .claude/worktrees/<slug> <type>/<slug>
   cd .claude/worktrees/<slug>
   ```
 
-(Fallback only if planning was skipped and `feature/<slug>` exists nowhere: `git worktree add .claude/worktrees/<slug> -b feature/<slug> origin/main && git -C .claude/worktrees/<slug> push -u origin feature/<slug>`.) Update the state file's `feature_branch` + `feature_worktree` frontmatter fields to point here. Sub-worktrees off this branch are created later by `feature-dev-workflow:fanning-out-with-worktrees`.
+(Fallback only if planning was skipped and `<type>/<slug>` exists nowhere: `git worktree add .claude/worktrees/<slug> -b <type>/<slug> origin/main && git -C .claude/worktrees/<slug> push -u origin <type>/<slug>`.) Update the state file's `feature_branch` + `feature_worktree` frontmatter fields to point here. Sub-worktrees off this branch are created later by `feature-dev-workflow:fanning-out-with-worktrees`.
 
-- **Single-PR** — `feature-dev-workflow:planning-a-feature` created `feature/<slug>` and committed the planning artifacts onto it; this is the only branch, and the PR opens from it. Reuse it the same way — if planning made a worktree, `cd` in; otherwise attach one to the existing branch:
+- **Single-PR** — `feature-dev-workflow:planning-a-feature` created `<type>/<slug>` and committed the planning artifacts onto it; this is the only branch, and the PR opens from it. Reuse it the same way — if planning made a worktree, `cd` in; otherwise attach one to the existing branch:
 
   ```
   git fetch origin
-  git switch main                                       # vacate feature/<slug> if planning left you on it
-  git worktree add .claude/worktrees/<slug> feature/<slug>
+  git switch main                                       # vacate <type>/<slug> if planning left you on it
+  git worktree add .claude/worktrees/<slug> <type>/<slug>
   cd .claude/worktrees/<slug>
   ```
 
-(Fallback if planning was skipped: `git worktree add .claude/worktrees/<slug> -b feature/<slug> origin/main`.) Skip the integration-PR step at the end; this is the only PR.
+(Fallback if planning was skipped: `git worktree add .claude/worktrees/<slug> -b <type>/<slug> origin/main`.) Skip the integration-PR step at the end; this is the only PR.
 
 ### 4. Implement
 
@@ -114,8 +114,8 @@ Record the choice as `sub_pr_target: feature-branch` or `sub_pr_target: main`. T
 
 **REQUIRED SUB-SKILL:** `feature-dev-workflow:opening-a-pull-request`. Base + body keyword depend on which model is in play:
 
-- **Single-PR feature** → PR targets `main` from `feature/<slug>`. Body opens with `Fixes #<feature-issue>` (bug) or `Closes #<feature-issue>` (feature/task) so the issue auto-closes on merge.
-- **Multi-PR (feature-branch) integration PR** → PR targets `main` from `feature/<slug>` (`gh pr create --base main --head feature/<slug>`). Body opens with `Closes #<epic>` so the epic auto-closes on merge. This is the PR external reviewers see; the diff is the whole feature.
+- **Single-PR feature** → PR targets `main` from `<type>/<slug>`. Body opens with `Fixes #<feature-issue>` (bug) or `Closes #<feature-issue>` (feature/task) so the issue auto-closes on merge.
+- **Multi-PR (feature-branch) integration PR** → PR targets `main` from `<type>/<slug>` (`gh pr create --base main --head <type>/<slug>`). Body opens with `Closes #<epic>` so the epic auto-closes on merge. This is the PR external reviewers see; the diff is the whole feature.
 - **Multi-PR (directly to main)** → there is no integration PR and nothing to open here. Epic closure already happened at fan-out hand-back — `feature-dev-workflow:fanning-out-with-worktrees` Step 7 owns the `gh issue close <epic>` (sub-PR keywords only close sub-issues, never the epic). Verify it with `gh issue view <epic> --json state`, then proceed to Step 7.
 
 Sub-PRs into the feature branch are owned by `feature-dev-workflow:fanning-out-with-worktrees`, not this step.
@@ -175,7 +175,7 @@ The teardown does not change where the flow ends. In the models that end in a fi
 | "They wrote 'merge it / merge to the main worktree' earlier — that's authorization" | Merge-ish phrasing in passing isn't the merge button; it usually means "bring the result into the local checkout and verify it". Stop at ready-to-merge; if they want you to merge, they'll say so against the open PR. |
 | "`Closes #<epic>` is in the body — merging just completes the design"   | The keyword describes what happens when the *user* merges. It is not an instruction to merge.          |
 | "I'll open the integration PR before the last sub-PR is self-merged" | The integration PR's diff is supposed to be the whole feature. An in-flight sub-PR means the integration PR will be re-pushed mid-review. Wait. |
-| "I'll create `feature/<slug>` off `origin/main` in step 3"           | Planning already created it and committed the spec/plan/state onto it. `-b feature/<slug>` errors ("already exists") and re-creating off `origin/main` orphans the planning artifacts. Reuse the existing branch; attach a worktree to it. |
+| "I'll create `<type>/<slug>` off `origin/main` in step 3"           | Planning already created it and committed the spec/plan/state onto it. `-b <type>/<slug>` errors ("already exists") and re-creating off `origin/main` orphans the planning artifacts. Reuse the existing branch; attach a worktree to it. |
 | "Tests pass locally and the PR is ready, so I'll tear down plan/state now" | When CI runs on the PR, local green and "ready" aren't the gate — if it comes back red you fix forward, with no state file if you deleted it. Tear down on the PR's checks going green. (Repo has no CI configured for this branch? Then the local suite *is* the gate — proceed.) |
 | "The spec stays — it's the durable record"                           | Only in repos with no decision-record convention of their own. Where `docs/adrs/` (or equivalent) exists, distill the lasting decisions into it — with user review — and delete the spec with the other scratch artifacts. The canonical record is what future engineers actually read. |
 | "`gh pr checks` reports no checks, so I'll keep polling until CI shows up" | Zero checks reported isn't the same as CI pending. Inspect the repo's CI configuration: if no pipeline runs on this branch, none will ever appear and polling just stalls the workflow. Proceed on the local suite you already pasted. |

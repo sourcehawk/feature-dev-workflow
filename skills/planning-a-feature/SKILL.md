@@ -40,18 +40,37 @@ Both the spec and any ADR(s) are tracked source artifacts (`docs/superpowers/spe
 
 ```
 git fetch origin main
-git switch -c feature/<slug> origin/main
+git switch -c <type>/<slug> origin/main
 ```
 
 For a non-trivial (multi-PR) feature, run planning from a dedicated worktree on that branch instead, so the whole feature — planning docs included — lives in one isolated checkout:
 
 ```
 git fetch origin main
-git worktree add .claude/worktrees/<slug> -b feature/<slug> origin/main
+git worktree add .claude/worktrees/<slug> -b <type>/<slug> origin/main
 cd .claude/worktrees/<slug>
 ```
 
-Either way, stay on `feature/<slug>` for the rest of planning; every artifact commit lands there. Don't push yet — that happens at step 8, after the user approves the spec. `feature-dev-workflow:developing-a-feature` reuses this branch (and the worktree, if you created one); it never re-creates it off `origin/main`, and `main` receives the feature only through the integration/feature PR.
+Either way, stay on `<type>/<slug>` for the rest of planning; every artifact commit lands there. Don't push yet — that happens at step 8, after the user approves the spec. `feature-dev-workflow:developing-a-feature` reuses this branch (and the worktree, if you created one); it never re-creates it off `origin/main`, and `main` receives the feature only through the integration/feature PR.
+
+**The branch name has two parts, and both carry information.**
+
+`<type>` is the commit type of the headline change — `feat`, `fix`, `refactor`, `test`, `chore`, `docs` — the same type the PR title will carry. A bug fix lives on `fix/…`, not on `feat/…` and not on a generic `feature/…`; whoever scans `git branch` or the remote's branch list learns what kind of work this is before reading further. Pick the type from the change, not from the workflow that produced it: running this feature-development flow does not make the work a feature.
+
+`<slug>` names the subject and what changes about it, in two to four words. The subject alone is not enough, and the code motion that achieves it is the wrong half — that is what the diff shows.
+
+**The slug is only the part after the slash, and it never contains one.** The type prefix belongs to the branch name and nothing else: `<slug>` on its own is interpolated into the worktree path (`.claude/worktrees/<slug>`) and into every artifact filename (`docs/superpowers/specs/YYYY-MM-DD-<slug>-design.md`), so a slug carrying its own type would nest the worktree a directory deeper and put a slash in a filename. For a branch `fix/stale-sessions-block-new-ones`, the slug is `stale-sessions-block-new-ones`.
+
+| Branch name | Verdict |
+| --- | --- |
+| `fix/stale-sessions-block-new-ones` | Names the subject and its effect. A reader knows what is wrong. |
+| `feat/multi-tenant-profiles` | Good for a feature: the subject *is* the change. |
+| `fix/session-controller-work` | Subject with no effect. Says nothing a reader can act on. |
+| `fix/reorder-expiry-check` | The mechanic. Describes the patch, not the problem. |
+| `feature/session-fix` | Wrong type, and the slug is a placeholder. |
+| `fix/fix-stale-sessions` | The type is duplicated into the slug. The slug is `stale-sessions…`, not `fix-…`. |
+
+The name is set once, at birth, and every sub-branch, worktree path, and state-file row inherits it, so a vague slug is expensive to live with and awkward to change later.
 
 ### 3. User reviews the spec (and any ADR)
 
@@ -62,7 +81,7 @@ Pause. Surface the spec path and wait for explicit "approved" or redirection bef
 Decide whether the work ships as:
 
 - **One PR** — single self-contained change, one reviewer pass, one merge to main.
-- **Multiple PRs** — multiple feature-sized chunks, each independently reviewable, possibly parallelizable. Multi-PR features land via the **feature-branch model**: a long-lived `feature/<slug>` branch off main; every sub-PR is a real GitHub PR targeting `feature/<slug>` (not main); when every sub-PR has been self-merged into the feature branch, a final **integration PR** from `feature/<slug>` to main collects the whole feature for external review. Main stays shippable throughout the work; each sub-PR retains full GitHub visibility (comments, reviews, history).
+- **Multiple PRs** — multiple feature-sized chunks, each independently reviewable, possibly parallelizable. Multi-PR features land via the **feature-branch model**: a long-lived `<type>/<slug>` branch off main; every sub-PR is a real GitHub PR targeting `<type>/<slug>` (not main); when every sub-PR has been self-merged into the feature branch, a final **integration PR** from `<type>/<slug>` to main collects the whole feature for external review. Main stays shippable throughout the work; each sub-PR retains full GitHub visibility (comments, reviews, history).
 
 The PR-shape judgment is grounded in **reviewer cost**: a 2000-line PR is unreviewable even if the work is "one thing". If you can name two independent surfaces that ship value separately, that's two PRs and the feature-branch model applies.
 
@@ -112,16 +131,16 @@ Before handing off, create `docs/superpowers/states/YYYY-MM-DD-<slug>-state.md` 
 
 The state file is scratch (same lifecycle as the plan): tracked in git so it survives sessions / worktrees / machines, and deleted in the orchestrator's last commit once every sub-issue is closed and the feature has shipped. Update it as the work progresses — see `feature-dev-workflow:developing-a-feature` for the update choreography.
 
-Commit the spec, the plan, and the state file together as the planning artifact set on `feature/<slug>` (created in step 2). Confirm you're not on `main`, then publish the branch so `feature-dev-workflow:developing-a-feature` can attach its integration worktree to it:
+Commit the spec, the plan, and the state file together as the planning artifact set on `<type>/<slug>` (created in step 2). Confirm you're not on `main`, then publish the branch so `feature-dev-workflow:developing-a-feature` can attach its integration worktree to it:
 
 ```
-git branch --show-current        # must be feature/<slug>, never main
-git push -u origin feature/<slug>
+git branch --show-current        # must be <type>/<slug>, never main
+git push -u origin <type>/<slug>
 ```
 
 ### 9. Hand off to implementation
 
-Spec + plan + state file committed and pushed on `feature/<slug>`, issues aligned, contracts written → invoke `feature-dev-workflow:developing-a-feature` to start the work. The state file is the entry-point artifact for every session that touches this feature afterward.
+Spec + plan + state file committed and pushed on `<type>/<slug>`, issues aligned, contracts written → invoke `feature-dev-workflow:developing-a-feature` to start the work. The state file is the entry-point artifact for every session that touches this feature afterward.
 
 ## Anti-patterns
 
@@ -142,4 +161,6 @@ Spec + plan + state file committed and pushed on `feature/<slug>`, issues aligne
 | "Filing issues is busywork, I'll just start coding"                | Without issues, the work isn't reviewable in chunks; the PR will be one giant blob.                  |
 | "The contract is obvious, no need to write it down"                | Two parallel workers reading the same "obvious" thing produce divergent implementations. Write.      |
 | "I'll skip user review on the spec, it's just an internal doc"     | An unreviewed spec is a draft. Drafts don't get tickets filed against them.                          |
-| "The feature branch is created later in `feature-dev-workflow:developing-a-feature`, so the spec/plan/state commit to `main` first" | Planning owns the branch's birth. Create `feature/<slug>` in step 2 before the first commit; `feature-dev-workflow:developing-a-feature` reuses it. Nothing about the feature touches `main` except the final integration/feature PR. |
+| "The feature branch is created later in `feature-dev-workflow:developing-a-feature`, so the spec/plan/state commit to `main` first" | Planning owns the branch's birth. Create `<type>/<slug>` in step 2 before the first commit; `feature-dev-workflow:developing-a-feature` reuses it. Nothing about the feature touches `main` except the final integration/feature PR. |
+| "This is running the feature-development flow, so the branch is `feature/…`"                                                       | The type comes from the change, not from the workflow. A bug fix planned through this flow is still `fix/…`. |
+| "The slug can be refined once I see how the work lands"                                                                            | Every sub-branch, worktree path, and state-file row derives from it. Name the subject and its effect now (step 2); renaming later touches all of them. |
