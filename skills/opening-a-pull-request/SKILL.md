@@ -33,6 +33,17 @@ Set the title once when opening and don't rename it. Match the project's commit-
 
 Types: `feat`, `fix`, `refactor`, `test`, `chore`, `docs`. Area mirrors the module path (`api`, `auth`, `ui`, `db`). When the PR bundles unrelated areas, lead with the headline change and acknowledge the others in the body — don't try to encode both in the title.
 
+**The summary names the effect or the cause, whichever a human recognizes faster.** Choose one:
+
+| Shape | Reads as | Use when |
+| --- | --- | --- |
+| Impact-first | `fix(api): stop stale sessions from blocking every newer one` | The reader cares what starts or stops happening. |
+| Cause-first | `fix(api): expire sessions whose backend lookup never answers` | The trigger is the surprising part and names the bug better than its effect does. |
+
+If both read equally well, take impact-first. The title is the squash-merge subject and the line that appears in every notification, release note, and `git log`, read by people who know the codebase but have never seen this diff. Keep the whole thing inside roughly 72 characters so it survives those surfaces without truncation — if it won't fit, the summary is carrying detail that belongs in the body.
+
+The failure to avoid is the third shape, the mechanic: `fix(api): move the expiry check above the backend lookup`. It names the code motion that achieved the fix. It is accurate, it satisfies every part of the convention above, and it still leaves the reader unable to tell whether the PR matters to them — because the code motion is the one thing the diff already shows. Check the drafted summary against this: does it say what changed **for the system**, or only what changed **in the code**? A title whose meaning only arrives once the diff is open has failed.
+
 **Do not suffix the title with lifecycle wording** (`wip`, `draft`, `plan`, `scaffolding`, etc.). GitHub's draft / ready chip carries the lifecycle state. A single title that survives from open through merge avoids renames and avoids shipping stale wording into the merged record.
 
 ## Linking the tracking issue
@@ -89,6 +100,8 @@ The mechanic:
 ## Anti-patterns
 
 - **Lifecycle suffix in PR titles** (`... wip`, `... draft`, `... scaffolding`). The title outlives the state that named it. The body and GitHub's chip carry lifecycle; the title doesn't need to.
+- **Mechanic-first titles** (`... move the check above the lookup`, `... reorder the gates`, `... extract the handler`). They describe the code motion, which is the one thing the diff already shows. Lead with the effect or the cause (§PR title).
+- **`Challenges` as the body's overflow section.** Consequences, tradeoffs, follow-up work, and the history of review rounds all get filed there because the heading is sitting in the template. Each has a home: the Description's third part, `Related`, or the commits. The section earns its place only when the diff hides a system fact a reviewer needs — otherwise the heading gets deleted.
 - **Flipping ready with the draft body unchanged.** Different shape, different audience. Rewrite from the ready template.
 - **Marking ready before the Testing section is filled in.** That section is what gives the reviewer confidence the PR is shippable; leaving it blank silently drops the claim.
 - **Running `gh pr create` / `gh pr edit` on inferred consent.** Every body is a fresh confirmation. The cost of pausing is low; the cost of an unwanted public mutation is high.
@@ -106,5 +119,8 @@ These thoughts mean the PR isn't actually ready to publish or flip:
 | "I'll just append a note and they can edit later if needed"        | They shouldn't have to clean up after the agent. Confirm first.                                                                        |
 | "The PR's already open/ready, the stale body isn't worth re-editing" | The body is what the reviewer reads first; once the diff moves past it, it misleads. Reconcile the body to match the diff — body only, no comment (§Reconciling an open PR's body with reality). |
 | "The sub-issue shows no linked PR, the keyword must be wrong"        | Closing-keyword linkage only materializes while the PR's base is the default branch. On a stacked draft it's deferred until retarget — verify with `gh pr view <num> --json closingIssuesReferences` then, not before. |
+| "The title is accurate and follows the convention, so it's fine"     | Accuracy is not the bar; recognition is. If the summary names the code motion, a reader can't tell whether the PR matters to them without opening the diff. Lead with the effect or the cause. |
+| "This part was genuinely hard, so it belongs in `Challenges`"        | Hard for the author is not the test. The test is whether the diff hides a system fact the reviewer needs. Difficulty you already resolved, review rounds, and wrong turns live in the commits. |
+| "Better to include it than leave the reviewer guessing"              | A reviewer's attention is finite and spending it on filler costs the sections that matter. Every fact needs a section that's actually for it, or it comes out. |
 
 All of these mean: rewrite the body from the right template, paste it inline in chat, and wait for an explicit yes.
