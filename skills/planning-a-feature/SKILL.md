@@ -59,13 +59,16 @@ Either way, stay on `<type>/<slug>` for the rest of planning; every artifact com
 
 `<slug>` names the subject and what changes about it, in two to four words. The subject alone is not enough, and the code motion that achieves it is the wrong half — that is what the diff shows.
 
-| Slug | Verdict |
+**The slug is only the part after the slash, and it never contains one.** The type prefix belongs to the branch name and nothing else: `<slug>` on its own is interpolated into the worktree path (`.claude/worktrees/<slug>`) and into every artifact filename (`docs/superpowers/specs/YYYY-MM-DD-<slug>-design.md`), so a slug carrying its own type would nest the worktree a directory deeper and put a slash in a filename. For a branch `fix/stale-sessions-block-new-ones`, the slug is `stale-sessions-block-new-ones`.
+
+| Branch name | Verdict |
 | --- | --- |
 | `fix/stale-sessions-block-new-ones` | Names the subject and its effect. A reader knows what is wrong. |
 | `feat/multi-tenant-profiles` | Good for a feature: the subject *is* the change. |
 | `fix/session-controller-work` | Subject with no effect. Says nothing a reader can act on. |
 | `fix/reorder-expiry-check` | The mechanic. Describes the patch, not the problem. |
 | `feature/session-fix` | Wrong type, and the slug is a placeholder. |
+| `fix/fix-stale-sessions` | The type is duplicated into the slug. The slug is `stale-sessions…`, not `fix-…`. |
 
 The name is set once, at birth, and every sub-branch, worktree path, and state-file row inherits it, so a vague slug is expensive to live with and awkward to change later.
 
