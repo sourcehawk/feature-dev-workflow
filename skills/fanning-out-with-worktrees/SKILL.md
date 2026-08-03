@@ -12,7 +12,7 @@ description:
 
 When you're the orchestrator for multi-PR feature work and these prerequisites are met:
 
-- The `feature/<slug>` integration branch and the main feature worktree exist (set up by `feature-dev-workflow:developing-a-feature` before invoking this skill).
+- The `<type>/<slug>` integration branch and the main feature worktree exist (set up by `feature-dev-workflow:developing-a-feature` before invoking this skill).
 - The plan (`docs/superpowers/plans/<date>-<slug>-plan.md`) has a `## Contracts` section with a Realization strategy per row.
 - The plan also has a `## Conventions` block (directory layout, naming scheme, locked vocabulary) — it's mandatory dispatch context for every subagent (Step 2), so the fan-out can't start without it.
 - The state file (`docs/superpowers/states/<date>-<slug>-state.md`) has rows for each sub-issue.
@@ -41,10 +41,14 @@ Record the wave assignments in the state file's `## Phases` section before dispa
 For each sub-PR in the wave, the orchestrator creates the worktree first:
 
 ```
-git worktree add .claude/worktrees/<slug>--<sub-name> -b <sub-branch> <base-ref>
+git worktree add .claude/worktrees/<slug>--<sub-name> -b <sub-type>/<slug>--<sub-name> <base-ref>
 ```
 
-When the state file's frontmatter has `sub_pr_target: main`, `<base-ref>` is `origin/main` for every sub-PR in every wave (fetch `origin/main` first so wave N+1 picks up the commits that wave N merged). When `sub_pr_target` is `feature-branch` (the default), `<base-ref>` is `feature/<slug>` for default sub-PRs, `feature/<slug>` after the stub PR merged (for `pre-merge stub PR` consumers), or the producer's branch (for `stub-on-producer-branch` consumers).
+**The sub-branch name is derived, not invented.** It is `<sub-type>/<slug>--<sub-name>`: the parent's slug, so every branch of one feature sorts together in the remote's branch list, then `--<sub-name>` for this slice. `<sub-type>` is the commit type of *this* sub-PR's headline change, which is often not the parent's — a feature branch's slices routinely include a `refactor` that clears the way and a `test` that backfills coverage. The `<sub-name>` follows the same rule as the parent slug (`feature-dev-workflow:planning-a-feature` step 2): it names the slice's subject and effect in two to four words, never `part-2`, `phase-b`, or the plan's organizing label — those are positions in a plan the reader does not have, and inheriting them violates the naming firewall in `feature-dev-workflow:maintaining-architectural-coherence`.
+
+Record the branch in the state file's PR-table row as you create it; the resumed-session contract in `feature-dev-workflow:resuming-a-feature` reads that row as ground truth.
+
+When the state file's frontmatter has `sub_pr_target: main`, `<base-ref>` is `origin/main` for every sub-PR in every wave (fetch `origin/main` first so wave N+1 picks up the commits that wave N merged). When `sub_pr_target` is `feature-branch` (the default), `<base-ref>` is `<type>/<slug>` for default sub-PRs, `<type>/<slug>` after the stub PR merged (for `pre-merge stub PR` consumers), or the producer's branch (for `stub-on-producer-branch` consumers).
 
 Then dispatch one subagent per sub-PR. **REQUIRED SUB-SKILL:** `superpowers:dispatching-parallel-agents`.
 
@@ -53,11 +57,11 @@ Each dispatch prompt MUST include:
 1. **Isolation verification as the first action.** `cd <worktree-path> && pwd && git branch --show-current` — the subagent confirms it's on the sub-branch in the right worktree before any edit. Commits land on the wrong branch otherwise.
 2. **Context handoff.** State file path, plan path, spec path, the issue number it's working, the relevant contract row(s) (Name + Producer + Consumer + Shape + Realization), **and the plan's `## Conventions` block**. The subagent implements **against the contract and the conventions** — it does not re-discover or re-design either, and it does not invent its own directory layout or naming scheme. A subagent handed contracts but not conventions will name and structure locally, and the merged feature reads as written by a committee (see `feature-dev-workflow:maintaining-architectural-coherence`).
 3. **Implementation skills.** `superpowers:test-driven-development` + `feature-dev-workflow:testing-a-feature` for every change.
-4. **PR completion.** When the implementation is done and verified, the subagent invokes `feature-dev-workflow:opening-a-pull-request`. The base and body keyword depend on `sub_pr_target` in the state file: when `feature-branch`, use `--base feature/<slug>` and `Towards #<sub-issue>` in the body (`Fixes`/`Closes` don't fire on non-default-branch merges; `Towards` keeps the issue open until the orchestrator closes it manually after the merge); when `main`, use `--base main` and the type-appropriate closing keyword in the body — `Fixes #<sub-issue>` for a bug sub-issue, `Closes #<sub-issue>` otherwise; either fires automatically on merge to the default branch (see `feature-dev-workflow:opening-a-pull-request` for the distinction). Epic closure in main mode is not handled by sub-PR keywords — the orchestrator closes the epic manually in Step 7. The subagent reports the PR URL back to the orchestrator.
+4. **PR completion.** When the implementation is done and verified, the subagent invokes `feature-dev-workflow:opening-a-pull-request`. The base and body keyword depend on `sub_pr_target` in the state file: when `feature-branch`, use `--base <type>/<slug>` and `Towards #<sub-issue>` in the body (`Fixes`/`Closes` don't fire on non-default-branch merges; `Towards` keeps the issue open until the orchestrator closes it manually after the merge); when `main`, use `--base main` and the type-appropriate closing keyword in the body — `Fixes #<sub-issue>` for a bug sub-issue, `Closes #<sub-issue>` otherwise; either fires automatically on merge to the default branch (see `feature-dev-workflow:opening-a-pull-request` for the distinction). Epic closure in main mode is not handled by sub-PR keywords — the orchestrator closes the epic manually in Step 7. The subagent reports the PR URL back to the orchestrator.
 
 ### 3. Update the state file as subagents start work
 
-As each subagent surfaces its worktree path and branch, the orchestrator fills in the row in the state file's `## PRs / worktrees` table. When a subagent opens its draft PR, the orchestrator fills in the PR column with the base ref (`#<num> → feature/<slug>` or `#<num> → main`, per the `sub_pr_target` setting) and flips status to `draft`.
+As each subagent surfaces its worktree path and branch, the orchestrator fills in the row in the state file's `## PRs / worktrees` table. When a subagent opens its draft PR, the orchestrator fills in the PR column with the base ref (`#<num> → <type>/<slug>` or `#<num> → main`, per the `sub_pr_target` setting) and flips status to `draft`.
 
 A stale row is worse than no row — a resumed session reads the state file as ground truth.
 
@@ -89,7 +93,7 @@ When a sub-PR is ready (subagent reports `ready` and the relevant verification c
 
 - **Review independence.** The subagent that wrote the code is the wrong reviewer for the same code; the orchestrator's distance from the implementation is the whole point.
 - **Global view.** Only the orchestrator holds the merge-order context (which contract rows are `locked`, which sibling PRs are still in flight, which wave we're in). A subagent merging on its own would commit to ordering it can't see.
-- **Worktree topology.** Subagents live in their per-sub-PR worktrees; only the orchestrator's main feature worktree has `feature/<slug>` checked out, so the merge naturally happens on the orchestrator's side.
+- **Worktree topology.** Subagents live in their per-sub-PR worktrees; only the orchestrator's main feature worktree has `<type>/<slug>` checked out, so the merge naturally happens on the orchestrator's side.
 
 Per sub-PR, in order:
 
@@ -101,9 +105,9 @@ Per sub-PR, in order:
 3. **Approval gate, per the state file's `sub_pr_approval` mode.** Every gate covers the **bundle**: merge + sub-issue close + state-file update. The close is bodyless (no `--comment` flag) — GitHub automatically cross-references the sub-issue from the merge commit via the sub-PR's body keyword, so no custom comment is needed and there's no "specific body about to land" for the close mutation.
    - **`autonomous`** (default) — proceed straight through the bundle in steps 4-6. The user opted into the mechanical bundle (review → merge → bodyless close → state update) in `feature-dev-workflow:developing-a-feature` Step 2.
    - **`manual`** — pause and ask the user for explicit approval before the bundle. The prompt MUST surface: a one-line summary of the review findings ("review clean" / "<N> findings, none blocking" / specific concerns), the PR's title and diff size, and a note that closing sub-issue `#<sub-issue>` follows the merge. Wait for an explicit yes. On push-back, route the concern back to the worktree subagent via `SendMessage` instead of merging.
-4. **Merge.** Run `gh pr merge <num> --merge` (or `--squash` / `--rebase` per project preference). Before merging, push any local state-file commits to their remote — for `feature-branch` that is `origin/feature/<slug>`; for `main` that is `origin/feature/<slug>` as well (the orchestrator stays on the feature branch for state management). The merge itself lands on GitHub's remote, and the pull-back differs by target:
-   - **`sub_pr_target: feature-branch`**: after the merge, `git -C <feature_worktree> fetch origin && git merge --ff-only origin/feature/<slug>` to bring the merge commit back into the feature worktree. Keep local == origin at every merge boundary (unpushed local commits cause a "Not possible to fast-forward" failure; recover with `git rebase origin/feature/<slug>`).
-   - **`sub_pr_target: main`**: the merge lands on `main`. The orchestrator remains on `feature/<slug>` for state file management; no pull-back into the feature worktree is needed. Before dispatching wave N+1, run `git fetch origin` so the next wave's worktrees branch from the freshly updated `origin/main`.
+4. **Merge.** Run `gh pr merge <num> --merge` (or `--squash` / `--rebase` per project preference). Before merging, push any local state-file commits to their remote — for `feature-branch` that is `origin/<type>/<slug>`; for `main` that is `origin/<type>/<slug>` as well (the orchestrator stays on the feature branch for state management). The merge itself lands on GitHub's remote, and the pull-back differs by target:
+   - **`sub_pr_target: feature-branch`**: after the merge, `git -C <feature_worktree> fetch origin && git merge --ff-only origin/<type>/<slug>` to bring the merge commit back into the feature worktree. Keep local == origin at every merge boundary (unpushed local commits cause a "Not possible to fast-forward" failure; recover with `git rebase origin/<type>/<slug>`).
+   - **`sub_pr_target: main`**: the merge lands on `main`. The orchestrator remains on `<type>/<slug>` for state file management; no pull-back into the feature worktree is needed. Before dispatching wave N+1, run `git fetch origin` so the next wave's worktrees branch from the freshly updated `origin/main`.
 5. **Close the sub-issue.**
    - **`sub_pr_target: feature-branch`**: `gh issue close <sub-issue>`. Sub-PRs into a non-default branch don't trigger `Fixes`/`Closes` — manual close is the workaround. The body's `Towards #<sub-issue>` keyword left the issue open precisely so the orchestrator can close it here; the cross-reference from the merge commit (which references `#<sub-pr>`, which references `#<sub-issue>`) is preserved automatically without a custom comment.
    - **`sub_pr_target: main`**: no manual close needed. The closing keyword in the PR body (`Fixes`/`Closes`) fires on merge to the default branch and auto-closes the sub-issue. Confirm it closed before marking the state-file row `self-merged`.
@@ -121,7 +125,7 @@ Repeat Steps 2 → 6 for each wave.
 ### 7. All waves complete → hand back
 
 When every wave is complete (every sub-issue closed, every row `self-merged`, every contract `locked`), update the state file's frontmatter `status:` to `review` and return control to `feature-dev-workflow:developing-a-feature`.
-- **`sub_pr_target: feature-branch`**: the next step is the integration PR (`feature/<slug>` → `main` with `Closes #<epic>`), which `feature-dev-workflow:developing-a-feature` Step 6 owns — opening and review-looping only; the merge to main itself is the user's (see that skill's merge guard).
+- **`sub_pr_target: feature-branch`**: the next step is the integration PR (`<type>/<slug>` → `main` with `Closes #<epic>`), which `feature-dev-workflow:developing-a-feature` Step 6 owns — opening and review-looping only; the merge to main itself is the user's (see that skill's merge guard).
 - **`sub_pr_target: main`**: the sub-PRs were already the deliverables to main; there is no integration PR. `feature-dev-workflow:developing-a-feature` passes through Step 6 (verification only — no PR to open) and proceeds to Step 7 (teardown). Close the epic manually with `gh issue close <epic>` before handing back — sub-PR closing keywords (`Fixes`/`Closes`) only close sub-issues, so the epic does not auto-close.
 
 ## Anti-patterns

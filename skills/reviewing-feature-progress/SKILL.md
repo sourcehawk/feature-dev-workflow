@@ -73,7 +73,7 @@ Walk the state file and verify reality against record:
 - Every `self-merged` row's PR has actually merged into the feature branch (`gh pr view <num> --json mergedAt --jq .mergedAt`).
 - Every `locked` contract row's `Realized in` PR is in fact merged.
 - Every `## Bubble-up log` entry has a propagation path recorded — no concerns left unresolved.
-- The `feature_branch` and `feature_worktree` frontmatter still point at real things on disk (`git rev-parse --verify feature/<slug>` + `ls <feature_worktree>`).
+- The `feature_branch` and `feature_worktree` frontmatter still point at real things on disk (`git rev-parse --verify <type>/<slug>` + `ls <feature_worktree>`).
 
 If anything is out of sync, fix the state file before continuing — the resumed-session contract depends on it.
 
@@ -87,7 +87,7 @@ With the feature whole and its behavior settled, write or update the public-faci
 
 ```
 cd <feature_worktree>
-git pull origin feature/<slug>
+git pull origin <type>/<slug>
 # then run the project's full test + lint suite (and typecheck, if it has one),
 # discovered from the project's CLAUDE.md / AGENTS.md or build config
 ```

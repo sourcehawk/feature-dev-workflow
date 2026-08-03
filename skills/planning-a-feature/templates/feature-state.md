@@ -11,7 +11,7 @@ feature: <slug>
 spec: docs/superpowers/specs/YYYY-MM-DD-<slug>-design.md
 plan: docs/superpowers/plans/YYYY-MM-DD-<slug>-plan.md
 tracking_issue: #<epic-num>
-feature_branch: feature/<slug>                # omit for single-PR features
+feature_branch: <type>/<slug>                # omit for single-PR features
 feature_worktree: .claude/worktrees/<slug>    # the main integration worktree; omit for single-PR
 sub_pr_approval: autonomous                   # autonomous | manual; omit for single-PR (see developing-a-feature Step 2)
 integration_pr: #<pr>      # filled in once the feature → main PR opens
@@ -39,9 +39,9 @@ Branch and worktree are filled in when the work starts; PR and status are filled
 Status values: not-started | in-progress | draft | ready | self-merged (multi-PR, into feature branch) | merged (single-PR or integration PR into main).
 -->
 
-| Issue                       | Branch                       | Worktree path                            | PR (→ base)                          | Status        |
-| --------------------------- | ---------------------------- | ---------------------------------------- | ------------------------------------ | ------------- |
-| #<n1>    | <sub-branch-name>            | .claude/worktrees/<slug>--<sub-name>     | #<pr> → feature/<slug> | not-started   |
+| Issue                       | Branch                        | Worktree path                            | PR (→ base)                          | Status        |
+| --------------------------- | ----------------------------- | ---------------------------------------- | ------------------------------------ | ------------- |
+| #<n1>                       | <sub-type>/<slug>--<sub-name> | .claude/worktrees/<slug>--<sub-name>     | #<pr> → <type>/<slug>                | not-started   |
 
 ## Contracts
 
