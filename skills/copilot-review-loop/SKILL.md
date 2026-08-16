@@ -34,6 +34,7 @@ Requires `gh` ≥ 2.88.0 (`gh --version`). Not available on GitHub Enterprise Se
 | List open review threads | `gh api graphql` on `PullRequest.reviewThreads` → `id`, `isResolved`, `viewerCanResolve` |
 | Resolve a thread | `gh api graphql` mutation `resolveReviewThread(input:{threadId:"<id>"})` (GraphQL only; no REST) |
 | Reply in a comment thread | `gh api repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies -f body=...` |
+| Read a review's **suppressed comments** | They live in the review's own `body`, not in `/pulls/<pr>/comments`: `gh api repos/{owner}/{repo}/pulls/<pr>/reviews --jq '.[].body'`. Each sits in a collapsed `<details><summary>Suppressed comments (N)</summary>` block, one `**<path>:<line>**` heading per finding. They carry no comment id and no thread, so they can be neither replied to nor resolved — their disposition goes in the round's PR-level comment instead (Step 5), never nowhere. |
 
 ## The loop
 
@@ -45,33 +46,33 @@ digraph review_loop {
     "Attached?" [shape=diamond];
     "Copilot unavailable:\ntriage existing human comments, exit" [shape=box];
     "Wait in BACKGROUND for new review" [shape=box];
-    "Triage every open comment\n(receiving-code-review)" [shape=box];
+    "Triage every finding: posted\n+ suppressed (receiving-code-review)" [shape=box];
     "Address: apply correct, push back on wrong" [shape=box];
-    "New actionable comments\nOR unresolved threads?" [shape=diamond];
+    "New actionable findings\nOR unresolved threads?" [shape=diamond];
     "Cap reached?" [shape=diamond];
     "Done: clean" [shape=doublecircle];
     "Stop, report what remains" [shape=box];
 
-    "Un-triaged review on\ncurrent head?" -> "Triage every open comment\n(receiving-code-review)" [label="yes"];
+    "Un-triaged review on\ncurrent head?" -> "Triage every finding: posted\n+ suppressed (receiving-code-review)" [label="yes"];
     "Un-triaged review on\ncurrent head?" -> "Repo auto-reviews on push?\n(review arrives without a request)" [label="no"];
     "Repo auto-reviews on push?\n(review arrives without a request)" -> "Wait in BACKGROUND for new review" [label="yes: wait for it"];
     "Repo auto-reviews on push?\n(review arrives without a request)" -> "Capture watermark, request Copilot" [label="no: request"];
     "Capture watermark, request Copilot" -> "Attached?";
     "Attached?" -> "Copilot unavailable:\ntriage existing human comments, exit" [label="no"];
     "Attached?" -> "Wait in BACKGROUND for new review" [label="yes"];
-    "Wait in BACKGROUND for new review" -> "Triage every open comment\n(receiving-code-review)";
-    "Triage every open comment\n(receiving-code-review)" -> "Address: apply correct, push back on wrong";
-    "Address: apply correct, push back on wrong" -> "New actionable comments\nOR unresolved threads?";
-    "New actionable comments\nOR unresolved threads?" -> "Cap reached?" [label="yes"];
+    "Wait in BACKGROUND for new review" -> "Triage every finding: posted\n+ suppressed (receiving-code-review)";
+    "Triage every finding: posted\n+ suppressed (receiving-code-review)" -> "Address: apply correct, push back on wrong";
+    "Address: apply correct, push back on wrong" -> "New actionable findings\nOR unresolved threads?";
+    "New actionable findings\nOR unresolved threads?" -> "Cap reached?" [label="yes"];
     "Cap reached?" -> "Capture watermark, request Copilot" [label="no"];
     "Cap reached?" -> "Stop, report what remains" [label="yes"];
-    "New actionable comments\nOR unresolved threads?" -> "Done: clean" [label="no"];
+    "New actionable findings\nOR unresolved threads?" -> "Done: clean" [label="no"];
 }
 ```
 
 **On entry, before the first request — take stock.** Before you touch the reviewer, look at what is already on the PR:
 
-- **An un-triaged review on the current head is this round's review — triage it, do not request another.** List Copilot reviews (`gh api .../pulls/<pr>/reviews`, author `copilot-pull-request-reviewer[bot]`) and the open threads. If a Copilot review already covers the current head commit and its comments are unaddressed, go straight to triage (Step 4). Firing `--add-reviewer` on top of an un-triaged review just duplicates the request and re-surfaces the same comments.
+- **An un-triaged review on the current head is this round's review — triage it, do not request another.** List Copilot reviews (`gh api .../pulls/<pr>/reviews`, author `copilot-pull-request-reviewer[bot]`) with their bodies, plus the open threads — the entry check is the one path where nothing hands you the review body, so a projection that drops `body` hides that round's suppressed findings. If a Copilot review already covers the current head commit and its findings are unaddressed, go straight to triage (Step 4). Firing `--add-reviewer` on top of an un-triaged review just duplicates the request and re-surfaces the same comments.
 - **If the repo auto-reviews on push, pushing is the trigger — never stack an explicit request on it.** Check the PR timeline for "review requested due to automatic review settings", or a ruleset that runs Copilot review on push. When that is on, a push produces the review by itself, so an explicit `--add-reviewer` on top double-fires. This is the same rule Step 6 relies on for re-requests, applied to the first request too.
 
 Fall through to Step 1's explicit request only when there is nothing current to triage **and** a push will not produce the review for you — the PR has never been reviewed and the repo does not auto-review, or the only existing review predates the latest push (its comments are on stale code).
@@ -87,8 +88,10 @@ One cycle, in order:
    ```
 
    It polls `gh api .../pulls/<pr>/reviews` for a Copilot review newer than `$SINCE` and exits 0 (printing the review) when one lands, or 124 on timeout. The harness re-invokes the session when it exits. Do **not** write a foreground `sleep`/`until` loop — foreground sleep is blocked and it freezes the session.
-4. **Triage every open review comment** — Copilot's new ones plus any human comments already on the PR. **REQUIRED SUB-SKILL:** `superpowers:receiving-code-review`. Verify each against the codebase. No performative agreement, no blind implementation. Copilot is confidently wrong often enough that "apply all suggestions" is the wrong default.
+4. **Triage every finding the review carries — the comments it posted *and* the comments it suppressed** — plus any human comments already on the PR. Copilot posts some findings as inline comments and withholds others into a `Suppressed comments (N)` block in the review body; a review can carry both, or carry suppressed findings alone with nothing posted at all. Read the body every round, not only the comment threads, or the loop triages a fraction of the review it was handed. **REQUIRED SUB-SKILL:** `superpowers:receiving-code-review`. Verify each against the codebase. No performative agreement, no blind implementation. Copilot is confidently wrong often enough that "apply all suggestions" is the wrong default.
 5. **Address, then always reply and resolve.** Work one comment at a time, and before moving to the next, close the loop on it in this order: (a) for a comment that is correct, apply the fix, test it, and commit it; for a comment that is wrong or a judgment call, first handle the pushback per the calling context (below) to decide the resolution; (b) post a threaded reply stating the resolution — what you changed (name the fix or commit) for ones you applied, or why the comment does not apply for ones you reject; (c) resolve the thread (`resolveReviewThread`). The reply is mandatory and is never gated behind a confirmation prompt (see GitHub-mutation discipline) — every comment gets one, including rejected ones. **Never resolve a thread without a reply, and never silently apply or silently ignore** — a resolved-but-unexplained thread destroys the reasoning trail.
+
+   **A suppressed finding has no thread, so its disposition goes in one PR-level comment for the round.** Reply-and-resolve needs a comment id and a suppressed finding has neither, but "nowhere to reply" is not "nothing to record". Post a single comment on the PR naming each suppressed finding and what you did with it — applied (naming the fix or commit), or rejected (with the reason). One comment for the round, not one per finding. The obligation above is unchanged: no silent apply, no silent drop.
 6. **Re-request and loop.** The fixes were committed per comment in Step 5 (commit convention from the project's CLAUDE.md). Capture a fresh watermark *first*, then push them. Now **wait before re-requesting** — launch the background wait (Step 3) against that watermark:
 
    - **A repo that runs Copilot review on every push will produce the new review from the push alone.** Waiting first lets that auto-review land and counts it (it is newer than the pre-push watermark). Re-requesting on top of it would double the review — so do not re-request until the wait has had a chance to catch a push-triggered review.
@@ -102,9 +105,11 @@ One cycle, in order:
 
 Stop and declare clean when **all** hold:
 
-- a fresh Copilot review (newer than the latest watermark) returns **no new actionable comments**, AND
+- a fresh Copilot review (newer than the latest watermark) returns **no new actionable findings — posted or suppressed**, AND
 - every review thread is **resolved or replied** (a verified-and-declined comment with a stated reason counts as resolved — do not thrash re-litigating it), AND
 - any artifact the loop's fixes drifted has been reconciled (§Reconcile what the loop's fixes changed) — or, in autonomous fan-out, logged as a bubble-up for the checkpoint to reconcile.
+
+**Copilot's own headline counts only what it posted.** A review body that opens "generated no new comments" can still carry a `Suppressed comments (N)` block underneath, and a review can suppress every finding it made — so an empty comment list and an empty thread list are together no evidence the round was empty. Read past the summary line before treating a review as clean.
 
 A loop that ends with a PR body — or tracking issue — contradicting its own diff is not clean, even with every thread resolved.
 
@@ -149,6 +154,8 @@ Not every GitHub mutation in the loop is the same kind of action, and conflating
 | "Copilot suggested it, so apply it" | Copilot is confidently wrong often. Triage via `receiving-code-review`; verify before applying. |
 | "Still finding nits — one more round" | Past the 3-round cap, non-convergence is a signal to hand back, not to loop harder. |
 | "A Copilot review exists, so we're clean" | Only a review *after your last push* counts. An earlier-round review is stale. |
+| "The review says it generated no new comments, so the round was empty" | That headline counts only what Copilot *posted*. The body's `Suppressed comments (N)` block carries findings with no thread attached, and a review can suppress every finding it made. Read the body. |
+| "The suppressed findings have no thread, so there's nothing to record" | Nowhere to reply is not nothing to record. One PR-level comment per round, naming each suppressed finding and its disposition. |
 | "There's already a review on the PR, but I'll request a fresh one to be safe" | An un-triaged review on the current head IS this round's review — triage it first. A new request duplicates it and re-surfaces the same comments. Request only when there is nothing current to act on. |
 | "I re-added Copilot, so a fresh review is coming" | Re-request is unreliable and a plain re-add often no-ops after Copilot already reviewed. Use remove-then-re-add, and confirm a new review by watermark — if none arrives before the wait times out, stop and recommend the on-push ruleset. |
 | "I pushed the fixes, now re-request immediately" | If the repo auto-reviews on push, the push already triggers a review; an immediate re-request doubles it. Capture the watermark before pushing, wait for the push-triggered review first, and re-request explicitly only on a repo that does *not* auto-review on push. |
