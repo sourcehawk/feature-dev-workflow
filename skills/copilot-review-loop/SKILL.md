@@ -35,6 +35,25 @@ Requires `gh` ≥ 2.88.0 (`gh --version`). Not available on GitHub Enterprise Se
 | Resolve a thread | `gh api graphql` mutation `resolveReviewThread(input:{threadId:"<id>"})` (GraphQL only; no REST) |
 | Reply in a comment thread | `gh api repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies -f body=...` |
 | Read a review's **suppressed comments** | They live in the review's own `body`, not in `/pulls/<pr>/comments`: `gh api repos/{owner}/{repo}/pulls/<pr>/reviews --jq '.[].body'`. Each sits in a collapsed `<details><summary>Suppressed comments (N)</summary>` block, one `**<path>:<line>**` heading per finding. They carry no comment id and no thread, so they can be neither replied to nor resolved — their disposition goes in the round's PR-level comment instead (Step 5), never nowhere. |
+| Choose the review **effort level** (lite / balanced) | No command does this. See §Review effort level is a precondition. |
+
+## Review effort level is a precondition
+
+Copilot code review runs at one of two effort levels. **Lite** is the default: fast, targeted feedback on common issues. **Balanced** buys deeper analysis of complex logic, security-sensitive code, and cross-cutting changes from a higher-reasoning model, for more AI credits. A substantive change is worth balanced; a one-line correction is not.
+
+**No command sets it — do not improvise one.** `gh pr edit --add-reviewer "@copilot"` takes no effort argument, the `copilot_code_review` ruleset rule carries only `review_on_push` and `review_draft_pull_requests`, and no REST or GraphQL field exposes the setting. It is a human choice in the GitHub UI, and where that choice lives depends on how the review is triggered:
+
+| How the review is triggered | Where a human sets the level | What the choice covers |
+| --- | --- | --- |
+| The loop requests it explicitly | the effort selector beside Copilot in the PR's **Reviewers** section | that one review only |
+| Auto-review on push produces it | **Settings → Copilot → Code review → Review effort level** on the repository, or on the organization, which the repository overrides | every automatic review in that repository |
+
+**Raise it before the first request, never after the review lands.** The level applies to reviews requested after it is set, so discovering mid-loop that a substantive change drew a lite review costs a whole round to correct. Judge it at entry, alongside the take-stock checks below, and route it by the same context split as pushback:
+
+- **Interactive (standalone, or the PR-to-main gate):** when the change is substantive, say so before requesting and ask the user to select balanced — in the Reviewers selector for a one-off, or in repository settings if the repo auto-reviews on push. Then request.
+- **Autonomous multi-PR fan-out (sub-PR gate):** do not pause for it. The repository default governs; if a sub-PR is substantive enough that a lite review is a real gap, log it as a bubble-up concern in the state file's `## Bubble-up log` and continue.
+
+**Nothing in the review payload records which level produced it.** Do not report that a review was balanced, and do not infer the level from how thorough the review looks.
 
 ## The loop
 
@@ -156,6 +175,7 @@ Not every GitHub mutation in the loop is the same kind of action, and conflating
 | "A Copilot review exists, so we're clean" | Only a review *after your last push* counts. An earlier-round review is stale. |
 | "The review says it generated no new comments, so the round was empty" | That headline counts only what Copilot *posted*. The body's `Suppressed comments (N)` block carries findings with no thread attached, and a review can suppress every finding it made. Read the body. |
 | "The suppressed findings have no thread, so there's nothing to record" | Nowhere to reply is not nothing to record. One PR-level comment per round, naming each suppressed finding and its disposition. |
+| "I'll pass an effort flag to get a balanced review" | Nothing selects effort level programmatically — no flag, no endpoint, no ruleset parameter. It is a human UI choice: the Reviewers selector for one review, repository settings for auto-review on push. |
 | "There's already a review on the PR, but I'll request a fresh one to be safe" | An un-triaged review on the current head IS this round's review — triage it first. A new request duplicates it and re-surfaces the same comments. Request only when there is nothing current to act on. |
 | "I re-added Copilot, so a fresh review is coming" | Re-request is unreliable and a plain re-add often no-ops after Copilot already reviewed. Use remove-then-re-add, and confirm a new review by watermark — if none arrives before the wait times out, stop and recommend the on-push ruleset. |
 | "I pushed the fixes, now re-request immediately" | If the repo auto-reviews on push, the push already triggers a review; an immediate re-request doubles it. Capture the watermark before pushing, wait for the push-triggered review first, and re-request explicitly only on a repo that does *not* auto-review on push. |
