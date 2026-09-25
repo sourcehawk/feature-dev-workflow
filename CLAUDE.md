@@ -18,7 +18,7 @@ Before you open a PR:
 A single Claude Code plugin, packaged as its own single-plugin marketplace.
 
 - `.claude-plugin/plugin.json` is the plugin manifest; `.claude-plugin/marketplace.json` makes the repo installable as a marketplace. Skills are auto-discovered from `skills/`.
-- The only runtime dependencies are the [superpowers](https://github.com/obra/superpowers) plugin and the `gh` CLI. Keep it that way. Do not add a third-party dependency to make a skill work.
+- The only runtime dependencies are the [superpowers](https://github.com/obra/superpowers) plugin, the `gh` CLI, and the official [`gh stack`](https://github.com/github/gh-stack) extension for `gh`, which the skills require only for stacked PRs. Keep it that way. Do not add a third-party dependency to make a skill work.
 
 ## Editing skills
 

@@ -79,6 +79,18 @@ This plugin depends on the [superpowers](https://github.com/obra/superpowers) pl
 
 The skills also assume the [`gh`](https://cli.github.com/) CLI is installed and authenticated.
 
+Stacked PRs (a linear chain where each PR builds on the one before it) also need GitHub's official [`gh stack`](https://github.com/github/gh-stack) extension. The skills check for it before any stacked work and ask you to install it if it is missing:
+
+```
+gh extension install github/gh-stack
+```
+
+Its companion agent skill is optional but recommended:
+
+```
+gh skill install github/gh-stack gh-stack --agent claude-code --scope user
+```
+
 ## Install
 
 This repo is both a plugin and its own single-plugin marketplace:
