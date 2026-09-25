@@ -77,7 +77,7 @@ You invoke `feature-dev-workflow:planning-a-feature` at conception. It, and the 
 
 This plugin depends on the [superpowers](https://github.com/obra/superpowers) plugin and references its skills directly: `superpowers:brainstorming`, `superpowers:writing-plans`, `superpowers:test-driven-development`, `superpowers:verification-before-completion`, and `superpowers:dispatching-parallel-agents`. It also uses superpowers' `docs/superpowers/{specs,plans}/` path convention, adding a sibling `docs/superpowers/states/` directory for orchestration state files. Install superpowers first.
 
-Optionally, install the [simple-english](https://github.com/AminBlg/SimpleEnglish) plugin (MIT). The skills that draft prose for people (PR and issue bodies, review replies, docs, release notes, specs, commit bodies, code comments) load its `simple-english:simple-english` skill when it is available, so their sentences stay short and plain. It is not required: without it, the skills suggest the install once per session and continue.
+Optionally, install the [simple-english](https://github.com/AminBlg/SimpleEnglish) plugin (MIT). The skills that draft prose for people (PR and issue bodies, review replies, docs, release notes, specs, commit bodies, code comments) load its `simple-english:simple-english` skill when it is available, so their sentences stay short and plain. It is not required: without it, the skills suggest the install once per session and continue. The plugin also installs its own hooks, which load its rules at the start of every session and check files after each edit. Inside the artifacts these skills write, the host skill's template and formatting rules take precedence over the plugin's formatting rules.
 
 ```
 /plugin marketplace add AminBlg/SimpleEnglish
