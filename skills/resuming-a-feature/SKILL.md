@@ -36,7 +36,7 @@ The state file is authoritative for intent, decisions, pointers, and recorded us
 | `sub_pr_approval` / `sub_pr_review_loop` / `sub_pr_target` — explicit user answers; don't re-ask | Each issue's open/closed state (`gh issue view <num> --json state`) |
 | Bubble-up resolutions and their propagation records | Each worktree: exists, clean, no unpushed commits (`git -C <path> status --porcelain --branch` — an `ahead` count in the header means unpushed commits; no upstream in the header means the branch was never pushed, so everything on it is unpushed) |
 | The `## Pending snapshot`'s intent and ordering | Branch existence (`git rev-parse --verify <branch>`), CI state (`gh pr checks <num>`) |
-| Which rows form a stack, and its recorded layer order | The stack itself, from its one checkout: `gh stack view --json` (order, PR numbers, `needsRebase`); no layer branch checked out in another worktree (`git worktree list`); `gh stack --version` works, or stop and ask the user to install it |
+| Which rows form a stack, and its recorded layer order | The stack itself, from its one dedicated worktree (never the main checkout): `gh stack view --json` (order, PR numbers, `needsRebase`); no layer branch checked out in any other worktree, the main checkout included (`git worktree list`); `gh stack --version` works, or stop and ask the user to install it |
 
 ### 4. Treat the bubble-up log as settled
 
