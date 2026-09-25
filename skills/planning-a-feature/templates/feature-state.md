@@ -14,7 +14,9 @@ tracking_issue: #<epic-num>
 feature_branch: <type>/<slug>                # omit for single-PR features
 feature_worktree: .claude/worktrees/<slug>    # the main integration worktree; omit for single-PR
 sub_pr_approval: autonomous                   # autonomous | manual; omit for single-PR (see developing-a-feature Step 2)
-integration_pr: #<pr>      # filled in once the <type>/<slug> → main PR opens
+sub_pr_review_loop: off                       # on | off; omit for single-PR (see developing-a-feature Step 2)
+sub_pr_target: feature-branch                 # feature-branch | main; omit for single-PR (see developing-a-feature Step 2)
+integration_pr: #<pr>      # filled in once the <type>/<slug> → main PR opens; omit when sub_pr_target: main
 status: planning
 ---
 
@@ -32,7 +34,7 @@ Implementation phases as the plan defines them. Each phase names the sub-issues 
 ## PRs / worktrees
 
 <!--
-One row per sub-issue. For multi-PR features each sub-PR targets the feature branch (NOT main) and the orchestrator self-merges it after a self-review; sub-issues close manually because Fixes/Closes only auto-fires on merge to the default branch. The integration PR (`<type>/<slug>` → main, tracked via the `integration_pr` frontmatter field) is the one that uses `Closes #<epic>` to auto-close the epic.
+One row per sub-issue. With `sub_pr_target: feature-branch` (the default), each sub-PR targets the feature branch (NOT main) and the orchestrator self-merges it after a self-review; sub-issues close manually because Fixes/Closes only auto-fires on merge to the default branch. The integration PR (`<type>/<slug>` → main, tracked via the `integration_pr` frontmatter field) is the one that uses `Closes #<epic>` to auto-close the epic. With `sub_pr_target: main`, each sub-PR targets main, its closing keyword closes its sub-issue on merge, and there is no integration PR. A stacked sub-PR above the bottom layer targets its parent layer's branch until the parent merges.
 
 Branch and worktree are filled in when the work starts; PR and status are filled in as the work progresses. Keep this in sync with reality — a stale row is worse than no row.
 
@@ -42,6 +44,16 @@ Status values: not-started | in-progress | draft | ready | self-merged (multi-PR
 | Issue                       | Branch                        | Worktree path                            | PR (→ base)                          | Status        |
 | --------------------------- | ----------------------------- | ---------------------------------------- | ------------------------------------ | ------------- |
 | #<n1>                       | <sub-type>/<slug>--<sub-name> | .claude/worktrees/<slug>--<sub-name>     | #<pr> → <type>/<slug>                | not-started   |
+
+## Stacks
+
+<!--
+One entry per linear stack of PRs driven by `gh stack` (see developing-a-feature §Linear stacks of dependent PRs go through `gh stack`). Delete this section when the feature has no stack. List the layers bottom to top; that order is the stack's order. Each layer records whether it is built in parallel or sequentially, and why. Every layer's row in the PR table carries the stack's worktree path once the layer has joined the stack.
+-->
+
+- **Stack `<name>`**: worktree `.claude/worktrees/<slug>--stack`, trunk `<type>/<slug>` (or `main`)
+  1. `#<n1>` `<sub-type>/<slug>--<sub-name>`: sequential, <reason>
+  2. `#<n2>` `<sub-type>/<slug>--<sub-name>`: parallel, <reason>
 
 ## Contracts
 
