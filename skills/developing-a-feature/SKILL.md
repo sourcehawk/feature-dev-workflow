@@ -136,12 +136,27 @@ The stack's mechanics (branch creation, PR bases, propagation, merges) go throug
 
 **Setup, once per repo:** `git config rerere.enabled true`, and `git config remote.pushDefault <remote>` when the repo has more than one remote.
 
-**One dedicated worktree per stack.** `gh stack` checks the stack's branches out in turn, and git refuses a branch that is checked out in another worktree, so a stack cannot be split into one worktree per layer. Give each stack its own worktree in the repo's usual worktree location (for example `.claude/worktrees/<slug>--stack`), and record it as the worktree path of every layer's row in the state file. Never drive a stack from the main checkout, and never switch branches in the user's working copy: `gh stack` moves `HEAD` between layers, and doing that anywhere the user or another session works blocks their development. The consequences:
+**One dedicated worktree per stack.** `gh stack` checks the stack's branches out in turn, and git refuses a branch that is checked out in another worktree, so a stack cannot be split into one worktree per layer. Give each stack its own worktree in the repo's usual worktree location (for example `git worktree add --detach .claude/worktrees/<slug>--stack origin/<trunk>`; detached, because the trunk is usually checked out elsewhere), and record it as the worktree path of every layer's row in the state file. Never drive a stack from the main checkout, and never switch branches in the user's working copy: `gh stack` moves `HEAD` between layers, and doing that anywhere the user or another session works blocks their development. The consequences:
 
-- Work on one stack's layers happens serially inside that worktree.
-- A brand-new layer may be built in parallel in a temporary worktree of its own. Remove that worktree before the branch joins the stack. To join it, run `gh stack unstack --local` and then `gh stack init --base <trunk> <bottom> ... <new-top>` in the stack's worktree (`init` adopts branches that already exist), then `gh stack submit --auto` to open its PR and link it.
+- Work inside the stack's worktree happens one layer at a time.
+- A layer that is still being built may live in a temporary worktree of its own while it is built in parallel (see **Parallel layers** below). That worktree is removed before the layer joins the stack.
 - Separate stacks each get their own worktree.
 - For branches that are managed elsewhere and must stay there, `gh stack link <bottom> ... <top>` builds the stack through the API with no local tracking.
+
+**Parallel layers.** Build layers in parallel where it is feasible, and join them to the stack afterwards. Feasibility is the orchestrator's call, made per layer:
+
+- **Parallel** when the layer depends only on its parent's contract: an interface or shape that is already agreed and recorded (a `## Contracts` row, or a stub committed on the parent's branch as in `stub-on-producer-branch`).
+- **Sequential** when the layer needs the parent's real behaviour to be written or tested, or when no contract for the parent is recorded. It waits until the parent is code-complete.
+
+Record each layer's decision and its reason in the state file. A parallel layer's row carries its temporary worktree path while that worktree exists, and the stack's worktree after it joins. A parallel layer is built like this:
+
+1. The orchestrator creates a temporary worktree for it, branched from the parent layer's current tip (or the parent's stub commit; if the parent's branch does not exist yet, from the nearest existing layer below it), and dispatches its own subagent there. That subagent pushes its branch with plain `git push` and never runs `gh stack` commands; layers built inside the stack's worktree are pushed by the orchestrator's `gh stack push`.
+2. When the layer is done and pushed, the orchestrator removes the temporary worktree.
+3. In the stack's worktree, the orchestrator joins the layer on top: `gh stack unstack --local`, then `gh stack init --base <trunk> <bottom> ... <new-top>` (`init` adopts branches that already exist), then `gh stack view --json` to confirm the order.
+4. It replays the layer onto the parent's final tip: `gh stack checkout <parent>`, `gh stack rebase --upstack`, then `gh stack push`. A conflict at join time is resolved there, in the stack's worktree.
+5. When the stack's PRs are due, it opens and links them with `gh stack submit --auto`, after the PR-body step under **Building a new stack**. One `submit` after the last join is enough while no layer has a PR yet.
+
+Two ordering rules hold throughout. Layers join bottom-up: a layer cannot join above a parent that has not joined yet. And never run `gh stack sync`, `gh stack rebase`, or `gh stack checkout` while any layer branch of the stack is checked out in another worktree (the trunk does not count); the orchestrator sequences joins and syncs so that never happens.
 
 **Non-interactive invocations only.** An agent has no TTY, and the bare forms of several commands open a prompt or a full-screen UI and block. Use these forms:
 
@@ -234,6 +249,6 @@ The teardown does not change where the flow ends. In the models that end in a fi
 | "Design belongs in the PR, so I leave the issue's Approach alone"    | That bars dumping new line-level design into the issue — not keeping its stated content true. A now-false Approach is reconciled and the decision recorded (`feature-dev-workflow:writing-github-issues` Step 2D). |
 | "The function is right here in this worktree, I'll fix it here"      | Visibility is history inheritance, not ownership. Trace which PR introduced the code and fix there, then propagate (`gh stack rebase --upstack` in a stack, merge forward otherwise), or the ancestor merges with the defect intact. If that PR already merged, the fix is its own PR against the trunk, unless an open layer cannot pass without it; then it goes in the lowest open layer that needs it, noted in that PR's body. |
 | "`gh stack` isn't installed, I'll chain the bases by hand for now" | A hand-made stack is the thing `gh stack` replaces: stale bases after a parent merges, children still carrying a squashed parent's commits. Stop and ask the user to install it; never install it yourself. |
-| "I'll keep one worktree per layer, it's tidier" / "I'll just run the stack in the main checkout" | `gh stack` checks every layer out in turn, and git refuses a branch held by another worktree, so layers cannot each have one. It also moves `HEAD`, so the main checkout or the user's working copy would be blocked. One dedicated worktree per stack, layers worked serially inside it; a temporary worktree only for a brand-new layer built in parallel, removed before it joins. |
+| "I'll keep one worktree per layer, it's tidier" / "I'll just run the stack in the main checkout" | `gh stack` checks every layer out in turn, and git refuses a branch held by another worktree. It also moves `HEAD`, so the main checkout or the user's working copy would be blocked. One dedicated worktree per stack. A per-layer worktree is right only while that layer is built in parallel, and it must be gone before the layer joins. |
 | "My replace script is guarded, and I'll eyeball the diff after"      | A guarded substitution that doesn't match no-ops silently: no hunk appears, and an eyeball pass can't see an absence. Assert every row matched before writing; abort on any anomaly. |
 | "I just pushed these branches, I know what the heads are"            | Record what the remote actually has (`git ls-remote` / `gh pr view --json headRefOid`), not what you remember pushing. The state file describes what a resumed session will find on GitHub. |
