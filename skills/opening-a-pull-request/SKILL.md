@@ -73,7 +73,7 @@ Run `gh pr create` or `gh pr edit` only with the user's approval, which takes on
 - **A standing grant** that names this kind of action: an explicit instruction in the conversation ("open the PRs as drafts without asking me"), a rule in the project's instructions file or memory, or configuration recorded in the state file (for example `sub_pr_approval: autonomous` for the sub-PR bundle). Under a grant, act without a prompt, then show the target and the full body in your reply so the user sees what landed.
 - **A fresh confirmation** for the specific body about to land, whenever no grant covers the action. Generic intent earlier ("yes please open a PR") is not a grant: it says what the user wants done, not that they waive their look at the body.
 
-A grant covers the kind of action it names and nothing wider. A grant to open drafts does not cover flipping a PR ready or rewriting another PR's body. No grant covers the merge to main (see the merge guard in `feature-dev-workflow:developing-a-feature` Step 6).
+A grant covers the kind of action it names and nothing wider. A grant to open drafts does not cover flipping a PR ready or rewriting another PR's body. No grant covers the feature's final merge to main, the single-PR feature PR or the integration PR; sub-PR merges follow the state file's recorded configuration (see the merge guard in `feature-dev-workflow:developing-a-feature` Step 6).
 
 Every confirmation shows the user:
 
@@ -121,7 +121,7 @@ These thoughts mean the PR isn't actually ready to publish or flip:
 | "The draft description is fine, no need to rewrite"                | Different shape, different audience. Rewrite from the ready template.                                                                   |
 | "Marking ready now, will fix the body in a follow-up edit"         | The body is what the reviewer reads in the first 10 seconds. Fix it first, then `gh pr ready`.                                         |
 | "The user said yes a turn ago, this is the same thing"             | A yes to one body is not a grant. Bodies change between turns: unless the user granted this kind of action outright, confirm the exact body about to land. |
-| "They told me to open drafts without asking, so flipping ready is covered too" | A grant covers the action it names. Flipping ready needs its own grant or confirmation, and the merge to main is always the user's. |
+| "They told me to open drafts without asking, so flipping ready is covered too" | A grant covers the action it names. Flipping ready needs its own grant or confirmation, and the feature's final merge to main is always the user's. |
 | "I'll just append a note and they can edit later if needed"        | They shouldn't have to clean up after the agent. Confirm first.                                                                        |
 | "The PR's already open/ready, the stale body isn't worth re-editing" | The body is what the reviewer reads first; once the diff moves past it, it misleads. Reconcile the body to match the diff — body only, no comment (§Reconciling an open PR's body with reality). |
 | "The sub-issue shows no linked PR, the keyword must be wrong"        | Closing-keyword linkage only materializes while the PR's base is the default branch. On a stacked draft it's deferred until retarget — verify with `gh pr view <num> --json closingIssuesReferences` then, not before. |

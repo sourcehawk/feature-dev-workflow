@@ -35,7 +35,7 @@ A single Claude Code plugin, packaged as its own single-plugin marketplace.
 - **Commit shape:** `feat(<area>): ...`, `fix(<area>): ...`, `refactor(<area>): ...`, `docs(<area>): ...`, `chore(<area>): ...`. Area mirrors the path: `skills/<name>`, `templates`, `.claude-plugin`.
 - **One logical change per commit.** Do not bundle unrelated edits.
 - **Never `git add -A` or `git add .`.** Stage by name.
-- **No GitHub mutation without a fresh confirmation** against the specific body about to land, unless the user has already granted that kind of mutation. A grant covers only the action it names, and never the merge to the default branch.
+- **No GitHub mutation without a fresh confirmation** against the specific body about to land, unless the user has already granted that kind of mutation. A grant covers only the action it names, and never the feature's final merge to the default branch (the single-PR feature PR or the integration PR). Sub-PR merges follow the state file's recorded `sub_pr_approval` / `sub_pr_target` answers.
 - **Writing style:** lead with the rule, then the why. One idea per paragraph. Do not overuse em dashes.
 - **Never hard-wrap markdown.** Write one line per paragraph and per list item; let it soft-wrap in the editor. A hard break turns a one-word edit into a reflow and bloats every diff. Applies to all markdown authored here — skill bodies, templates (including their HTML-comment guidance), and generated issue / PR / release bodies.
 
