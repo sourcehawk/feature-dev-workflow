@@ -51,7 +51,7 @@ Invoke `feature-dev-workflow:planning-a-feature` at conception. It and the `**RE
 
 `superpowers:*` skills come from the [superpowers](https://github.com/obra/superpowers) plugin (a prerequisite, see below).
 
-`simple-english:simple-english` comes from the optional [simple-english](https://github.com/AminBlg/SimpleEnglish) plugin. When it is installed, the skills write PR, issue, doc, and release-note prose under it. Without it they suggest the install once and continue.
+`simple-english:simple-english` comes from the optional [simple-english](https://github.com/AminBlg/SimpleEnglish) plugin. When it is installed, the skills write PR, issue, doc, release-note, commit-body, and code-comment prose under it. Without it they suggest the install once and continue.
 
 ### Project commands (optional)
 
