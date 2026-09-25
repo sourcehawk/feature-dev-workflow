@@ -28,6 +28,7 @@ A single Claude Code plugin, packaged as its own single-plugin marketplace.
 - **Reference templates with `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/templates/<file>`.** Relative paths break once the plugin is copied into the install cache.
 - **Intra-plugin skill invocations are namespaced `feature-dev-workflow:<name>`.** Leave `superpowers:*` references and the external `review` skill alone.
 - **The `**REQUIRED SUB-SKILL:**` markers are the control flow.** If you add, rename, or remove a skill, fix every marker that points at it, in every skill, and update the diagram in `templates/project-CLAUDE.md` and the table in `README.md`.
+- **`simple-english:simple-english` is an optional style skill, not a dependency.** Skills that draft prose people read (PR and issue bodies and comments, review replies, docs, release notes, specs, ADRs) reference it with an `**OPTIONAL SUB-SKILL:**` marker: load it when it is available, suggest the install to the user once per session when it is not, and continue either way. Every skill must work without it. It sets sentence style only, never a template's sections or a skill's length rules, and it does not cover titles, commit messages, code comments, or the skill files themselves.
 - **Do not churn carefully-tuned content** (Red Flags tables, rationalization lists, anti-pattern bullets) without a concrete reason and a sense of how it changes agent behavior. The bar for editing behavior-shaping prose is high.
 
 ## Conventions
