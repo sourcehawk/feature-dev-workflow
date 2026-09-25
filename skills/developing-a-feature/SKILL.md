@@ -42,7 +42,7 @@ For sequential single-PR work, skip to Step 4. For multi-PR work, dispatch paral
 
 **Sub-PR approval mode (multi-PR only).** Before any sub-worktree work starts, the orchestrator presents the user with a two-option choice via `AskUserQuestion`:
 
-- **Autonomous sub-worktree approval** — the orchestrator reviews each sub-PR with the `review` skill, self-merges it into the feature branch, and closes its sub-issue automatically. Fastest fan-out; the user only sees the integration PR at the end. Suitable when the integration PR's external-review pass is the user's intended inspection point.
+- **Autonomous sub-worktree approval** — the orchestrator reviews each sub-PR with the `review` skill, flips it from draft to ready, self-merges it into the feature branch, and closes its sub-issue automatically. Fastest fan-out; the user only sees the integration PR at the end. Suitable when the integration PR's external-review pass is the user's intended inspection point.
 - **Manual sub-worktree approval** — the orchestrator still runs the `review` skill on each sub-PR, but then pauses to ask the user for explicit approval before `gh pr merge` runs. One round-trip per sub-PR, but the user inspects every diff before it lands on the feature branch.
 
 Record the choice in the state file's frontmatter as `sub_pr_approval: autonomous` or `sub_pr_approval: manual`. The fan-out skill reads this field at every sub-PR ripening to decide whether to gate on user approval. Default if the field is missing in an older state file: `autonomous` (preserves the original behaviour).
@@ -187,7 +187,7 @@ Two ordering rules hold throughout. Layers join bottom-up: a layer cannot join a
 
 **After a parent merges,** run `gh stack sync`. Then check the next PR: `gh pr view <num> --json baseRefName,closingIssuesReferences`. If its base still names the merged branch, `gh stack submit --auto` corrects the bases of existing PRs. Once the base is the default branch, `closingIssuesReferences` must list its sub-issue (see the stacked-PR keyword rule in `feature-dev-workflow:opening-a-pull-request`).
 
-**Merges stay under the merge guard.** `gh stack merge <pr> --yes` merges that PR and every unmerged PR below it, all or nothing. When the base branch uses a merge queue, the PRs are queued instead, and the queue picks the method. `gh stack merge` never bypasses required reviews or other merge requirements. Run it only for the sub-PR merges the state file's `sub_pr_approval` / `sub_pr_target` configuration already covers (see the merge guard in Step 6); a stack does not widen what this workflow may merge.
+**Merges stay under the merge guard.** `gh stack merge <pr> --yes` merges that PR and every unmerged PR below it, all or nothing. When the base branch uses a merge queue, the PRs are queued instead, and the queue picks the method. `gh stack merge` never bypasses required reviews or other merge requirements. Run it only for the sub-PR merges the state file's `sub_pr_approval` / `sub_pr_target` configuration already covers (see the merge guard in Step 6); a stack does not widen what this workflow may merge. `gh stack merge` refuses a draft, and `submit --auto` opened every layer as one, so flip the layer ready first (`feature-dev-workflow:fanning-out-with-worktrees` Step 5, item 4).
 
 ### Review-driven changes while several open PRs share history
 
