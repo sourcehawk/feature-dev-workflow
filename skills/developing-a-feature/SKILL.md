@@ -154,7 +154,7 @@ Record each layer's decision and its reason in the stack's `## Stacks` entry. A 
 2. When the layer is done and pushed, the orchestrator removes the temporary worktree.
 3. In the stack's worktree, the orchestrator joins the layer on top: `gh stack unstack --local`, then `gh stack init --base <trunk> <bottom> ... <new-top>` (`init` adopts branches that already exist), then `gh stack view --json` to confirm the order.
 4. It replays the layer onto the parent's final tip: `gh stack checkout <parent>`, `gh stack rebase --upstack`, then `gh stack push`. A conflict at join time is resolved there, in the stack's worktree.
-5. When the stack's PRs are due, it opens and links them with `gh stack submit --auto`, after the PR-body step under **Building a new stack**. One `submit` after the last join is enough while no layer has a PR yet.
+5. When the stack's PRs are due, it opens and links them as **Opening the stack's PRs** below says. One pass after the last join is enough while no layer has a PR yet.
 
 Two ordering rules hold throughout. Layers join bottom-up: a layer cannot join above a parent that has not joined yet. And never run `gh stack sync`, `gh stack rebase`, or `gh stack checkout` while any layer branch of the stack is checked out in another worktree (the trunk does not count); the orchestrator sequences joins and syncs so that never happens.
 
@@ -165,13 +165,20 @@ Two ordering rules hold throughout. Layers join bottom-up: a layer cannot join a
 | `gh stack view --json` | bare `gh stack view` |
 | `gh stack init --base <trunk> <bottom> ... <top>` | bare `gh stack init` |
 | `gh stack add <branch>` (from the top branch) | bare `gh stack add` |
-| `gh stack submit --auto` | bare `gh stack submit`; `gh stack submit --auto --open` (it marks the PRs ready, and the user reviews drafts first) |
+| `gh pr create --draft ...` per layer, then `gh stack link --base <trunk> <bottom-PR-URL> ... <top-PR-URL>` | `gh stack submit` in any form to open PRs (it creates any missing PR with a generated title and body); `--open` on `link` or `submit` (it marks the PRs ready, and the user reviews drafts first) |
 | `gh stack checkout <branch-or-pr>`, `gh stack up` / `down` / `top` / `bottom` | bare `gh stack checkout`, `gh stack switch` |
 | `gh stack merge <pr> --yes --<method>` | `gh pr merge` on a layer; `gh stack modify` (UI only) |
 
 `gh stack <command> --help` is authoritative for flags. The stack's trunk is the branch the bottom PR targets: `main` when `sub_pr_target: main`, `<type>/<slug>` in the feature-branch model.
 
-**Building a new stack.** In the stack's worktree: `gh stack init --base <trunk> <bottom>` (it creates a missing branch from the trunk), commit that layer, then `gh stack add <next>` from the top for each following layer, then `gh stack submit --auto`. `submit --auto` opens the PRs as drafts with generated titles and bodies, so it is a PR creation like any other: compose and confirm every title and body through `feature-dev-workflow:opening-a-pull-request` before you run it, and apply them with `gh pr edit` immediately after.
+**Building a new stack.** In the stack's worktree: `gh stack init --base <trunk> <bottom>` (it creates a missing branch from the trunk), commit that layer, then `gh stack add <next>` from the top for each following layer, then open the PRs as **Opening the stack's PRs** says.
+
+**Opening the stack's PRs.** A stack PR never appears on GitHub with generated text, so the agent creates every PR itself and `gh stack` only links them:
+
+1. `gh stack push` from the stack's worktree, so every layer branch is on the remote.
+2. For each layer, bottom to top, compose the title and body through `feature-dev-workflow:opening-a-pull-request` (under a standing grant, or after a fresh confirmation), then run `gh pr create --draft --base <parent-branch> --head <layer> --title <title> --body-file <file>`. The bottom layer's base is the trunk.
+3. Link them: `gh stack link --base <trunk> <bottom-PR-URL> ... <top-PR-URL>`. Pass PR URLs, never branch names or bare numbers: a URL always resolves to an existing PR, while a branch without a PR makes `link` create one with a generated title and body. `link` leaves the existing PRs' titles and bodies untouched; it only corrects bases and builds the stack on GitHub.
+4. Check the result: `gh stack view --json` shows each layer with its PR, and `gh pr view <num> --json title,body,isDraft,baseRefName` matches what you created.
 
 **Adopting a stack that was built by hand** (the branches and PRs already exist). A hand-made chain is still a stack, so adopt it before propagating anything through it. If human review has already started, ask the user first, because the adoption rebases the layers under that review.
 
@@ -187,7 +194,7 @@ Two ordering rules hold throughout. Layers join bottom-up: a layer cannot join a
 
 **After a parent merges,** run `gh stack sync`. Then check the next PR: `gh pr view <num> --json baseRefName,closingIssuesReferences`. If its base still names the merged branch, `gh stack submit --auto` corrects the bases of existing PRs. Once the base is the default branch, `closingIssuesReferences` must list its sub-issue (see the stacked-PR keyword rule in `feature-dev-workflow:opening-a-pull-request`). The sync rebased every layer above, so check whether their gates still hold: for each one, record its head before the sync and compare its own commits with `git range-diff <oldParent>..<oldHead> <newParent>..<newHead>`. A layer whose commits all show `=` keeps the gates it passed. A layer with any changed commit (for example, a conflict was resolved during the rebase) goes back through its review gates and approval gate before it merges.
 
-**Merges stay under the merge guard.** `gh stack merge <pr> --yes` merges that PR and every unmerged PR below it, all or nothing. Pass the project's merge method (`--merge`, `--squash`, or `--rebase`): without one, `--yes` uses whatever method was used last. When the base branch uses a merge queue, the PRs are queued instead, and the queue picks the method. A queued merge has not happened yet: wait until `gh pr view <num> --json mergedAt` shows it merged before `gh stack sync`, the sub-issue close, or the state-file update. `gh stack merge` never bypasses required reviews or other merge requirements. Run it only for the sub-PR merges the state file's `sub_pr_approval` / `sub_pr_target` configuration already covers (see the merge guard in Step 6); a stack does not widen what this workflow may merge. Because the merge set includes every unmerged layer below, merge bottom-up: name only the lowest unmerged layer, after that layer has passed its own gates. A higher layer that is ready first waits. `gh stack merge` also refuses a draft, and `submit --auto` opened every layer as one, so flip the layer ready first (`feature-dev-workflow:fanning-out-with-worktrees` Step 5, item 4).
+**Merges stay under the merge guard.** `gh stack merge <pr> --yes` merges that PR and every unmerged PR below it, all or nothing. Pass the project's merge method (`--merge`, `--squash`, or `--rebase`): without one, `--yes` uses whatever method was used last. When the base branch uses a merge queue, the PRs are queued instead, and the queue picks the method. A queued merge has not happened yet: wait until `gh pr view <num> --json mergedAt` shows it merged before `gh stack sync`, the sub-issue close, or the state-file update. `gh stack merge` never bypasses required reviews or other merge requirements. Run it only for the sub-PR merges the state file's `sub_pr_approval` / `sub_pr_target` configuration already covers (see the merge guard in Step 6); a stack does not widen what this workflow may merge. Because the merge set includes every unmerged layer below, merge bottom-up: name only the lowest unmerged layer, after that layer has passed its own gates. A higher layer that is ready first waits. `gh stack merge` also refuses a draft, and every layer was opened as one, so flip the layer ready first (`feature-dev-workflow:fanning-out-with-worktrees` Step 5, item 4).
 
 ### Review-driven changes while several open PRs share history
 
