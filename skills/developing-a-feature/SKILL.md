@@ -167,7 +167,7 @@ Two ordering rules hold throughout. Layers join bottom-up: a layer cannot join a
 | `gh stack add <branch>` (from the top branch) | bare `gh stack add` |
 | `gh stack submit --auto` | bare `gh stack submit`; `gh stack submit --auto --open` (it marks the PRs ready, and the user reviews drafts first) |
 | `gh stack checkout <branch-or-pr>`, `gh stack up` / `down` / `top` / `bottom` | bare `gh stack checkout`, `gh stack switch` |
-| `gh stack merge <pr> --yes` | `gh pr merge` on a layer; `gh stack modify` (UI only) |
+| `gh stack merge <pr> --yes --<method>` | `gh pr merge` on a layer; `gh stack modify` (UI only) |
 
 `gh stack <command> --help` is authoritative for flags. The stack's trunk is the branch the bottom PR targets: `main` when `sub_pr_target: main`, `<type>/<slug>` in the feature-branch model.
 
@@ -187,7 +187,7 @@ Two ordering rules hold throughout. Layers join bottom-up: a layer cannot join a
 
 **After a parent merges,** run `gh stack sync`. Then check the next PR: `gh pr view <num> --json baseRefName,closingIssuesReferences`. If its base still names the merged branch, `gh stack submit --auto` corrects the bases of existing PRs. Once the base is the default branch, `closingIssuesReferences` must list its sub-issue (see the stacked-PR keyword rule in `feature-dev-workflow:opening-a-pull-request`).
 
-**Merges stay under the merge guard.** `gh stack merge <pr> --yes` merges that PR and every unmerged PR below it, all or nothing. When the base branch uses a merge queue, the PRs are queued instead, and the queue picks the method. `gh stack merge` never bypasses required reviews or other merge requirements. Run it only for the sub-PR merges the state file's `sub_pr_approval` / `sub_pr_target` configuration already covers (see the merge guard in Step 6); a stack does not widen what this workflow may merge. Because the merge set includes every unmerged layer below, merge bottom-up: name only the lowest unmerged layer, after that layer has passed its own gates. A higher layer that is ready first waits. `gh stack merge` also refuses a draft, and `submit --auto` opened every layer as one, so flip the layer ready first (`feature-dev-workflow:fanning-out-with-worktrees` Step 5, item 4).
+**Merges stay under the merge guard.** `gh stack merge <pr> --yes` merges that PR and every unmerged PR below it, all or nothing. Pass the project's merge method (`--merge`, `--squash`, or `--rebase`): without one, `--yes` uses whatever method was used last. When the base branch uses a merge queue, the PRs are queued instead, and the queue picks the method. A queued merge has not happened yet: wait until `gh pr view <num> --json mergedAt` shows it merged before `gh stack sync`, the sub-issue close, or the state-file update. `gh stack merge` never bypasses required reviews or other merge requirements. Run it only for the sub-PR merges the state file's `sub_pr_approval` / `sub_pr_target` configuration already covers (see the merge guard in Step 6); a stack does not widen what this workflow may merge. Because the merge set includes every unmerged layer below, merge bottom-up: name only the lowest unmerged layer, after that layer has passed its own gates. A higher layer that is ready first waits. `gh stack merge` also refuses a draft, and `submit --auto` opened every layer as one, so flip the layer ready first (`feature-dev-workflow:fanning-out-with-worktrees` Step 5, item 4).
 
 ### Review-driven changes while several open PRs share history
 
