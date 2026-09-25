@@ -51,6 +51,8 @@ Invoke `feature-dev-workflow:planning-a-feature` at conception. It and the `**RE
 
 `superpowers:*` skills come from the [superpowers](https://github.com/obra/superpowers) plugin (a prerequisite, see below).
 
+`simple-english:simple-english` comes from the optional [simple-english](https://github.com/AminBlg/SimpleEnglish) plugin. When it is installed, the skills write PR, issue, doc, release-note, commit-body, and code-comment prose under it. Without it they suggest the install once and continue.
+
 ### Project commands (optional)
 
 The skills run your project's checks before claiming work done, discovering the commands from this file, the build config (Makefile, package.json, …), or `gh` (for the repo). If your test / lint / typecheck commands aren't obvious from the build config, name them here so sessions don't have to guess:

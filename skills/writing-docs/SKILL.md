@@ -50,6 +50,8 @@ A diagram, image, code block, or extra level of detail is never the default and 
 
 The bar is **the documentation of a well-run open-source project**: precise, structured, assumes a competent reader, earns every sentence. No marketing fluff — superlatives ("blazing-fast", "seamless", "powerful"), feature-listing without telling the reader what they can now *do*, and adjectives standing in for an explanation all fail the bar.
 
+**OPTIONAL SUB-SKILL:** `simple-english:simple-english` for the prose of the doc. If it is available, load it before you draft and write the sentences under it. Where its formatting rules (headings, bold, lists, or its register for chat replies) differ from the host skill or its template, the host skill and its template win. It sets sentence style only: the loop above still decides what the doc covers, where it lives, and how long it is, and the fresh-reader test is still the gate. Code blocks keep their own content. If the skill is not available, do not stop or wait for it. If you have not already done so in this session, tell the user once that it can be installed with `/plugin marketplace add AminBlg/SimpleEnglish` and then `/plugin install simple-english@simple-english`. Then write short, plain, active sentences without it.
+
 ## Out of scope
 
 These are documentation, but other skills own them. Point there; do not duplicate.
