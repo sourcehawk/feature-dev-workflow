@@ -42,6 +42,8 @@ For your project (customize this to your stack):
 
 A clean docstring should already enumerate the surface's promises. If reading it raises questions ("what happens when N is zero?", "does this retry on failure?", "is the result sorted?"), the docstring is incomplete. **Fix the docstring first**, then write the tests. Docstring-first surfaces the edge cases before any assertion is written.
 
+**OPTIONAL SUB-SKILL:** `simple-english:simple-english` for the prose of the docstring and of any comment in the tests. If it is available, load it before you draft and write the sentences under it. It sets sentence style only: the contract still decides what the docstring promises, and the project's comment rules still decide whether a comment exists and what it may say (no narration of the code, no change history). If the skill is not available, do not stop or wait for it. If you have not already done so in this session, tell the user once that it can be installed with `/plugin marketplace add AminBlg/SimpleEnglish` and then `/plugin install simple-english@simple-english`. Then write short, plain, active sentences without it.
+
 ### 3. List edge cases
 
 For each behavior the contract promises, ask:

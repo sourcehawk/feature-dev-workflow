@@ -67,7 +67,7 @@ Write each paragraph as a single line and put a blank line between paragraphs. W
 
 ## Sentence style
 
-**OPTIONAL SUB-SKILL:** `simple-english:simple-english` for the prose of every issue body and comment you draft (Steps 2A, 2B, and 2D). If it is available, load it before you draft and write the sentences under it. It sets sentence style only: the template and this skill still decide the sections, their order, and their length, and the Step 2D comment still states before, now, and why and nothing else. The title follows §Title hygiene, not this skill, and commit messages keep the project's own convention. If the skill is not available, do not stop or wait for it. If you have not already done so in this session, tell the user once that it can be installed with `/plugin marketplace add AminBlg/SimpleEnglish` and then `/plugin install simple-english@simple-english`. Then write short, plain, active sentences without it.
+**OPTIONAL SUB-SKILL:** `simple-english:simple-english` for the prose of every issue body and comment you draft (Steps 2A, 2B, and 2D). If it is available, load it before you draft and write the sentences under it. It sets sentence style only: the template and this skill still decide the sections, their order, and their length, and the Step 2D comment still states before, now, and why and nothing else. The title follows §Title hygiene, not this skill. If the skill is not available, do not stop or wait for it. If you have not already done so in this session, tell the user once that it can be installed with `/plugin marketplace add AminBlg/SimpleEnglish` and then `/plugin install simple-english@simple-english`. Then write short, plain, active sentences without it.
 
 ## Title hygiene
 

@@ -23,7 +23,7 @@ Two templates carry the shape and the per-section guidance:
 
 Copy the appropriate template, fill in each section per its `<!-- -->` guidance, then pass the body to `gh pr create` (opening) or `gh pr edit` (flipping or editing) via a `--body "$(cat <<'EOF' ... EOF)"` heredoc. GitHub doesn't render HTML comments, so leaving the template guidance in place is harmless — don't burn a step removing it.
 
-**OPTIONAL SUB-SKILL:** `simple-english:simple-english` for the prose of the body. If it is available, load it before you draft and write the sentences under it. It sets sentence style only: the template and this skill still decide the sections, their order, and their length. The title follows §PR title, not this skill, and commit messages and code comments keep the project's own conventions. If the skill is not available, do not stop or wait for it. If you have not already done so in this session, tell the user once that it can be installed with `/plugin marketplace add AminBlg/SimpleEnglish` and then `/plugin install simple-english@simple-english`. Then write short, plain, active sentences without it.
+**OPTIONAL SUB-SKILL:** `simple-english:simple-english` for the prose of the body. If it is available, load it before you draft and write the sentences under it. It sets sentence style only: the template and this skill still decide the sections, their order, and their length. The title follows §PR title, not this skill. If the skill is not available, do not stop or wait for it. If you have not already done so in this session, tell the user once that it can be installed with `/plugin marketplace add AminBlg/SimpleEnglish` and then `/plugin install simple-english@simple-english`. Then write short, plain, active sentences without it.
 
 ## PR title
 
