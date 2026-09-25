@@ -65,6 +65,10 @@ For brainstorm output specifically: ask whether the outcome spans multiple featu
 
 Write each paragraph as a single line and put a blank line between paragraphs. Write each list item as a single line too. This applies to everything you author: the issue/PR body you publish AND markdown source files (these skills, their templates, READMEs, docs). There is no column cap to respect — GitHub and editors soft-wrap on their own, so any newline you insert mid-paragraph just reflows into ragged short lines in the rendered view and in every diff. Let the renderer wrap. Tables, fenced code, and YAML frontmatter keep their own line structure.
 
+## Sentence style
+
+**OPTIONAL SUB-SKILL:** `simple-english:simple-english` for the prose of every issue body and comment you draft (Steps 2A, 2B, and 2D). If it is available, load it before you draft and write the sentences under it. It sets sentence style only: the template and this skill still decide the sections, their order, and their length, and the Step 2D comment still states before, now, and why and nothing else. The title follows §Title hygiene, not this skill, and commit messages keep the project's own convention. If the skill is not available, do not stop or wait for it. If you have not already done so in this session, tell the user once that it can be installed with `/plugin marketplace add AminBlg/SimpleEnglish` and then `/plugin install simple-english@simple-english`. Then write short, plain, active sentences without it.
+
 ## Title hygiene
 
 A title is the one line a no-context reader scans in the issue list. Make it a concise, human-readable headline of the capability or fix. A clean organizing prefix is fine when the work is part of a decomposed set — `Flow 2: investigation session happy path` reads well. What doesn't:

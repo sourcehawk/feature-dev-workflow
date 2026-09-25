@@ -54,6 +54,8 @@ Ready does not mean every question is answered. It means **no surprise blockers*
 
    Ask one question at a time, as in `superpowers:brainstorming`. Refine the epic to the quality bar of `feature-dev-workflow:writing-docs`: precise, every sentence earns its place, no marketing fluff.
 
+   **OPTIONAL SUB-SKILL:** `simple-english:simple-english` for the prose of the epic. If it is available, load it before you draft and write the sentences under it. It sets sentence style only: the template and the readiness bar still decide the sections, what they hold, and how long they are. If the skill is not available, do not stop or wait for it. If you have not already done so in this session, tell the user once that it can be installed with `/plugin marketplace add AminBlg/SimpleEnglish` and then `/plugin install simple-english@simple-english`. Then write short, plain, active sentences without it.
+
 5. **Re-run the readers** until the engineer hits no unflagged blocker and the stakeholder understands the why. Readiness is what the readers prove, not what you assert.
 
 6. **REFACTOR — cut anything no reader needed.** Length is justified only by a question a reader actually had.
