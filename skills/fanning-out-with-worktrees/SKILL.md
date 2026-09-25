@@ -38,7 +38,7 @@ Record the wave assignments in the state file's `## Phases` section before dispa
 
 ### 2. Create sub-worktrees and dispatch wave N
 
-For each sub-PR in the wave, the orchestrator creates the worktree first:
+First classify each sub-PR in the wave. A sub-PR based on another sub-PR's branch is a stack layer: it gets no worktree from the loop below, and it is set up and dispatched as the stack paragraph after the loop says. For every other sub-PR in the wave, the orchestrator creates the worktree first:
 
 ```
 git worktree add .claude/worktrees/<slug>--<sub-name> -b <sub-type>/<slug>--<sub-name> <base-ref>
@@ -52,7 +52,7 @@ When the state file's frontmatter has `sub_pr_target: main`, `<base-ref>` is `or
 
 **A sub-PR based on another sub-PR's branch makes a stack, not a wave member.** That covers a `stub-on-producer-branch` consumer and, in either `sub_pr_target` model, any strictly sequential chain whose PRs open before their parents merge. Its branches, bases, propagation, and merges go through `gh stack`, which needs one dedicated worktree per stack (never the main checkout): follow `feature-dev-workflow:developing-a-feature` §Linear stacks of dependent PRs go through `gh stack`, including its availability check, before creating the consumer's branch. The orchestrator decides per layer whether it can be built in parallel, and runs every `gh stack` command. A sequential layer's subagent works in the stack's worktree, one layer at a time. A parallel layer's subagent works in a temporary worktree of its own, and the layer joins the stack after that worktree is removed (see that section's **Parallel layers**). Each isolation check names the worktree path and the layer's branch. A stack layer's subagent does not open its own PR (this replaces dispatch item 4 below); the orchestrator opens and links the stack's PRs through `gh stack submit --auto`. Parallel sub-PRs based directly on `<base-ref>` stay in the worktree-per-sub-PR model below.
 
-Then dispatch one subagent per sub-PR. **REQUIRED SUB-SKILL:** `superpowers:dispatching-parallel-agents`.
+Then dispatch one subagent per sub-PR, except for a stack's sequential layers: those share the stack's worktree, so dispatch them one at a time, each after the layer below it is done. **REQUIRED SUB-SKILL:** `superpowers:dispatching-parallel-agents`.
 
 Each dispatch prompt MUST include:
 
