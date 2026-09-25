@@ -152,7 +152,7 @@ Record each layer's decision and its reason in the stack's `## Stacks` entry. A 
 
 1. The orchestrator creates a temporary worktree for it, branched from the parent layer's current tip (or the parent's stub commit; if the parent's branch does not exist yet, from the nearest existing layer below it), and dispatches its own subagent there. That subagent pushes its branch with plain `git push` and never runs `gh stack` commands; layers built inside the stack's worktree are pushed by the orchestrator's `gh stack push`.
 2. When the layer is done and pushed, the orchestrator removes the temporary worktree.
-3. In the stack's worktree, the orchestrator joins the layer on top: `gh stack unstack --local`, then `gh stack init --base <trunk> <bottom> ... <new-top>` (`init` adopts branches that already exist), then `gh stack view --json` to confirm the order.
+3. In the stack's worktree, the orchestrator joins the layer on top. If the worktree already tracks the stack, it runs `gh stack unstack --local` first; for the first join there is no local stack yet, so it skips that. Then `gh stack init --base <trunk> <bottom> ... <new-top>` (`init` adopts branches that already exist), then `gh stack view --json` to confirm the order.
 4. It replays the layer onto the parent's final tip: `gh stack checkout <parent>`, `gh stack rebase --upstack`, then `gh stack push`. A conflict at join time is resolved there, in the stack's worktree.
 5. When the stack's PRs are due, it opens and links them as **Opening the stack's PRs** below says. One pass after the last join is enough while no layer has a PR yet.
 
