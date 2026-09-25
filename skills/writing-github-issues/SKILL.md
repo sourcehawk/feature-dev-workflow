@@ -21,9 +21,14 @@ Four branches:
 
 ## Core principle: user-in-the-loop for every GitHub mutation
 
-Don't create, modify, or link an issue without an explicit confirmation **for the specific body about to land**. This applies even if the user said "file an issue" earlier in the conversation; generic intent earlier is not standing consent for the specific body now.
+Create, modify, or link an issue only with the user's approval, which takes one of two forms:
 
-By default, assign the user to any issue created or touched (`--assignee @me`, which `gh` resolves to the authenticated user). Surface the assignment in the same confirmation prompt; if they decline, note it and move on.
+- **A standing grant** that names this kind of action: an explicit instruction in the conversation ("file and update the issues without asking me"), a rule in the project's instructions file or memory, or configuration recorded in the state file. Under a grant, act without a prompt, then show the target, the full body, the labels, and the assignment in your reply so the user sees what landed.
+- **A fresh confirmation** for the specific body about to land, whenever no grant covers the action. This applies even if the user said "file an issue" earlier in the conversation: generic intent is not a grant, because it says what the user wants done, not that they waive their look at the body.
+
+A grant covers the kind of action it names and nothing wider (a grant to file issues does not cover closing them or linking them under an epic unless it says so).
+
+By default, assign the user to any issue created or touched (`--assignee @me`, which `gh` resolves to the authenticated user). Surface the assignment in the same confirmation prompt (or, under a grant, in the same after-the-fact report); if they decline, note it and move on.
 
 Every confirmation shows the user:
 
@@ -32,7 +37,7 @@ Every confirmation shows the user:
 - Which label(s) will be attached.
 - Whether you intend to assign them (default: yes).
 
-Wait for an explicit "yes" before any `gh issue create / edit` or sub-issue-linkage call. Treat absence of objection as a no.
+Without a grant, wait for an explicit "yes" before any `gh issue create / edit` or sub-issue-linkage call. Treat absence of objection as a no.
 
 GitHub doesn't render HTML comments, so leaving the template guidance in place is harmless — don't burn a step removing it.
 
@@ -100,7 +105,7 @@ Keep it honest: the diagram supplements the prose, it does not replace Design ov
    - **Problem**: a few sentences opening with the elevator pitch (the what) and naming the operational reason it matters (the why). No solution; that belongs in the PR description (bug) or in Approach / Design overview (feature / epic).
    - Template-specific sections: see the relevant template file.
 
-2. **Confirm with the user, with the body inline.** Paste the drafted body into chat under a "About to create a `<label>` issue in this repo with the body below, and assign you (`@me`). Confirm?" line. Wait for an explicit yes. If they push back on specific wording, redraft and re-present.
+2. **Confirm with the user, with the body inline.** Paste the drafted body into chat under a "About to create a `<label>` issue in this repo with the body below, and assign you (`@me`). Confirm?" line. Wait for an explicit yes. If they push back on specific wording, redraft and re-present. Under a standing grant for filing issues, skip the prompt and show the body in your reply after creating it.
 
 3. **Create the issue** by piping the body through a heredoc:
    ```
@@ -131,7 +136,7 @@ GitHub's `gh issue create` does not (yet) expose a `--parent` flag. Use the Grap
 >
 > Confirm?
 
-Wait for an explicit yes. On push-back, drop or amend specific links before running anything.
+Wait for an explicit yes, unless a standing grant names sub-issue linking; then link and report the set. On push-back, drop or amend specific links before running anything.
 
 Then run the mutation once per sub-issue:
 
@@ -151,7 +156,7 @@ The epic's body's `## Sub-issues` section auto-renders as a checklist with progr
    ```
 2. **Identify the gaps.** Compare the existing body against the matching template's section list. State each gap in one sentence. Pre-existing tickets are most often missing concrete acceptance criteria, verification steps, or labels; flag those first.
 3. **Draft the updated body.** Preserve content from the existing issue that the user wants to keep; merge in what's missing. Use the template for sections that need them.
-4. **Confirm with the user, surfacing both the gap list and the proposed body.** Paste the drafted body into chat under a "The issue at `#<num>` is missing: <one-line gap list>. About to update its body to the version below, and assign you (`@me`) if you're not already. Confirm?" line. Wait for an explicit yes. On push-back, redraft and re-present.
+4. **Confirm with the user, surfacing both the gap list and the proposed body.** Paste the drafted body into chat under a "The issue at `#<num>` is missing: <one-line gap list>. About to update its body to the version below, and assign you (`@me`) if you're not already. Confirm?" line. Wait for an explicit yes. On push-back, redraft and re-present. Under a standing grant for updating issues, skip the prompt and show the gap list and new body in your reply.
 
 5. **Update the issue** by piping the body through a heredoc:
    ```
@@ -196,7 +201,7 @@ The record and the reconcile are one logical change, confirmed together:
 
 2. **Draft the reconciled body** — the existing body with the now-false content corrected to match the decision, following §Step 2B's body-drafting rules (preserve what's still true; the naming firewall still applies).
 
-3. **Confirm both together, inline.** Paste the full comment body and the full reconciled body into chat under an "About to comment on `#<num>` recording this decision, then update its body to match — and assign you (`@me`) if you're not already. Both shown below. Confirm?" line. Wait for an explicit yes; the user-in-the-loop rule (§Core principle) governs both mutations — a comment is as public as an edit. On push-back, redraft and re-present.
+3. **Confirm both together, inline.** Paste the full comment body and the full reconciled body into chat under an "About to comment on `#<num>` recording this decision, then update its body to match — and assign you (`@me`) if you're not already. Both shown below. Confirm?" line. Wait for an explicit yes; the user-in-the-loop rule (§Core principle) governs both mutations — a comment is as public as an edit. A standing grant for updating issues covers both; then post them and show both in your reply. On push-back, redraft and re-present.
 
 4. **Post the comment, then update the body** — comment first, so the prior state is preserved verbatim in the thread before the edit overwrites it:
    ```
@@ -246,24 +251,25 @@ When working a sub-issue (or a single-feature/bug issue):
 - **Hard-wrapping prose to a column width.** There is no column cap; GitHub and editors soft-wrap on their own, and the breaks you insert reflow into ragged short lines. One line per paragraph, one line per bullet, blank line between — in bodies and source files alike (see §Don't hard-wrap markdown prose).
 - **Describing a multi-component flow in prose only.** When a feature/epic narrates data or control crossing several modules (client → API → queue → worker → store) or a phase progression, a five-node mermaid diagram makes the seams legible at a glance. Prose-only forces every reader to rebuild the topology in their head. Add the diagram in `## Design overview` / `## Approach` (see §Diagrams).
 - **Acceptance criteria written as aspirations.** Each bullet has to be a verifiable condition a reviewer can answer "yes / no" against at done-time. "the service is more reliable" is not checkable; "`get_session` returns the saved record after a restart" is.
-- **Inferring consent from earlier intent.** "The user said 'file an issue' two turns ago" is not standing consent for the specific body you now want to publish. Re-confirm with the actual proposed body, every time.
-- **Updating an issue silently because the diff is small.** Even a one-line addition to a public issue is a public action the user didn't approve. Show the diff first.
+- **Inferring consent from earlier intent.** "The user said 'file an issue' two turns ago" is intent, not a grant: it does not waive their look at the specific body you now want to publish. Unless the user granted this kind of action outright, re-confirm with the actual proposed body, every time.
+- **Updating an issue silently because the diff is small.** Even a one-line addition to a public issue is a public action. Without a grant, show the diff first; under a grant, show it in your reply once it lands. Never silently.
 - **Reconciling a changed issue with a bare body edit.** When a development decision made the issue's stated approach or criteria false, a lone `gh issue edit` restores the *what* and erases the *why*. A material divergence gets a decision comment (before / now / why + commit link) **and** the body update, together (§Step 2D). The thread is the durable record of why the shipped thing differs from the plan.
 - **Letting "design belongs in the PR" leave the issue stale.** That rule bars dumping new line-level design into the issue; it does not excuse an issue whose stated approach or acceptance criteria are now false. Reconcile the durable content and record the decision (§Step 2D) — the PR still carries the design.
-- **Proceeding on absence of objection.** "I'll go ahead unless they stop me" is not consent. Wait for an explicit yes; the cost of waiting is low, the cost of an unwanted public mutation is high.
+- **Proceeding on absence of objection.** "I'll go ahead unless they stop me" is not consent, and silence is not a grant. A grant is something the user said or recorded; without one, wait for an explicit yes. The cost of waiting is low, the cost of an unwanted public mutation is high.
 - **Skipping the assignee question.** Default is to assign the user. If they decline once, note it and move on; don't keep asking on later edits.
 - **Skipping the label.** Every issue gets exactly one of `epic`, `feature`, `task`, `bug`. The label is how the issue list is navigable; an unlabeled issue is invisible to filters.
 
 ## Red flags: STOP and re-confirm
 
-These thoughts mean you're about to mutate GitHub without a fresh confirm:
+These thoughts mean you're about to mutate GitHub with neither a standing grant nor a fresh confirm:
 
 | Thought                                                      | Reality                                                                                      |
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| "The user already said they want this issue"                 | Generic intent earlier ≠ consent for the specific body now. Re-confirm with the body inline. |
-| "I'm just updating, the diff is small"                       | Public action on a public surface. Show the diff first.                                      |
-| "They said yes a turn ago, this is the same thing"           | Bodies change between turns. Confirm what you're about to send.                              |
-| "They didn't object to the assignment line, so they want it" | Absence of objection ≠ consent. Ask, then act.                                               |
+| "The user already said they want this issue"                 | Generic intent earlier ≠ a grant. Unless they said this kind of action needs no prompt, re-confirm with the body inline. |
+| "I'm just updating, the diff is small"                       | Public action on a public surface. Show the diff first, or under a grant, right after it lands. |
+| "They said yes a turn ago, this is the same thing"           | A yes to one body is not a grant. Bodies change between turns; confirm what you're about to send. |
+| "They didn't object to the assignment line, so they want it" | Absence of objection ≠ consent, and silence is not a grant. Ask, then act.                   |
+| "They granted filing issues, so closing and linking are fine too" | A grant covers the action it names. Anything wider needs its own grant or confirmation. |
 | "I'll just append and they can edit later if needed"         | They shouldn't have to clean up after the agent. Confirm first.                              |
 | "An epic feels heavy; I'll fold the children into one issue" | The brainstorm says it's multi-chunk. Don't compress it just because the template feels new. |
 | "I'll link the spec in the issue's Context so readers find the design" | Issues are durable; spec/plan files move and get deleted. Sub-issues reference the epic only; the epic carries design inline. The spec is linked from the plan, not the issue. |
@@ -272,4 +278,4 @@ These thoughts mean you're about to mutate GitHub without a fresh confirm:
 | "I'll append `(e2e Flow 1)` so readers know which flow this is" | Put the label up front as a `Flow 1:` prefix, or leave it out. A trailing parenthetical buries the headline (§Title hygiene). |
 | "`flow2-fixture` is the obvious name, the issue is literally Flow 2" | The label is navigational, not an identifier. Name the artifact for what it is; the firewall is one-way (§The naming firewall). |
 
-All of these mean: paste the proposed body and the assignment intent into chat, wait for an explicit yes, then act.
+All of these mean: paste the proposed body and the assignment intent into chat, wait for an explicit yes, then act. The only exception is a standing grant for this kind of action; then act and show the body in your reply.

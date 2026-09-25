@@ -68,20 +68,25 @@ Other related PRs / issues (siblings, follow-ups, prior art) belong under `## Re
 
 ## Core principle: user-in-the-loop for every GitHub mutation
 
-Don't run `gh pr create` or `gh pr edit` without an explicit confirmation **for the specific body about to land**. Generic intent earlier ("yes please open a PR") is not standing consent for the body now.
+Run `gh pr create` or `gh pr edit` only with the user's approval, which takes one of two forms:
+
+- **A standing grant** that names this kind of action: an explicit instruction in the conversation ("open the PRs as drafts without asking me"), a rule in the project's instructions file or memory, or configuration recorded in the state file (for example `sub_pr_approval: autonomous` for the sub-PR bundle). Under a grant, act without a prompt, then show the target and the full body in your reply so the user sees what landed.
+- **A fresh confirmation** for the specific body about to land, whenever no grant covers the action. Generic intent earlier ("yes please open a PR") is not a grant: it says what the user wants done, not that they waive their look at the body.
+
+A grant covers the kind of action it names and nothing wider. A grant to open drafts does not cover flipping a PR ready or rewriting another PR's body. No grant covers the merge to main (see the merge guard in `feature-dev-workflow:developing-a-feature` Step 6).
 
 Every confirmation shows the user:
 
 - The exact target (the repo, or `#<num>` for edits).
 - The full proposed body.
 
-Wait for an explicit "yes" before any `gh pr` call. Treat absence of objection as a no.
+Without a grant, wait for an explicit "yes" before any `gh pr` call. Treat absence of objection as a no.
 
 ## Steps when flipping a draft to ready
 
 1. **Rewrite the body from `${CLAUDE_PLUGIN_ROOT}/skills/opening-a-pull-request/templates/pull-request-ready.md`.** The shapes are different — the draft asks "review the direction"; the ready asks "review the implementation." Don't ship the draft body forward unchanged.
-2. **Confirm both mutations in one prompt, body inline.** Marking the PR ready is a separate GitHub mutation from editing the body, and the user-in-the-loop rule applies to both. Phrase the confirmation as: "About to update #<num>'s body to the version below AND flip it from draft to ready. Confirm?" — then paste the body. Wait for an explicit yes. Splitting confirmation across two prompts is fine; running `gh pr ready` on the strength of the body confirmation is not.
-3. **Run `gh pr edit <num> --body "$(cat <<'EOF' … EOF)"` then `gh pr ready <num>`** once the user confirms.
+2. **Confirm both mutations in one prompt, body inline.** Marking the PR ready is a separate GitHub mutation from editing the body, and the user-in-the-loop rule applies to both. Phrase the confirmation as: "About to update #<num>'s body to the version below AND flip it from draft to ready. Confirm?" — then paste the body. Wait for an explicit yes. Splitting confirmation across two prompts is fine; running `gh pr ready` on the strength of the body confirmation is not. A standing grant replaces this prompt only if it names flipping PRs ready; then show the body and the flip in your reply.
+3. **Run `gh pr edit <num> --body "$(cat <<'EOF' … EOF)"` then `gh pr ready <num>`** once the user confirms (or under that grant).
 
 ## Reconciling an open PR's body with reality
 
@@ -94,7 +99,7 @@ Opening and flipping aren't the only moments the body has to be true. Commits la
 The mechanic:
 
 1. **Rewrite the affected sections** from the template the PR already uses (draft or ready) so they match the diff. Leave the opening issue-link keyword and the title unchanged — neither the linkage nor the type/area changed. Do not flip the lifecycle state; this is a body edit, not a `gh pr ready`.
-2. **Confirm the exact body** (§Core principle) — paste it inline under an "About to update #<num>'s body to match the diff — body only, PR stays as-is. Confirm?" line, and wait for an explicit yes.
+2. **Confirm the exact body** (§Core principle) — paste it inline under an "About to update #<num>'s body to match the diff — body only, PR stays as-is. Confirm?" line, and wait for an explicit yes. Under a standing grant for PR body edits, skip the prompt and show the new body in your reply.
 3. **Run the single mutation** once confirmed: `gh pr edit <num> --body "$(cat <<'EOF' … EOF)"`.
 
 ## Anti-patterns
@@ -104,7 +109,7 @@ The mechanic:
 - **`Challenges` as the body's overflow section.** Consequences, tradeoffs, follow-up work, and the history of review rounds all get filed there because the heading is sitting in the template. Each has a home: the Description's third part, `Related`, or the commits. The section earns its place only when the diff hides a system fact a reviewer needs — otherwise the heading gets deleted.
 - **Flipping ready with the draft body unchanged.** Different shape, different audience. Rewrite from the ready template.
 - **Marking ready before the Testing section is filled in.** That section is what gives the reviewer confidence the PR is shippable; leaving it blank silently drops the claim.
-- **Running `gh pr create` / `gh pr edit` on inferred consent.** Every body is a fresh confirmation. The cost of pausing is low; the cost of an unwanted public mutation is high.
+- **Running `gh pr create` / `gh pr edit` on inferred consent.** Inferred consent is earlier intent read as a waiver; a standing grant is the user saying outright that this kind of action needs no prompt. Without a grant, every body is a fresh confirmation. The cost of pausing is low; the cost of an unwanted public mutation is high.
 - **Leaving a ready PR's body stale because it's "already open."** Opening and flipping aren't the only moments the body matters; commits that land afterward change what the reviewer should read. A body that contradicts the diff gets reconciled (§Reconciling an open PR's body with reality) — body only, no comment, the body just has to match reality.
 
 ## Red flags: STOP before flipping ready or publishing
@@ -115,7 +120,8 @@ These thoughts mean the PR isn't actually ready to publish or flip:
 | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
 | "The draft description is fine, no need to rewrite"                | Different shape, different audience. Rewrite from the ready template.                                                                   |
 | "Marking ready now, will fix the body in a follow-up edit"         | The body is what the reviewer reads in the first 10 seconds. Fix it first, then `gh pr ready`.                                         |
-| "The user said yes a turn ago, this is the same thing"             | Bodies change between turns. Confirm the exact body about to land.                                                                     |
+| "The user said yes a turn ago, this is the same thing"             | A yes to one body is not a grant. Bodies change between turns: unless the user granted this kind of action outright, confirm the exact body about to land. |
+| "They told me to open drafts without asking, so flipping ready is covered too" | A grant covers the action it names. Flipping ready needs its own grant or confirmation, and the merge to main is always the user's. |
 | "I'll just append a note and they can edit later if needed"        | They shouldn't have to clean up after the agent. Confirm first.                                                                        |
 | "The PR's already open/ready, the stale body isn't worth re-editing" | The body is what the reviewer reads first; once the diff moves past it, it misleads. Reconcile the body to match the diff — body only, no comment (§Reconciling an open PR's body with reality). |
 | "The sub-issue shows no linked PR, the keyword must be wrong"        | Closing-keyword linkage only materializes while the PR's base is the default branch. On a stacked draft it's deferred until retarget — verify with `gh pr view <num> --json closingIssuesReferences` then, not before. |
@@ -123,4 +129,4 @@ These thoughts mean the PR isn't actually ready to publish or flip:
 | "This part was genuinely hard, so it belongs in `Challenges`"        | Hard for the author is not the test. The test is whether the diff hides a system fact the reviewer needs. Difficulty you already resolved, review rounds, and wrong turns live in the commits. |
 | "Better to include it than leave the reviewer guessing"              | A reviewer's attention is finite and spending it on filler costs the sections that matter. Every fact needs a section that's actually for it, or it comes out. |
 
-All of these mean: rewrite the body from the right template, paste it inline in chat, and wait for an explicit yes.
+All of these mean: rewrite the body from the right template and paste it inline in chat. Wait for an explicit yes, unless a standing grant covers this kind of action; then act and show the body in your reply.
