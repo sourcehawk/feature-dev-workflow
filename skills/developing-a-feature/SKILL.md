@@ -154,7 +154,7 @@ Record each layer's decision and its reason in the stack's `## Stacks` entry. A 
 2. When the layer is done and pushed, the orchestrator removes the temporary worktree.
 3. In the stack's worktree, the orchestrator joins the layer on top. If the worktree already tracks the stack, it runs `gh stack unstack --local` first; for the first join there is no local stack yet, so it skips that. Then `gh stack init --base <trunk> <bottom> ... <new-top>` (`init` adopts branches that already exist), then `gh stack view --json` to confirm the order.
 4. It replays the layer onto the parent's final tip: `gh stack checkout <parent>`, `gh stack rebase --upstack`, then `gh stack push`. A conflict at join time is resolved there, in the stack's worktree.
-5. When the stack's PRs are due, it opens and links them as **Opening the stack's PRs** below says. One pass after the last join is enough while no layer has a PR yet.
+5. Once the layer has joined, it opens the layer's PR and links it as **Opening the stack's PRs** below says.
 
 Two ordering rules hold throughout. Layers join bottom-up: a layer cannot join above a parent that has not joined yet. And never run `gh stack sync`, `gh stack rebase`, or `gh stack checkout` while any layer branch of the stack is checked out in another worktree (the trunk does not count); the orchestrator sequences joins and syncs so that never happens.
 
@@ -173,12 +173,12 @@ Two ordering rules hold throughout. Layers join bottom-up: a layer cannot join a
 
 **Building a new stack.** In the stack's worktree: `gh stack init --base <trunk> <bottom>` (it creates a missing branch from the trunk), commit that layer, then `gh stack add <next>` from the top for each following layer, then open the PRs as **Opening the stack's PRs** says.
 
-**Opening the stack's PRs.** A stack PR never appears on GitHub with generated text, so the agent creates every PR itself and `gh stack` only links them:
+**Opening the stack's PRs.** A stack PR never appears on GitHub with generated text, so the agent creates every PR itself and `gh stack` only links them. Open each layer's PR as soon as that layer is ready, bottom to top, not all at once at the end: a `stub-on-producer-branch` consumer is dispatched only after its producer's PR is open (`feature-dev-workflow:fanning-out-with-worktrees` Step 1), so the producer's PR must exist before its consumer's layer is even started. For each layer that is ready:
 
-1. `gh stack push` from the stack's worktree, so every layer branch is on the remote.
-2. For each layer, bottom to top, compose the title and body through `feature-dev-workflow:opening-a-pull-request` (under a standing grant, or after a fresh confirmation), then run `gh pr create --draft --base <parent-branch> --head <layer> --title <title> --body-file <file>`. The bottom layer's base is the trunk.
-3. Link them: `gh stack link --base <trunk> <bottom-PR-URL> ... <top-PR-URL>`. Pass PR URLs, never branch names or bare numbers: a URL always resolves to an existing PR, while a branch without a PR makes `link` create one with a generated title and body. `link` leaves the existing PRs' titles and bodies untouched; it only corrects bases and builds the stack on GitHub.
-4. Check the result: `gh stack view --json` shows each layer with its PR, and `gh pr view <num> --json title,body,isDraft,baseRefName` matches what you created.
+1. `gh stack push` from the stack's worktree, so the layer branch is on the remote.
+2. Compose the title and body through `feature-dev-workflow:opening-a-pull-request` (under a standing grant, or after a fresh confirmation), then run `gh pr create --draft --base <parent-branch> --head <layer> --title <title> --body-file <file>`. The bottom layer's base is the trunk.
+3. Link the stack once two or more layers have PRs: `gh stack link --base <trunk> <bottom-PR-URL> ... <top-PR-URL>`, listing every layer's PR bottom to top. `gh stack link` takes at least two arguments, so a stack with only its bottom PR open is not linked yet; the bottom PR stays an ordinary draft against the trunk until the next layer's PR exists. Each time a further layer's PR opens, run the same command again with the full list; `link` adds the new PR to the existing stack. Pass PR URLs, never branch names or bare numbers: a URL always resolves to an existing PR, while a branch without a PR makes `link` create one with a generated title and body. `link` leaves the existing PRs' titles and bodies untouched; it only corrects bases and builds the stack on GitHub.
+4. Check the result: `gh stack view --json` shows each layer with its PR (once the stack is linked), and `gh pr view <num> --json title,body,isDraft,baseRefName` matches what you created.
 
 **Adopting a stack that was built by hand** (the branches and PRs already exist, including a stack that exists only as a `gh stack link` link on GitHub). A hand-made chain is still a stack, so adopt it before propagating anything through it. If human review has already started, ask the user first, because the adoption rebases the layers under that review.
 
