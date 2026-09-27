@@ -165,7 +165,7 @@ Addressing review changes code, and a substantive fix can leave the PR body — 
 Not every GitHub mutation in the loop is the same kind of action, and conflating them is what makes the reasoning trail disappear. Separate them:
 
 - **Replying in a thread and resolving it are how the loop records a decision you are already making — mandatory, and never confirmation-gated.** The reply's body is dictated by the comment it answers (what you changed, or why the comment does not apply), so there is nothing separate to confirm. Do **not** pause to ask permission before leaving a reply, and do **not** skip or batch-defer it to avoid pestering. A thread addressed without a reply, or resolved silently, destroys the human-readable trace — which is the entire audit value of the loop. This holds in every context, interactive or autonomous.
-- **Requesting (or re-requesting) the reviewer and pushing commits are outward, harder-to-reverse mutations.** These follow the project rule: in interactive contexts, a fresh confirmation against the specific thing about to land; in autonomous fan-out, the autonomous-mode discipline already established for sub-PRs (the user opted into the mechanical bundle up front).
+- **Requesting (or re-requesting) the reviewer and pushing commits are outward, harder-to-reverse mutations.** These follow the project rule: in interactive contexts, a fresh confirmation against the specific thing about to land unless the user already granted that kind of action; in autonomous fan-out, the autonomous-mode discipline already established for sub-PRs (the user opted into the mechanical bundle up front).
 
 ## What this skill does not do
 

@@ -12,7 +12,7 @@ description:
 
 When the structure has stopped moving and you're about to add tests that drive the whole system, not a single surface. Especially when:
 
-- A feature is structurally complete — every sub-PR self-merged into the feature branch, the coherence sweep done — and you're at the integration checkpoint deciding system-level coverage.
+- A feature is structurally complete — every sub-PR self-merged into its target (the feature branch, or `main` when sub-PRs target it), the coherence sweep done — and you're at the integration checkpoint deciding system-level coverage.
 - A change introduces a new flow a user or a downstream consumer can observe end to end.
 - You're tempted to add an end-to-end test "now so it's ready" while pieces are still in flight.
 - You're about to promote an edge case into the end-to-end suite because "it's only real when the full stack runs."
@@ -32,7 +32,7 @@ That fixes both the timing and the selection:
 
 ## When to write them
 
-Write only after the feature is **structurally complete**: every sub-PR merged into the feature branch, the coherence sweep run, the structure settled. In the workflow that is the integration checkpoint (`feature-dev-workflow:reviewing-feature-progress` Step 7), not during implementation and not mid-fan-out.
+Write only after the feature is **structurally complete**: every sub-PR merged into its target (the feature branch, or `main` when sub-PRs target it), the coherence sweep run, the structure settled. In the workflow that is the integration checkpoint (`feature-dev-workflow:reviewing-feature-progress` Step 7), not during implementation and not mid-fan-out.
 
 Earlier is premature. An end-to-end test written while pieces are in flight either fails against a branch that doesn't have the flow yet, or pins itself to interfaces two unmerged worktrees are still changing. Both are fiction until the pieces land, and both generate churn when the real shapes differ. The per-component tests written test-first during implementation (`superpowers:test-driven-development`) are what give confidence in flight; the end-to-end test is what proves the assembled seam.
 

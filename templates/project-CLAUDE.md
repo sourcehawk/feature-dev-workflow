@@ -41,6 +41,7 @@ Invoke `feature-dev-workflow:planning-a-feature` at conception. It and the `**RE
 | Brainstorm → spec → issues → plan → state file | `feature-dev-workflow:planning-a-feature` (calls `superpowers:brainstorming`, `feature-dev-workflow:writing-github-issues`, `superpowers:writing-plans`) |
 | Implement (single or multi-PR) | `feature-dev-workflow:developing-a-feature` (with `superpowers:test-driven-development` + `feature-dev-workflow:testing-a-feature`) |
 | The worktree fan-out loop + wave merges | `feature-dev-workflow:fanning-out-with-worktrees` |
+| Linear stacks of dependent PRs (a PR based on another open PR's branch) | `feature-dev-workflow:stacking-dependent-prs` |
 | Cold-session resume of in-flight work (state file → verify → route by phase) | `feature-dev-workflow:resuming-a-feature` |
 | Checkpoints between waves & before the integration PR | `feature-dev-workflow:reviewing-feature-progress` |
 | End-to-end tests for a new user/consumer-visible flow (once structurally complete) | `feature-dev-workflow:testing-end-to-end` |
@@ -67,4 +68,4 @@ The skills teach the workflow discipline when invoked — TDD, verify-before-don
 
 - **Commit conventions:** `feat(<area>): ...`, `fix(<area>): ...`, `refactor(<area>): ...`, `test(<area>): ...`, `chore(<area>): ...`, `docs(<area>): ...`. Area mirrors the module path. (`feature-dev-workflow:opening-a-pull-request` reads this convention from here.)
 - **Never `--no-verify`, never `git add -A` / `git add .`.** Stage by name; pre-commit hooks exist for a reason.
-- **No GitHub mutation without a fresh confirmation against the specific body about to land.** Paste the body inline, name the target, wait for an explicit yes.
+- **No GitHub mutation without a fresh confirmation against the specific body about to land, unless the user has already granted that kind of mutation.** Paste the body inline, name the target, wait for an explicit yes. A standing grant (in the conversation, this file, memory, or the state file) replaces the prompt for the action it names only; show the body after it lands. No grant covers the feature's final merge to main (the single-PR feature PR or the integration PR); sub-PR merges follow the state file's recorded `sub_pr_approval` / `sub_pr_target` answers.
