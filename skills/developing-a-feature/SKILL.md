@@ -42,7 +42,7 @@ For sequential single-PR work, skip to Step 4. For multi-PR work, dispatch paral
 
 **Sub-PR approval mode (multi-PR only).** Before any sub-worktree work starts, the orchestrator presents the user with a two-option choice via `AskUserQuestion`:
 
-- **Autonomous sub-worktree approval** — the orchestrator reviews each sub-PR with the `review` skill, flips it from draft to ready, self-merges it into the feature branch, and closes its sub-issue automatically. Fastest fan-out; the user only sees the integration PR at the end. Suitable when the integration PR's external-review pass is the user's intended inspection point.
+- **Autonomous sub-worktree approval** — the orchestrator reviews each sub-PR with the `review` skill, flips it from draft to ready, self-merges it into its target (the feature branch, or `main` under the directly-to-main target model below), and closes its sub-issue automatically. Fastest fan-out; the user only sees the integration PR at the end, or, with sub-PRs targeting `main`, the merged sub-PRs. Suitable when the integration PR's external-review pass is the user's intended inspection point.
 - **Manual sub-worktree approval** — the orchestrator still runs the `review` skill on each sub-PR, but then pauses to ask the user for explicit approval before `gh pr merge` runs. One round-trip per sub-PR, but the user inspects every diff before it lands on the feature branch.
 
 Record the choice in the state file's frontmatter as `sub_pr_approval: autonomous` or `sub_pr_approval: manual`. The fan-out skill reads this field at every sub-PR ripening to decide whether to gate on user approval. Default if the field is missing in an older state file: `autonomous` (preserves the original behaviour).
