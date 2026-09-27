@@ -49,7 +49,7 @@ Its entries record adjudicated decisions with their why. A fresh session's fresh
 | `planning` | `feature-dev-workflow:planning-a-feature`, at the step the snapshot names |
 | `foundational-wave` / `consumer-wave` | `feature-dev-workflow:developing-a-feature` Step 4 → `feature-dev-workflow:fanning-out-with-worktrees`, continuing the recorded wave |
 | `review` | The `## Pending snapshot`'s actions, each through the skill that owns it: retargets, body reconciliation, and ready-flips via `feature-dev-workflow:opening-a-pull-request`; pre-flip checkpoints via `feature-dev-workflow:reviewing-feature-progress`; issue closure and reconciliation via `feature-dev-workflow:writing-github-issues`; teardown via `feature-dev-workflow:developing-a-feature` Step 7 |
-| `merged` | Remaining wrap-up items from the snapshot only (epic closure verification, worktree deletion after the unpushed-commit check, teardown) |
+| `merged` | Remaining wrap-up items from the snapshot only (worktree deletion after the unpushed-commit check, teardown). Do not close the epic; that is the user's decision |
 
 Resuming changes who is at the keyboard, not who holds the merge button: `feature-dev-workflow:developing-a-feature`'s merge guard still governs, and no `gh pr merge` runs beyond what `sub_pr_approval` / `sub_pr_target` already configured.
 

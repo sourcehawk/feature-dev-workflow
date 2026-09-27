@@ -1,7 +1,7 @@
 <!--
 Orchestration state file for a planned feature. See ${CLAUDE_PLUGIN_ROOT}/skills/planning-a-feature/SKILL.md for when this is created and ${CLAUDE_PLUGIN_ROOT}/skills/developing-a-feature/SKILL.md for how it's updated during implementation.
 
-This file is scratch — same lifecycle as the plan. Tracked in git so it survives sessions, worktrees, and machines; deleted by the orchestrator's last commit when the feature ships (every sub-issue closed and the epic closed).
+This file is scratch — same lifecycle as the plan. Tracked in git so it survives sessions, worktrees, and machines; deleted by the orchestrator's last commit when the feature ships (every sub-issue closed).
 
 The `status:` field is one of: planning | foundational-wave | consumer-wave | review | merged.
 -->
