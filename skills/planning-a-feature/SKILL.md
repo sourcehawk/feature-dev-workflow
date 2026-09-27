@@ -85,7 +85,7 @@ Decide whether the work ships as:
 - **One PR** — single self-contained change, one reviewer pass, one merge to main.
 - **Multiple PRs** — multiple feature-sized chunks, each independently reviewable, possibly parallelizable. A multi-PR feature lands through one of two sub-PR target models; `feature-dev-workflow:developing-a-feature` Step 2 asks the user which and records it as `sub_pr_target` in the state file:
   - **Feature branch** (`sub_pr_target: feature-branch`, the default): the **feature-branch model**. A long-lived `<type>/<slug>` branch off main; every sub-PR is a real GitHub PR targeting `<type>/<slug>` (not main); when every sub-PR has been self-merged into the feature branch, a final **integration PR** from `<type>/<slug>` to main collects the whole feature for external review. Main stays shippable throughout the work; each sub-PR retains full GitHub visibility (comments, reviews, history).
-  - **Directly to main** (`sub_pr_target: main`): every sub-PR targets main and is reviewed and merged on its own; there is no integration PR. It fits sub-PRs that are truly independent and individually deliverable.
+  - **Directly to main** (`sub_pr_target: main`): every sub-PR is reviewed on its own and merges into main; there is no integration PR. It fits sub-PRs that are truly independent and individually deliverable.
 
 The PR-shape judgment is grounded in **reviewer cost**: a 2000-line PR is unreviewable even if the work is "one thing". If you can name two independent surfaces that ship value separately, that's two PRs, and the work is a multi-PR feature.
 
