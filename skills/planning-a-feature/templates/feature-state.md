@@ -48,12 +48,15 @@ Status values: not-started | in-progress | draft | ready | self-merged (multi-PR
 ## Stacks
 
 <!--
-One entry per linear stack of PRs driven by `gh stack` (see the stacking-dependent-prs skill). Delete this section when the feature has no stack. List the layers bottom to top; that order is the stack's order. Each layer records whether it is built in parallel or sequentially, and why. Every layer's row in the PR table carries the stack's worktree path once the layer has joined the stack.
+One entry per linear stack of PRs driven by `gh stack` (see the stacking-dependent-prs skill). Delete this section when the feature has no stack. List the layers bottom to top; that order is the stack's order. Each layer records whether it is built in parallel or sequentially, and why. Every layer's row in the PR table carries the stack's worktree path once the layer has joined the stack. A stack that exists only as a `gh stack link` link and is not adopted yet uses the link-only form below: it has no stack worktree, and each layer's row keeps the worktree path it already has until the adoption moves the layer into the stack's worktree.
 -->
 
 - **Stack `<name>`**: worktree `.claude/worktrees/<slug>--stack`, trunk `<type>/<slug>` (or `main`)
   1. `#<n1>` `<sub-type>/<slug>--<sub-name>`: sequential, <reason>
   2. `#<n2>` `<sub-type>/<slug>--<sub-name>`: parallel, <reason>
+- **Stack `<name>`**: link-only, not adopted (no stack worktree), trunk `<type>/<slug>` (or `main`)
+  1. `#<n1>` `<sub-type>/<slug>--<sub-name>`
+  2. `#<n2>` `<sub-type>/<slug>--<sub-name>`
 
 ## Contracts
 
