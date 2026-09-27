@@ -27,7 +27,7 @@ Then open the plan and spec it references. Note:
 
 If the plan is missing, stale, or the state file's recorded state doesn't match reality (a PR's actual status has drifted from the row), STOP and reconcile — re-invoke `feature-dev-workflow:planning-a-feature` Step 7 if the plan needs to change, or update the state file's rows to match reality before continuing.
 
-### 2. Decide: single-PR or multi-PR (feature-branch model)
+### 2. Decide: single-PR or multi-PR
 
 - **Single PR** → one worktree on the `<type>/<slug>` branch `feature-dev-workflow:planning-a-feature` created, one Claude session, one PR from it targeting main. Skip the integration-PR step at the end.
 - **Multi-PR** → two sub-models, selected by the Sub-PR target model question below. The default is the **feature-branch model**:
@@ -167,7 +167,7 @@ The teardown does not change where the flow ends. In the models that end in a fi
 
 ## Anti-patterns
 
-- **Mixing single-PR and multi-PR flows mid-feature.** Once the plan declares multi-PR, the feature-branch model is on. Don't quietly merge "just this small fix" directly to main while the feature branch is live — it skips external review on the integration PR and forks the work.
+- **Mixing single-PR and multi-PR flows mid-feature.** Once the plan declares multi-PR, every change lands through the chosen sub-PR flow. Don't quietly merge "just this small fix" directly to main outside it — it skips the sub-PR review the feature relies on and, in the feature-branch model, forks the work from the feature branch.
 - **Skipping `verification-before-completion` because "tests passed in my package".** The full test suite runs the whole project because cross-package wiring breaks on edits that look local.
 - **Letting the state file drift from reality.** A resumed session reads the state file as ground truth. Update it on every transition (worktree assigned, PR opened, sub-PR self-merged, phase changed, feature shipped).
 - **Fixing a review finding on the branch where it was reported.** The reviewer's comment sits on whichever PR they were reading; the fix belongs on the branch whose PR introduced the code, propagated to the descendants by `gh stack` in a stack and by merging forward otherwise (see §Review-driven changes while several open PRs share history).
