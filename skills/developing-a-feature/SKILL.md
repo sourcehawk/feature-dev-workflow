@@ -27,7 +27,7 @@ Then open the plan and spec it references. Note:
 
 If the plan is missing, stale, or the state file's recorded state doesn't match reality (a PR's actual status has drifted from the row), STOP and reconcile — re-invoke `feature-dev-workflow:planning-a-feature` Step 7 if the plan needs to change, or update the state file's rows to match reality before continuing.
 
-### 2. Decide: single-PR or multi-PR (feature-branch model)
+### 2. Decide: single-PR or multi-PR
 
 - **Single PR** → one worktree on the `<type>/<slug>` branch `feature-dev-workflow:planning-a-feature` created, one Claude session, one PR from it targeting main. Skip the integration-PR step at the end.
 - **Multi-PR** → two sub-models, selected by the Sub-PR target model question below. The default is the **feature-branch model**:
