@@ -70,7 +70,7 @@ A body that names a mechanism the review cycle replaced (a removed field, a rena
 
 Walk the state file and verify reality against record:
 
-- Every `self-merged` row's PR has actually merged into the feature branch (`gh pr view <num> --json mergedAt --jq .mergedAt`).
+- Every `self-merged` row's PR has actually merged into its target: the feature branch, or `main` when `sub_pr_target: main` (`gh pr view <num> --json mergedAt,baseRefName`).
 - Every `locked` contract row's `Realized in` PR is in fact merged.
 - Every `## Bubble-up log` entry has a propagation path recorded — no concerns left unresolved.
 - The `feature_branch` and `feature_worktree` frontmatter still point at real things on disk (`git rev-parse --verify <type>/<slug>` + `ls <feature_worktree>`).
@@ -83,16 +83,29 @@ The structure is now settled — every sub-PR merged, the coherence sweep run. T
 
 With the feature whole and its behavior settled, write or update the public-facing docs the feature touches before the integration PR opens — the integration PR is the external-review surface, and its docs are part of the first impression. **REQUIRED SUB-SKILL:** `feature-dev-workflow:writing-docs` for what earns a doc and how to verify a reader can actually use it.
 
-**REQUIRED SUB-SKILL:** `superpowers:verification-before-completion`. Run the project-wide checks on the main feature worktree (which holds the integration state — sub-worktrees only hold their own sub-branch):
+**REQUIRED SUB-SKILL:** `superpowers:verification-before-completion`. Run the project-wide checks where the integrated code lives, which depends on the state file's `sub_pr_target`:
 
-```
-cd <feature_worktree>
-git pull origin <type>/<slug>
-# then run the project's full test + lint suite (and typecheck, if it has one),
-# discovered from the project's CLAUDE.md / AGENTS.md or build config
-```
+- **`feature-branch`**: the main feature worktree, which holds the integration state (sub-worktrees only hold their own sub-branch):
 
-Paste the output. The feature branch must be green end to end before the integration PR opens — a sub-PR's isolated CI passing doesn't guarantee the integration compiles, since each sub-PR's tests ran against its own branch state, not the post-merge state.
+  ```
+  cd <feature_worktree>
+  git pull origin <type>/<slug>
+  # then run the project's full test + lint suite (and typecheck, if it has one),
+  # discovered from the project's CLAUDE.md / AGENTS.md or build config
+  ```
+
+- **`main`**: the sub-PRs merged into `main`, and the feature branch holds only the planning artifacts, so a run in `<feature_worktree>` tests none of the feature. Run on a fresh, detached worktree of `origin/main`, and remove it afterwards:
+
+  ```
+  git fetch origin
+  git worktree add --detach .claude/worktrees/<slug>--verify origin/main
+  cd .claude/worktrees/<slug>--verify
+  # then run the project's full test + lint suite (and typecheck, if it has one)
+  ```
+
+  End-to-end tests and docs written at this checkpoint reach `main` as a follow-up sub-PR, like every other change in this model.
+
+Paste the output. The integrated code must be green end to end before the integration PR opens, or before the fan-out hands back when `sub_pr_target: main`. A sub-PR's isolated CI passing doesn't guarantee the integration compiles, since each sub-PR's tests ran against its own branch state, not the post-merge state.
 
 ### 8. Synthesize the gap list
 
@@ -107,14 +120,14 @@ Produce a short summary for the orchestrator (and the user, if this is a pre-int
 
 Decide:
 
-- **All clean** → open the integration PR (or flip ready) per `feature-dev-workflow:developing-a-feature`.
+- **All clean** → open the integration PR (or flip ready) per `feature-dev-workflow:developing-a-feature`. With `sub_pr_target: main` there is no integration PR: continue the fan-out's hand-back (`feature-dev-workflow:fanning-out-with-worktrees` Step 7).
 - **Coverable by a follow-up sub-PR** → re-enter `feature-dev-workflow:developing-a-feature` Step 4 and dispatch a follow-up subagent into a new sub-worktree. Update the state file with the new row.
 - **Needs spec/plan refinement** → re-invoke `feature-dev-workflow:planning-a-feature` Steps 6/7 (write/update the plan, refine the issues), surface the changes to the user, then continue.
 
 ## Anti-patterns
 
 - **Skipping the check at phase transitions.** Each wave's drift compounds; surfacing it at the boundary is the cheapest place to fix it.
-- **Running verification on a sub-worktree instead of the main feature worktree.** Sub-worktrees only have their own sub-branch checked out. The feature branch — where the integration shows up — lives in the main feature worktree.
+- **Running verification on a sub-worktree instead of the main feature worktree.** Sub-worktrees only have their own sub-branch checked out. The feature branch — where the integration shows up — lives in the main feature worktree. With `sub_pr_target: main` the integration shows up on `main` instead, so the run is on a fresh worktree of `origin/main` (Step 7).
 - **Marking the integration PR ready without re-running this checkpoint after external feedback.** Reviewer-requested changes can re-introduce drift the original review missed.
 - **Calling it "all clean" on contract + acceptance + verification alone.** Those are external-reference checks; they pass while the merged surface drifts. Run the Step 3 coherence sweep before any "all clean".
 - **Treating the acceptance-criteria gap as a docs problem.** A missing criterion is either missing implementation or a planning oversight. Don't silently delete it; classify and act.

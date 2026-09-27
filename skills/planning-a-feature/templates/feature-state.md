@@ -38,7 +38,7 @@ One row per sub-issue. With `sub_pr_target: feature-branch` (the default), each 
 
 Branch and worktree are filled in when the work starts; PR and status are filled in as the work progresses. Keep this in sync with reality — a stale row is worse than no row.
 
-Status values: not-started | in-progress | draft | ready | self-merged (multi-PR, into feature branch) | merged (single-PR or integration PR into main).
+Status values: not-started | in-progress | draft | ready | self-merged (multi-PR sub-PR the orchestrator merged into its target: the feature branch, or `main` when `sub_pr_target: main`) | merged (single-PR or integration PR into main).
 -->
 
 | Issue                       | Branch                        | Worktree path                            | PR (→ base)                          | Status        |
