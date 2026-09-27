@@ -53,7 +53,7 @@ git worktree add .claude/worktrees/<slug> -b <type>/<slug> origin/main
 cd .claude/worktrees/<slug>
 ```
 
-Either way, stay on `<type>/<slug>` for the rest of planning; every artifact commit lands there. Don't push yet — that happens at step 8, after the user approves the spec. `feature-dev-workflow:developing-a-feature` reuses this branch (and the worktree, if you created one); it never re-creates it off `origin/main`, and `main` receives the feature only through the integration/feature PR.
+Either way, stay on `<type>/<slug>` for the rest of planning; every artifact commit lands there. Don't push yet — that happens at step 8, after the user approves the spec. `feature-dev-workflow:developing-a-feature` reuses this branch (and the worktree, if you created one); it never re-creates it off `origin/main`, and `main` receives the feature only through a PR.
 
 **The branch name has two parts, and both carry information.**
 
@@ -83,9 +83,11 @@ Pause. Surface the spec path and wait for explicit "approved" or redirection bef
 Decide whether the work ships as:
 
 - **One PR** — single self-contained change, one reviewer pass, one merge to main.
-- **Multiple PRs** — multiple feature-sized chunks, each independently reviewable, possibly parallelizable. Multi-PR features land via the **feature-branch model**: a long-lived `<type>/<slug>` branch off main; every sub-PR is a real GitHub PR targeting `<type>/<slug>` (not main); when every sub-PR has been self-merged into the feature branch, a final **integration PR** from `<type>/<slug>` to main collects the whole feature for external review. Main stays shippable throughout the work; each sub-PR retains full GitHub visibility (comments, reviews, history).
+- **Multiple PRs** — multiple feature-sized chunks, each independently reviewable, possibly parallelizable. A multi-PR feature lands through one of two sub-PR target models; `feature-dev-workflow:developing-a-feature` Step 2 asks the user which and records it as `sub_pr_target` in the state file:
+  - **Feature branch** (`sub_pr_target: feature-branch`, the default): the **feature-branch model**. A long-lived `<type>/<slug>` branch off main; every sub-PR is a real GitHub PR targeting `<type>/<slug>` (not main); when every sub-PR has been self-merged into the feature branch, a final **integration PR** from `<type>/<slug>` to main collects the whole feature for external review. Main stays shippable throughout the work; each sub-PR retains full GitHub visibility (comments, reviews, history).
+  - **Directly to main** (`sub_pr_target: main`): every sub-PR targets main and is reviewed and merged on its own; there is no integration PR. It fits sub-PRs that are truly independent and individually deliverable.
 
-The PR-shape judgment is grounded in **reviewer cost**: a 2000-line PR is unreviewable even if the work is "one thing". If you can name two independent surfaces that ship value separately, that's two PRs and the feature-branch model applies.
+The PR-shape judgment is grounded in **reviewer cost**: a 2000-line PR is unreviewable even if the work is "one thing". If you can name two independent surfaces that ship value separately, that's two PRs, and the work is a multi-PR feature.
 
 The decision is noted in chat (or as a one-line `## Implementation breakdown` paragraph in the spec naming the PRs — NOT the contracts between them). The spec stays a clean ADR otherwise.
 
@@ -113,7 +115,7 @@ Each contract names the wire / signature / layout the consumer can write code ag
 
 **Realization strategy.** A contract row is conceptual; for parallel work to actually compile, the interface has to exist as code or as data before either side starts. Pick one per row and put it in the Realization column:
 
-- **Pre-merge stub PR** — file a tiny scaffold PR that exports the symbol the consumers need: the type or function signature with a not-yet-implemented body, the shared type declaration, the route/path constant. It targets the feature branch (in multi-PR features) or main (in single-PR features) and merges BEFORE the implementation PRs branch off. Producer and consumers then all branch from the post-stub state and import the real symbol. Best default for code-shaped contracts; costs one trivial extra PR; payoff is both sides compile from day one. Reference the stub PR's number in the Realization column once it's open.
+- **Pre-merge stub PR** — file a tiny scaffold PR that exports the symbol the consumers need: the type or function signature with a not-yet-implemented body, the shared type declaration, the route/path constant. It targets the feature branch (in the feature-branch model) or main (in single-PR features, or with `sub_pr_target: main`) and merges BEFORE the implementation PRs branch off. Producer and consumers then all branch from the post-stub state and import the real symbol. Best default for code-shaped contracts; costs one trivial extra PR; payoff is both sides compile from day one. Reference the stub PR's number in the Realization column once it's open.
 - **Stub-on-producer-branch** — the producer's own PR opens with just the signature + not-yet-implemented bodies; consumers branch from the producer's branch (not main) and rebase as the producer fills in the body. Avoids the extra PR but couples consumers to the producer's branch lifetime — rebase pain when the interface evolves. Use only when the interface and one implementation are inherently coupled (a shared private/internal module, sibling files in one package).
 - **Data-only** — when the contract is a path layout, file format, wire protocol, or env-var name, no code stub is needed. Consumers write against the contract row directly — strings and paths are just strings and paths. Mark the row `data-only`.
 
@@ -163,6 +165,6 @@ Spec + plan + state file committed and pushed on `<type>/<slug>`, issues aligned
 | "Filing issues is busywork, I'll just start coding"                | Without issues, the work isn't reviewable in chunks; the PR will be one giant blob.                  |
 | "The contract is obvious, no need to write it down"                | Two parallel workers reading the same "obvious" thing produce divergent implementations. Write.      |
 | "I'll skip user review on the spec, it's just an internal doc"     | An unreviewed spec is a draft. Drafts don't get tickets filed against them.                          |
-| "The feature branch is created later in `feature-dev-workflow:developing-a-feature`, so the spec/plan/state commit to `main` first" | Planning owns the branch's birth. Create `<type>/<slug>` in step 2 before the first commit; `feature-dev-workflow:developing-a-feature` reuses it. Nothing about the feature touches `main` except the final integration/feature PR. |
+| "The feature branch is created later in `feature-dev-workflow:developing-a-feature`, so the spec/plan/state commit to `main` first" | Planning owns the branch's birth. Create `<type>/<slug>` in step 2 before the first commit; `feature-dev-workflow:developing-a-feature` reuses it. Nothing about the feature reaches `main` except through a PR. |
 | "This is running the feature-development flow, so the branch is `feature/…`"                                                       | The type comes from the change, not from the workflow. A bug fix planned through this flow is still `fix/…`. |
 | "The slug can be refined once I see how the work lands"                                                                            | Every sub-branch, worktree path, and state-file row derives from it. Name the subject and its effect now (step 2); renaming later touches all of them. |
