@@ -42,7 +42,7 @@ It is also the faster path. Breaking the feature into independent PRs lets the m
 
 ## How it works
 
-The flow forks once, on whether the work ships as **one PR** or **many**, and rejoins at the merge. A single PR runs straight through. A multi-PR feature opens a long-lived feature branch and fans the sub-PRs out across isolated worktrees, one wave at a time, with an alignment checkpoint between waves. Two variations sit off this path: sub-PRs that build on each other form a stack, which shares one worktree and is kept in sync with `gh stack`, and a feature can send its sub-PRs straight to `main` instead of ending in an integration PR.
+The flow forks once, on whether the work ships as **one PR** or **many**, and rejoins at the merge. A single PR runs straight through. A multi-PR feature opens a long-lived feature branch and fans the sub-PRs out across isolated worktrees, one wave at a time, with an alignment checkpoint between waves. Two variations sit off this path: sub-PRs that build on each other form a stack, which shares one worktree and is kept in sync with `gh stack`, and a feature can send its sub-PRs straight to `main` instead of ending in an integration PR. The diagram shows the default feature-branch path.
 
 ```mermaid
 flowchart TD
