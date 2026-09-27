@@ -118,7 +118,7 @@ Record the choice as `sub_pr_target: feature-branch` or `sub_pr_target: main`. T
 
 - **Single-PR feature** → PR targets `main` from `<type>/<slug>`. Body opens with `Fixes #<feature-issue>` (bug) or `Closes #<feature-issue>` (feature/task) so the issue auto-closes on merge.
 - **Multi-PR (feature-branch) integration PR** → PR targets `main` from `<type>/<slug>` (`gh pr create --base main --head <type>/<slug>`). Body opens with `Closes #<epic>` so the epic auto-closes on merge. This is the PR external reviewers see; the diff is the whole feature.
-- **Multi-PR (directly to main)** → there is no integration PR and nothing to open here. Epic closure already happened at fan-out hand-back — `feature-dev-workflow:fanning-out-with-worktrees` Step 7 owns the `gh issue close <epic>` (sub-PR keywords only close sub-issues, never the epic). Verify it with `gh issue view <epic> --json state`, then proceed to Step 7.
+- **Multi-PR (directly to main)** → there is no integration PR and nothing to open here. The epic stays open: sub-PR keywords only close sub-issues, and closing the epic is the user's decision (see `feature-dev-workflow:fanning-out-with-worktrees` Step 7). Proceed to Step 7.
 
 Sub-PRs into the feature branch are owned by `feature-dev-workflow:fanning-out-with-worktrees`, not this step.
 
@@ -163,7 +163,7 @@ Delete the plan + state file once the work is genuinely done. They are scratch; 
 
 Single-PR features follow the same two branches. Until you tear down, keep updating the state file as reality moves.
 
-The teardown does not change where the flow ends. In the models that end in a final PR (single-PR; feature-branch integration PR), the terminal state is still *ready-to-merge* — report and stop; the user merges (see the merge guard in Step 6). In the `sub_pr_target: main` model there is no final PR — the deliverables already merged as sub-PRs and the epic is closed — so report completion and stop.
+The teardown does not change where the flow ends. In the models that end in a final PR (single-PR; feature-branch integration PR), the terminal state is still *ready-to-merge* — report and stop; the user merges (see the merge guard in Step 6). In the `sub_pr_target: main` model there is no final PR — the deliverables already merged as sub-PRs — so report that every sub-PR merged and every sub-issue closed, leave the epic open for the user, and stop.
 
 ## Anti-patterns
 
