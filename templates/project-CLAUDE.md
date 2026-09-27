@@ -41,6 +41,7 @@ Invoke `feature-dev-workflow:planning-a-feature` at conception. It and the `**RE
 | Brainstorm → spec → issues → plan → state file | `feature-dev-workflow:planning-a-feature` (calls `superpowers:brainstorming`, `feature-dev-workflow:writing-github-issues`, `superpowers:writing-plans`) |
 | Implement (single or multi-PR) | `feature-dev-workflow:developing-a-feature` (with `superpowers:test-driven-development` + `feature-dev-workflow:testing-a-feature`) |
 | The worktree fan-out loop + wave merges | `feature-dev-workflow:fanning-out-with-worktrees` |
+| Linear stacks of dependent PRs (a PR based on another open PR's branch) | `feature-dev-workflow:stacking-dependent-prs` |
 | Cold-session resume of in-flight work (state file → verify → route by phase) | `feature-dev-workflow:resuming-a-feature` |
 | Checkpoints between waves & before the integration PR | `feature-dev-workflow:reviewing-feature-progress` |
 | End-to-end tests for a new user/consumer-visible flow (once structurally complete) | `feature-dev-workflow:testing-end-to-end` |

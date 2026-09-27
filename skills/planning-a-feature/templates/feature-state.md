@@ -48,7 +48,7 @@ Status values: not-started | in-progress | draft | ready | self-merged (multi-PR
 ## Stacks
 
 <!--
-One entry per linear stack of PRs driven by `gh stack` (see developing-a-feature §Linear stacks of dependent PRs go through `gh stack`). Delete this section when the feature has no stack. List the layers bottom to top; that order is the stack's order. Each layer records whether it is built in parallel or sequentially, and why. Every layer's row in the PR table carries the stack's worktree path once the layer has joined the stack.
+One entry per linear stack of PRs driven by `gh stack` (see the stacking-dependent-prs skill). Delete this section when the feature has no stack. List the layers bottom to top; that order is the stack's order. Each layer records whether it is built in parallel or sequentially, and why. Every layer's row in the PR table carries the stack's worktree path once the layer has joined the stack.
 -->
 
 - **Stack `<name>`**: worktree `.claude/worktrees/<slug>--stack`, trunk `<type>/<slug>` (or `main`)

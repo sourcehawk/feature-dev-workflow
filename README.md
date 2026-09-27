@@ -30,6 +30,7 @@ It is also the faster path. Breaking the feature into independent PRs lets the m
 | `developing-a-feature` | Starting implementation against a committed plan. Routes single-PR vs multi-PR. |
 | `resuming-a-feature` | A fresh session picking up in-flight feature work recorded in an orchestration state file — at any phase. Verifies the file against live git/GitHub, then routes to the skill that owns each remaining action. |
 | `fanning-out-with-worktrees` | An orchestrator dispatching parallel subagents into per-PR worktrees off a feature branch. |
+| `stacking-dependent-prs` | A PR's branch is based on another open PR's branch (a linear stack). Creates, adopts, propagates through, syncs, and merges the stack with `gh stack`, in one dedicated worktree per stack. |
 | `reviewing-feature-progress` | Orchestration checkpoints: between fan-out waves, and before the integration PR. |
 | `testing-a-feature` | Writing tests for any non-trivial change. Decides the assertion shape (black-box against the contract). |
 | `testing-end-to-end` | A structurally-complete feature introduces a new user- or consumer-visible flow. Decides which flows earn an end-to-end test and what each asserts (golden path, not edge cases). |
