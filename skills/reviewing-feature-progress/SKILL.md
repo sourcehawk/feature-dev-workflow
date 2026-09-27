@@ -94,7 +94,7 @@ With the feature whole and its behavior settled, write or update the public-faci
   # discovered from the project's CLAUDE.md / AGENTS.md or build config
   ```
 
-- **`main`**: the sub-PRs merged into `main`, and the feature branch holds only the planning artifacts, so a run in `<feature_worktree>` tests none of the feature. Run on a fresh, detached worktree of `origin/main`, and remove it afterwards:
+- **`main`**: the sub-PRs merged into `main`, and the feature branch holds only the planning artifacts, so a run in `<feature_worktree>` tests none of the feature. When this checkpoint writes end-to-end tests or docs, they are a follow-up sub-PR, like every other change in this model: write them in that sub-PR's worktree, branched from fresh `origin/main` the way `feature-dev-workflow:fanning-out-with-worktrees` creates every sub-worktree here, and run the suite there, because it holds `main` plus the new tests. When the checkpoint writes nothing, run on a disposable detached worktree of `origin/main` and remove it afterwards:
 
   ```
   git fetch origin
@@ -102,8 +102,6 @@ With the feature whole and its behavior settled, write or update the public-faci
   cd .claude/worktrees/<slug>--verify
   # then run the project's full test + lint suite (and typecheck, if it has one)
   ```
-
-  End-to-end tests and docs written at this checkpoint reach `main` as a follow-up sub-PR, like every other change in this model.
 
 Paste the output. The integrated code must be green end to end before the integration PR opens, or before the fan-out hands back when `sub_pr_target: main`. A sub-PR's isolated CI passing doesn't guarantee the integration compiles, since each sub-PR's tests ran against its own branch state, not the post-merge state.
 
