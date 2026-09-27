@@ -79,9 +79,13 @@ If anything is out of sync, fix the state file before continuing — the resumed
 
 ### 7. End-to-end verification on the feature branch
 
-The structure is now settled — every sub-PR merged, the coherence sweep run. This is the first point at which a whole-flow test is safe to write against real seams rather than interfaces still in motion. If the feature introduced a new user- or consumer-visible flow, write or extend the end-to-end coverage now, before running the suite. **REQUIRED SUB-SKILL:** `feature-dev-workflow:testing-end-to-end` for which flows earn an end-to-end test and what each one asserts. A feature that only extends a flow an existing test already covers may need none.
+What this step writes depends on whether a later wave in the plan is still to be dispatched.
 
-With the feature whole and its behavior settled, write or update the public-facing docs the feature touches before the integration PR opens — the integration PR is the external-review surface, and its docs are part of the first impression. **REQUIRED SUB-SKILL:** `feature-dev-workflow:writing-docs` for what earns a doc and how to verify a reader can actually use it.
+**Between waves** (a later wave is still to be dispatched), do not write end-to-end tests or public docs. The feature is not structurally complete, and the next wave will change the flows and surfaces they would describe. Run only the project-wide suite below.
+
+**Once every wave has merged** (the checkpoint before the integration PR, before the fan-out hands back when `sub_pr_target: main`, or before the integration PR flips ready), the structure is settled: every sub-PR merged, the coherence sweep run. This is the first point at which a whole-flow test is safe to write against real seams rather than interfaces still in motion. If the feature introduced a new user- or consumer-visible flow, write or extend the end-to-end coverage now, before running the suite. **REQUIRED SUB-SKILL:** `feature-dev-workflow:testing-end-to-end` for which flows earn an end-to-end test and what each one asserts. A feature that only extends a flow an existing test already covers may need none.
+
+At the same checkpoint, with the feature whole and its behavior settled, write or update the public-facing docs the feature touches before the integration PR opens (or before the fan-out hands back when `sub_pr_target: main`) — the integration PR is the external-review surface, and its docs are part of the first impression. **REQUIRED SUB-SKILL:** `feature-dev-workflow:writing-docs` for what earns a doc and how to verify a reader can actually use it.
 
 **REQUIRED SUB-SKILL:** `superpowers:verification-before-completion`. Run the project-wide checks where the integrated code lives, which depends on the state file's `sub_pr_target`:
 
@@ -103,7 +107,7 @@ With the feature whole and its behavior settled, write or update the public-faci
   # then run the project's full test + lint suite (and typecheck, if it has one)
   ```
 
-Paste the output. The integrated code must be green end to end before the integration PR opens, or before the fan-out hands back when `sub_pr_target: main`. A sub-PR's isolated CI passing doesn't guarantee the integration compiles, since each sub-PR's tests ran against its own branch state, not the post-merge state.
+Paste the output. The integrated code must be green end to end before the next wave dispatches, before the integration PR opens, or before the fan-out hands back when `sub_pr_target: main`. A sub-PR's isolated CI passing doesn't guarantee the integration compiles, since each sub-PR's tests ran against its own branch state, not the post-merge state.
 
 ### 8. Synthesize the gap list
 
