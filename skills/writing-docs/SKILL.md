@@ -56,7 +56,7 @@ The bar is **the documentation of a well-run open-source project**: precise, str
 
 These are documentation, but other skills own them. Point there; do not duplicate.
 
-- **Docstrings / code contracts** → `feature-dev-workflow:testing-a-feature` owns them as the contract its tests verify against.
+- **Docstrings / code contracts** → `feature-dev-workflow:writing-code-comments` owns what a doc comment holds. `feature-dev-workflow:testing-a-feature` tests against that contract.
 - **Release notes / changelog "why"** → `feature-dev-workflow:drafting-a-release`.
 - **Spec / ADR / plan** → `feature-dev-workflow:planning-a-feature`. These are internal records of how the work was decided and built, not consumer-facing.
 
