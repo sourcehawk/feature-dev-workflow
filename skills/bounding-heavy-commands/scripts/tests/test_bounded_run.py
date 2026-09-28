@@ -992,7 +992,7 @@ class HardCapTest(WrapperProcessCase):
         self.assertEqual([name for name in locks if name.startswith("peak-")], [])
 
     def test_a_stop_signal_stops_a_capped_command(self):
-        process = self.worker("capped", "1G", hold="30")
+        process = self.worker("capped", "1G", hold="300")
         line = self.wait_for_event("start", "capped")
         process.send_signal(signal.SIGTERM)
         self.assertEqual(process.wait(timeout=60), 143)
@@ -1015,6 +1015,7 @@ class HardCapTest(WrapperProcessCase):
         process = self.wrapper(["--memory", "1G"], [sys.executable, "-c", "import sys; sys.exit(9)"])
         output, errors = process.communicate(timeout=60)
         self.assertEqual(process.returncode, 9, errors)
+        self.assertIn("(cgroup)", errors)
         locks = os.listdir(self.environ["BOUNDED_RUN_LOCK_DIR"])
         self.assertEqual([name for name in locks if name.startswith("peak-")], [])
 
