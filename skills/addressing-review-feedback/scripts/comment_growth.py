@@ -590,10 +590,12 @@ def render(report: Report) -> str:
         )
     flagged = sum(1 for finding in report.findings if finding.flagged)
     removed = sum(1 for finding in report.findings if finding.status == REMOVED)
-    lines.append(
-        "%d flagged, %d listed, %d removed, %d not checked"
-        % (flagged, len(report.findings), removed, len(report.not_checked))
+    summary = "%d flagged, %d listed, %d removed, %d not checked" % (
+        flagged, len(report.findings), removed, len(report.not_checked)
     )
+    if report.not_paired_across_files:
+        summary += ", %d not paired across files" % sum(report.not_paired_across_files)
+    lines.append(summary)
     return "\n".join(lines)
 
 

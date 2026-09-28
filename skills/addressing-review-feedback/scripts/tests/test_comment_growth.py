@@ -798,6 +798,10 @@ class RunTest(unittest.TestCase):
             "     1 removed and 1 added blocks NOT PAIRED ACROSS FILES, too many to compare; read their diff",
             gate.render(report),
         )
+        self.assertEqual(
+            gate.render(report).splitlines()[-1],
+            "0 flagged, 2 listed, 1 removed, 0 not checked, 2 not paired across files",
+        )
 
     def test_block_of_a_removed_file_pairs_with_one_block_of_another_file(self):
         self.repo.write("a.go", "package p\n\n// retry calls f until it succeeds.\nfunc retry(f func() error) error {\n}\n")
