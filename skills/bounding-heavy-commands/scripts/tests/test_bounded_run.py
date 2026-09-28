@@ -747,6 +747,21 @@ class WrapperProcessCase(unittest.TestCase):
             time.sleep(0.02)
         self.fail("no '%s %s' event after %s seconds; events: %s" % (kind, name, seconds, self.read_events()))
 
+    def wait_for_stderr(self, process, substring, seconds=60.0):
+        """Reads lines from the process's error stream until one holds substring, or fails by seconds."""
+        deadline = time.time() + seconds
+        buffer = ""
+        while substring not in buffer:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                self.fail("no line with %r on the error stream after %s seconds; stderr so far: %s" % (substring, seconds, buffer))
+            ready, _, _ = select.select([process.stderr], [], [], min(remaining, 0.5))
+            if ready:
+                line = process.stderr.readline()
+                if line:
+                    buffer += line
+        return buffer
+
     def peak_concurrency(self):
         running = 0
         peak = 0
@@ -892,7 +907,7 @@ class WrapperProcessTest(WrapperProcessCase):
         long_holder = self.worker("holder", "2G", hold="60", release=release)
         self.wait_for_event("start", "holder")
         large = self.worker("large", "4G", hold="0")
-        time.sleep(0.3)
+        self.wait_for_stderr(large, "waiting for")
         small = self.worker("small", "2G", hold="0")
         self.assertEqual(small.wait(timeout=60), 0)
         names = [line.split()[1] for line in self.read_events() if line.startswith("end ")]
@@ -988,16 +1003,7 @@ class WrapperProcessTest(WrapperProcessCase):
         self.wait_for_event("start", "holder")
         waiting = self.worker("waiting", "4G", hold="0")
 
-        deadline = time.time() + 30.0
-        buffer = ""
-        while "waiting for" not in buffer:
-            remaining = deadline - time.time()
-            self.assertGreater(remaining, 0, "no 'waiting for' line from the wrapper; stderr so far: %s" % buffer)
-            ready, _, _ = select.select([waiting.stderr], [], [], min(remaining, 0.5))
-            if ready:
-                line = waiting.stderr.readline()
-                if line:
-                    buffer += line
+        buffer = self.wait_for_stderr(waiting, "waiting for")
 
         waiting.send_signal(signal.SIGINT)
         self.assertEqual(waiting.wait(timeout=60), 130)
