@@ -399,12 +399,12 @@ def pair(
 
 def _findings(
     path: str, base_path: str, new: Sequence[Block], pairs: Dict[int, Optional[Block]], removed: Sequence[Block],
-    moved_from: Optional[Dict[int, Tuple[str, int]]] = None,
+    moved_from: Dict[int, Tuple[str, int]],
 ) -> List[Finding]:
     findings = []
     for index, base in sorted(pairs.items()):
         block = new[index]
-        origin = (moved_from or {}).get(index)
+        origin = moved_from.get(index)
         if base is None:
             findings.append(Finding(path, block.line, ADDED, 0, block.length, block.anchor, False))
         elif block.length > base.length:
@@ -427,7 +427,7 @@ def _pair_blocks(old: Sequence[Block], new: Sequence[Block]) -> Tuple[Dict[int, 
 
 def compare(path: str, old_source: str, new_source: str, family: Family) -> List[Finding]:
     new = scan(new_source, family)
-    return _findings(path, path, new, *_pair_blocks(scan(old_source, family), new))
+    return _findings(path, path, new, *_pair_blocks(scan(old_source, family), new), {})
 
 
 class GitError(Exception):
@@ -532,8 +532,8 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
     ]
     gone = [(number, block) for number, (_, _, _, removed) in enumerate(files) for block in removed]
     not_paired: Optional[Tuple[int, int]] = None
-    # (path, line) in the old file of each block paired across files, by file number and block index.
-    moved_from: Dict[Tuple[int, int], Tuple[str, int]] = {}
+    # For each file, (path, line) in the old file of each block paired across files, by block index.
+    moved_from: List[Dict[int, Tuple[str, int]]] = [{} for _ in files]
     try:
         moved, left = pair(
             [block for _, block in gone], [files[number][1][index] for number, index in added],
@@ -554,13 +554,13 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
                 old_number, block = gone[moved[position]]
                 files[number][2][index] = block
                 old_change = files[old_number][0]
-                moved_from[(number, index)] = (old_change.base_path or old_change.path, block.line)
+                moved_from[number][index] = (old_change.base_path or old_change.path, block.line)
 
     findings: List[Finding] = []
     for number, (change, new, pairs, removed) in enumerate(files):
         exempt = any(fnmatch.fnmatchcase(change.path, glob) for glob in user_facing)
-        origins = {index: origin for (owner, index), origin in moved_from.items() if owner == number}
-        for finding in _findings(change.path, change.base_path or change.path, new, pairs, removed, origins):
+        base_path = change.base_path or change.path
+        for finding in _findings(change.path, base_path, new, pairs, removed, moved_from[number]):
             if exempt:
                 finding = replace(finding, flagged=False, user_facing=True)
             findings.append(finding)
