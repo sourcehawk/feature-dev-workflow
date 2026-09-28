@@ -942,6 +942,26 @@ class BoundedCleanupTest(unittest.TestCase):
         self.assertIsNotNone(reservation, "the slots are still held")
         reservation.release()
 
+    def test_a_budget_larger_than_the_queue_caps_and_waits_at_the_memory_of_the_queue(self):
+        commands = []
+        waits = []
+
+        def fake_run_command(command, environ, on_start=None):
+            commands.append(list(command))
+            return 0, 0
+
+        options = bounded_run.Options()
+        options.memory = "64G"
+        options.command = [sys.executable, "-c", "pass"]
+
+        with mock.patch.object(bounded_run, "cap_usable", return_value=True), \
+                mock.patch.object(bounded_run, "wait_for_memory", side_effect=lambda budget, *rest: waits.append(budget)), \
+                mock.patch.object(bounded_run, "run_command", fake_run_command):
+            self.assertEqual(bounded_run.bounded(options, self.environ), 0)
+
+        self.assertEqual(waits, [4096])
+        self.assertIn("MemoryMax=4096M", commands[0])
+
 
 class WrapperProcessCase(unittest.TestCase):
     """Runs the script as a process, with two slots of 2 GiB and no hard cap."""
@@ -1267,9 +1287,16 @@ class WrapperProcessTest(WrapperProcessCase):
         second = self.worker("second", "64G", hold="0.3")
         output, errors = first.communicate(timeout=60)
         self.assertEqual(first.returncode, 0, errors)
-        self.assertIn("WARNING: the budget of 65536 MiB is more than the 4096 MiB of the queue", errors)
+        self.assertIn("WARNING: the budget of 65536 MiB is more than the 4096 MiB of the queue; the budget is 4096 MiB", errors)
+        self.assertRegex(errors, r"bounded-run: budget 4096 MiB, peak ")
         self.assertEqual(second.wait(timeout=60), 0)
         self.assertEqual(self.peak_concurrency(), 1)
+
+    def test_a_budget_larger_than_the_queue_gives_the_command_the_budget_of_the_queue(self):
+        script = "import os; print(os.environ['BOUNDED_RUN_MEMORY_MIB'])"
+        process = self.wrapper(["--memory", "64G"], [sys.executable, "-c", script])
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual((process.returncode, output), (0, "4096\n"), errors)
 
     def test_a_lock_directory_that_is_a_file_gives_125(self):
         path = os.path.join(self.base.name, "a-file")

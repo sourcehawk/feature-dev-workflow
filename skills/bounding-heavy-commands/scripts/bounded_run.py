@@ -659,7 +659,8 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
     count = slot_count(settings.total_mib, settings.slot_mib, settings.reserve_mib)
     needed = slots_needed(budget, settings.slot_mib, count)
     if budget > count * settings.slot_mib:
-        log("WARNING: the budget of %d MiB is more than the %d MiB of the queue; the command takes all slots" % (budget, count * settings.slot_mib))
+        log("WARNING: the budget of %d MiB is more than the %d MiB of the queue; the budget is %d MiB" % (budget, count * settings.slot_mib, count * settings.slot_mib))
+        budget = count * settings.slot_mib
     uid = os.getuid()
     directory = lock_directory(environ, uid)
     ensure_lock_directory(directory, uid)
