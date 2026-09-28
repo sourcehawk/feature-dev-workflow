@@ -1521,6 +1521,13 @@ class WrapperProcessTest(WrapperProcessCase):
         budget = int(re.search(r"bounded-run: budget (\d+) MiB, peak", errors).group(1))
         self.assertLessEqual(budget, 1024)
 
+    def test_a_budget_on_a_machine_smaller_than_one_slot_is_not_more_than_its_memory(self):
+        process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", "pass"], BOUNDED_RUN_TOTAL_MIB="1024", BOUNDED_RUN_RESERVE_MIB="")
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(process.returncode, 0, errors)
+        self.assertIn("WARNING: the budget of 2048 MiB is more than the 1024 MiB of the queue; the budget is 1024 MiB", errors)
+        self.assertRegex(errors, r"bounded-run: budget 1024 MiB, peak ")
+
     def test_without_a_cap_the_output_says_so(self):
         process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", "pass"])
         output, errors = process.communicate(timeout=60)
