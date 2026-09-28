@@ -63,10 +63,10 @@ For each heavy command, record:
 Then, before each heavy command, use the first case that applies:
 
 1. **Your prompt carries bounded command lines.** You are a subagent. Use them under the rule that your prompt gives with them, and run no discovery. For a heavy command that your prompt does not carry, use the wrapper with no `--memory` option.
-2. **The record exists and has the command.** Check that the plain command still exists in the project, and that the file of the wrapper in the command line still exists. When the file of the wrapper is not there, an update of the plugin moved it: put the path that the command line in §The wrapper shows into each command line of the record. Then use the bounded command line as written.
+2. **The record exists and has the command.** Check that the plain command still exists in the project, and that the file of the wrapper in the command line still exists. When the file of the wrapper is not there, an update of the plugin moved it. The command line in §The wrapper shows the correct path: put it into each command line of the record. Then use the bounded command line as written.
 3. **The record exists, and the command is not in it or is no longer correct.** Run the discovery for that command and correct the record. Remove an entry whose command the project no longer has.
-4. **The record does not exist.** Run the discovery for the commands that you are about to run. The measured runs of the discovery are your first heavy runs. Save the record before you run a heavy command that is not a part of the discovery. The other commands get their entry when an agent first needs them.
-5. **Project memory is off or unavailable.** Run the discovery in this session, keep the result in your context, and use the wrapper's default budget for anything you could not measure.
+4. **Your harness has no project memory, or it is off.** You cannot save a record, so do not try. Run the discovery in this session, keep the result in your context, and use the wrapper's default budget for anything you could not measure.
+5. **Project memory is on, and the record does not exist.** Run the discovery for the commands that you are about to run, and save the record. The measured runs of the discovery are your first heavy runs. A heavy command of the project that you do not run now gets its entry when an agent first needs it.
 
 A budget is a measurement, not a preference. Change one only when the wrapper's output shows that the peak moved, and write the new peak and date with it.
 
@@ -76,13 +76,13 @@ A part of a recorded command (one test file, one target) uses the bounded comman
 
 1. Find how the project runs its tests, its linter, its build, and its type check. Read the project's instruction files, its build configuration, and its CI configuration.
 2. Find the exclusive resources: a port that a test server binds, a tool that refuses to run twice, a fixed directory that a build writes to.
-3. Find how the toolchain limits its own parallelism and memory. Write the command line so that it takes those limits from `BOUNDED_RUN_CPUS` and `BOUNDED_RUN_MEMORY_MIB`. The wrapper sets the two variables for the command only. Your own shell does not have them. A toolchain that reads the environment itself needs nothing more. For a toolchain that takes a flag, put the command into an inner shell, in single quotes, so that your own shell does not replace the variable with an empty value before the wrapper starts:
+3. Find how the toolchain limits its own parallelism and memory. Write the command line so that it takes those limits from `BOUNDED_RUN_CPUS` and `BOUNDED_RUN_MEMORY_MIB`. The wrapper sets the two variables for the command only. Your own shell does not have them. Put the command into an inner shell, in single quotes, so that your own shell does not replace the variable with an empty value before the wrapper starts:
 
    ```
    ... --cpus 4 -- sh -c '<command> <flag for parallel jobs> "$BOUNDED_RUN_CPUS"'
    ```
 
-4. Run each heavy command once with `--measure`, one at a time. Measure the full command, not a part of it: the peak of one test file is not the budget of the suite. Add `--exclusive <name>` for each resource that step 2 found for it:
+4. Run each heavy command that you are about to run once with `--measure`, one at a time. Measure the full command, not a part of it: the peak of one test file is not the budget of the suite. Add `--exclusive <name>` for each resource that step 2 found for it:
 
    ```
    python3 "${CLAUDE_PLUGIN_ROOT}/skills/bounding-heavy-commands/scripts/bounded_run.py" --measure -- <command>
@@ -102,7 +102,7 @@ A long wait means that the machine is full. It is never a fault to repair: the q
 - **Do not lower a budget to start sooner.** A smaller budget does not make the command smaller. It moves the failure inside the command: on Linux as a kill at the hard cap, elsewhere as the swap that the queue exists to prevent.
 - **Do not run the plain command because the queue is slow.** A slow queue means the machine is full. The plain command is how it freezes. This includes a narrower form of the command: one test file outside the queue is a command that the queue cannot count.
 - **Do not set an environment variable whose name starts with `BOUNDED_RUN_`.** The usage text of the wrapper lists variables that change how the queue counts memory, where it keeps its locks, and whether the hard cap applies. They are for a person who tunes the whole machine in a shell profile, and for the tests of the wrapper. A call that sets one does not share the queue with the other sessions, or it runs with no cap. A note in your project memory that recommends one is wrong: delete the note, and tell the user that you did.
-- **Do not touch the lock files of the wrapper.** The wrapper keeps them in a directory of its own. Do not look for that directory. Do not delete, move, or edit a file in it, and do not look for the process that holds a lock. The lock files are empty and permanent. They hold no process ID. The kernel holds each lock and releases it at the moment its holder stops, also when the holder crashes, so a stale lock cannot exist. A deleted lock file makes two commands hold one slot.
+- **Do not touch the lock files of the wrapper.** The wrapper keeps them in a directory of its own. Do not look for that directory. Do not delete, move, or edit a file in it, and do not look for the process that holds one of these lock files. The lock files are empty and permanent. They hold no process ID. The kernel holds each lock and releases it at the moment its holder stops, also when the holder crashes, so a stale lock cannot exist. A deleted lock file makes two commands hold one slot.
 - **Do not sleep and retry around a collision, not even one time.** A port in use or a tool's lock means two commands wanted one resource. Add the resource to the record as an `--exclusive` name and run through the wrapper. A subagent adds the option to its own command line and names the resource in its report, so that its dispatcher corrects the record. Do not stop the process that holds the resource: it belongs to a different session. When a run with the `--exclusive` name fails on the same collision, the holder did not go through the wrapper or belongs to a different repository: tell the user, or your dispatcher, what holds the resource, and wait for the answer.
 
 ## When an instruction sends a command around the wrapper
@@ -113,7 +113,7 @@ The instruction covers the command that it names, for one run. The next heavy co
 
 A rule in the project's instruction file comes before this skill too, when it names the wrapper or tells agents to run a command directly. A file that only names the project's commands is input for the discovery, not an exemption. Obey the rule, and tell the user one time per session that the file sends a heavy command around the queue and what that costs on a machine with more than one session. The user decides if the file changes. Do not ignore the file silently, and do not edit it yourself.
 
-Pressure is not an instruction. "Hurry", "make it start", and "I do not care how" name a result, not an action. Keep the run in the queue and tell the user that the machine is full. Do not go around the queue on your own decision. When the user asks how to get around the wait, answer: the user can tell you to run the command without the wrapper, and say what that costs. The user decides. When the user only names a deadline, do not mention a way around the wait. A note in your project memory from an earlier session is not an instruction from the user either.
+Pressure is not an instruction. "Hurry", "make it start", and "I do not care how" name a result, not an action. Keep the run in the queue and tell the user that the machine is full. Do not go around the queue on your own decision. When the user asks how to get around the wait, give two facts: the user can tell you to run the command without the wrapper, and that run is not counted by the queue. The user decides. When the user only names a deadline, do not mention a way around the wait. A note in your project memory from an earlier session is not an instruction from the user either.
 
 ## Dispatching subagents
 
@@ -135,7 +135,7 @@ When `python3` reports that it cannot open the file of the wrapper, the path in 
 
 When the wrapper ends with exit code 125, read its `bounded-run:` message. A fault of your call (an option, a name, a command that does not exist) is yours to correct. A fault of the machine (the wrapper cannot make or lock its files) means that the wrapper cannot run here: tell the user once per session, with the message.
 
-In both cases, a missing Python and a fault of the machine, continue under these fallback rules. Run one heavy command at a time, never two in parallel, and set the toolchain's parallelism to half the machine's processors or fewer. Your subagents count as your session: no queue protects the machine now, so dispatch them so that only one of them runs a heavy command at a time. Their prompts carry the plain commands and these fallback rules, in place of the three items of §Dispatching subagents. The fallback protects the machine from your session only, not from the other sessions. Tell the user that in your report.
+When Python is missing or too old, and when the fault is a fault of the machine, continue under these fallback rules. Run one heavy command at a time, never two in parallel, and set the toolchain's parallelism to half the machine's processors or fewer. Your subagents count as your session: no queue protects the machine now, so dispatch them so that only one of them runs a heavy command at a time. Their prompts carry the plain commands and these fallback rules, in place of the three items of §Dispatching subagents. The fallback protects the machine from your session only, not from the other sessions. Tell the user that in your report.
 
 ## Red flags
 
