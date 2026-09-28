@@ -55,7 +55,7 @@ A heading labeled "Contract" does not make the paragraph under it one. If it res
 // tenant_name returns the name in lower case, as the store keys use it.
 ```
 
-**What needs a doc comment.** A declaration that code outside its own module can use gets one when its contract holds a fact that its name and its signature do not show: a precondition, the meaning of a result, an error, a trap. A declaration for internal use gets one only when its behavior would surprise a reader. Where the project requires a doc comment on each public declaration, follow the project, and write a fact of the contract, not the name again.
+**What needs a doc comment.** A declaration that code outside its own module can use gets one when its contract holds a fact that its name and its signature do not show: a precondition, the meaning of a result, an error, a trap. A declaration for internal use gets one only when its behavior would surprise a reader. Where the project requires a doc comment on each public declaration, write one on each. Put in it a fact of the contract that the name does not give. If there is no such fact, write the shortest comment that the project accepts. The generator test does not remove a comment that the project requires.
 
 ## Inline comments
 
@@ -97,7 +97,7 @@ A doc comment, an inline comment, and a page of documentation are claims that so
 
 Some text in the code ships to users: a description in a public schema, an error message, the reference text of a public interface. For that text, accuracy comes first. When it is false, correct it, even when the correct text is longer. A doc comment that generates reference text is still a contract. It can grow as far as accuracy needs, and it never describes how the body works.
 
-This section comes before each rule of this skill that tells you to delete, shorten, or move text. For text that users read, do not apply such a rule to save length: keep what is true. One rule stays in force: a doc comment does not describe how the body works, also when it generates reference text. Remove such a description, and keep each fact that a user of the interface needs.
+This section comes before each rule of this skill that tells you to delete, shorten, or move text. For text that users read, do not apply such a rule, whatever its reason: keep each fact that is true. This includes the rule that keeps one copy of a fact that is in two places: keep the copy in the text that users read. One rule stays in force: a doc comment does not describe how the body works, also when it generates reference text. Remove such a description, and keep each fact that a user of the interface needs.
 
 ## Red flags
 
@@ -110,7 +110,7 @@ Stop when you see one of these in your own diff:
 - A doc comment got a paragraph about how the body works.
 - A doc comment is longer than the body that it documents, and it does not generate text that users read.
 - The same fact is in the doc comment and at the line it constrains.
-- You deleted a fact that was hard to learn, and you did not move it beside its code.
+- You deleted a fact that the code cannot show, and you did not move it beside the code that it constrains.
 - Your change altered a behavior, and a comment that states the old behavior is not in your diff.
 
 ## Common mistakes
