@@ -9,7 +9,7 @@ description: Use when about to write, edit, or delete a comment in source code, 
 
 A comment is a claim that someone has to keep true for as long as the code lives. The compiler, the tests, and the running program check the code. Nothing checks the comment. **Write only the claims worth maintaining: the facts a reader needs and the code cannot show.**
 
-This skill decides whether a comment exists and what it holds. It decides what a doc comment must say. The skill `feature-dev-workflow:testing-a-feature` writes tests from what a doc comment promises, so a promise that is missing from the doc comment is a test that is missing. It does not set sentence style.
+This skill decides whether a comment exists and what it holds. It decides what a doc comment must say. The skill `feature-dev-workflow:testing-a-feature` writes tests from what a doc comment promises, so a promise that is missing from the doc comment is a test that is missing. This skill does not set sentence style.
 
 **The project's own comment standard comes first.** If the project documents one (in its instructions file, a style guide, or a project skill), follow it. Where it is silent, this skill is the default.
 
@@ -41,9 +41,9 @@ A heading labeled "Contract" does not make the paragraph under it one. If it res
 
 **The decision of the caller sets the size.** A doc comment holds what someone needs to call the declaration and to use what it gives back. A fact that does not change what the caller writes is not part of the contract, however true it is and however hard it was to learn.
 
-**Move a fact, do not delete it.** The reason that a line exists goes in one short comment beside that line. A constraint that applies at one call site goes at that call site. The comparison of options, and why this one won, goes in the pull request body. The same fact in the doc comment and again at the line it constrains is one copy too many, and the copy in the doc comment is the one that goes stale.
+**Move a fact, do not delete it.** The reason that a line exists goes in one short comment beside that line. A constraint that applies at one call site goes at that call site. The comparison of options, and why this one won, goes in the pull request body. When the same fact is in the doc comment and again at the line that it constrains, keep one copy. Keep it in the doc comment when the caller must handle it. Otherwise keep it at the line, because a copy in the doc comment is far from the code that can make it false.
 
-**When the doc comment is longer than the body, name the caller decision that each paragraph serves.** Decide it for yourself; do not write it in the comment. Move the paragraphs that serve none to the code that they explain. Delete the ones that explain nothing.
+**When the doc comment is longer than the body, and it does not generate text that users read, name the caller decision that each paragraph serves.** Decide it for yourself; do not write it in the comment. Move the paragraphs that serve none to the code that they explain. Delete the ones that explain nothing.
 
 **The generator test.** If a tool can make the comment from the identifier and a verb, the comment holds no information. Delete it or write the fact that the name does not give.
 
@@ -118,8 +118,8 @@ Stop when you see one of these in your own diff:
 | The comment restates the name | Delete the comment |
 | The comment restates the line under it | Delete it. If the line needs prose, rename or split the code |
 | The doc comment explains how the body computes the answer | Shorten it to the contract: preconditions, result, what the caller must not assume |
-| The doc comment repeats a fact that is at the line it constrains | Delete the copy in the doc comment |
-| A review found a case that the code gets wrong, and you added a paragraph about it | Fix the code. Add a comment only if the next reader would be caught by the same case. If the comment is false about the code as it is, correct it or shorten it to the part that is true. If the review names a precondition, an error, or a special result that the contract lacks, add that fact in the fewest words that are true |
+| The doc comment repeats a fact that is at the line it constrains | Keep one copy. If the caller must handle the fact (a precondition, an error, a special result), keep it in the doc comment and delete the copy at the line. Otherwise keep it at the line and delete the copy in the doc comment |
+| A review found a case that the code gets wrong, and you added a paragraph about it | Fix the code. Add a comment only if the next reader would be caught by the same case. If the review shows that a comment that is already there is false about the code as it is now, correct that comment, and remove only the part that is false. If the review names a precondition, an error, or a special result that the contract lacks, add that fact in the fewest words that are true |
 | The doc comment is longer than the body, and it does not generate text that users read | Work out, for yourself, the caller decision that each paragraph serves. Move a paragraph that serves none to the code that it explains. Delete a paragraph only when it explains nothing |
 | The doc comment does not give an error or a precondition that the caller must handle | Add it, in the fewest words that are true |
 | A fix ships with a comment that it just made false | Correct the statement in the same change |
