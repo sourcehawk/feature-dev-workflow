@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import os
+import select
 import signal
 import subprocess
 import sys
@@ -931,6 +932,33 @@ class WrapperProcessTest(WrapperProcessCase):
         suggested = [line for line in errors.splitlines() if "suggested budget" in line][0]
         self.assertEqual(int(suggested.split()[-2]) % 256, 0)
         self.assertGreaterEqual(int(suggested.split()[-2]), value * 1.5)
+
+    def test_an_interrupt_in_the_queue_gives_130_and_no_traceback(self):
+        holder = self.worker("holder", "4G", hold="300")
+        self.wait_for_event("start", "holder")
+        waiting = self.worker("waiting", "4G", hold="0")
+
+        deadline = time.time() + 30.0
+        buffer = ""
+        while "waiting for" not in buffer:
+            remaining = deadline - time.time()
+            self.assertGreater(remaining, 0, "no 'waiting for' line from the wrapper; stderr so far: %s" % buffer)
+            ready, _, _ = select.select([waiting.stderr], [], [], min(remaining, 0.5))
+            if ready:
+                line = waiting.stderr.readline()
+                if line:
+                    buffer += line
+
+        waiting.send_signal(signal.SIGINT)
+        self.assertEqual(waiting.wait(timeout=60), 130)
+        buffer += waiting.stderr.read()
+        self.assertNotIn("Traceback", buffer)
+        for line in buffer.splitlines():
+            self.assertTrue(line.startswith("bounded-run: "), buffer)
+
+        holder.send_signal(signal.SIGTERM)
+        self.assertEqual(holder.wait(timeout=60), 143)
+
 
 @unittest.skipUnless(
     bounded_run.cap_usable(bounded_run.cap_prefix(256, 1, "bounded-run-test-probe-%d" % os.getpid())),

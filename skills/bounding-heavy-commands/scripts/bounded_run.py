@@ -631,7 +631,11 @@ def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, st
                 os.execvpe(options.command[0], options.command, dict(variables))
             except OSError as error:
                 raise WrapperError("cannot start '%s': %s" % (options.command[0], error))
-        return bounded(options, variables)
+        try:
+            return bounded(options, variables)
+        except KeyboardInterrupt:
+            log("interrupted while waiting")
+            return 130
     except WrapperError as error:
         log(str(error))
         return EXIT_WRAPPER
