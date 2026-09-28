@@ -300,3 +300,45 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
                 )
             findings.append(finding)
     return Report(tuple(findings), tuple(not_checked))
+
+
+def render(report: Report) -> str:
+    lines = []
+    for finding in report.findings:
+        mark = "FLAG" if finding.flagged else "    "
+        size = "%d -> %d lines" % (finding.old_length, finding.new_length)
+        note = "  (user-facing, not flagged)" if finding.user_facing else ""
+        lines.append(
+            "%s %s:%d  %s  %s  | %s%s"
+            % (mark, finding.path, finding.line, finding.status, size, finding.anchor or "(no anchor)", note)
+        )
+    for path in report.not_checked:
+        lines.append("     %s  NOT CHECKED  unknown file type, read its diff" % path)
+    flagged = sum(1 for finding in report.findings if finding.flagged)
+    lines.append(
+        "%d flagged, %d listed, %d not checked" % (flagged, len(report.findings), len(report.not_checked))
+    )
+    return "\n".join(lines)
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="comment_growth.py",
+        description="List the comment blocks that changed since BASE and flag the ones that grew.",
+    )
+    parser.add_argument("base", nargs="?", default="origin/main", help="ref to compare with (default: origin/main)")
+    parser.add_argument(
+        "--user-facing", action="append", default=[], metavar="GLOB",
+        help="path pattern whose comments ship to users; listed, never flagged. Repeat for more patterns.",
+    )
+    args = parser.parse_args(argv)
+    try:
+        report = run(os.getcwd(), args.base, args.user_facing)
+    except GitError as error:
+        print("comment_growth: %s" % error, file=sys.stderr)
+        return 2
+    print(render(report))
+    return 1 if report.flagged else 0
+
+if __name__ == "__main__":
+    sys.exit(main())

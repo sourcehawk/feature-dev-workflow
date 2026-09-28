@@ -305,5 +305,64 @@ class RunTest(unittest.TestCase):
         with self.assertRaises(gate.GitError):
             gate.run(self.repo.path, "no-such-ref")
 
+class MainTest(unittest.TestCase):
+    def setUp(self):
+        self.repo = Repository(self)
+        self.repo.write("a.go", OLD)
+        self.base = self.repo.commit("add a")
+        previous = os.getcwd()
+        self.addCleanup(os.chdir, previous)
+        os.chdir(self.repo.path)
+
+    def call(self, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                status = gate.main(list(argv))
+            except SystemExit as stop:
+                status = stop.code
+        return status, out.getvalue(), err.getvalue()
+
+    def test_no_flag_exits_zero(self):
+        self.repo.write("a.go", "// run starts one job.\nfunc run() {}\n")
+        status, out, _ = self.call(self.base)
+        self.assertEqual(status, 0)
+        self.assertIn("     a.go:1  CHANGED  1 -> 1 lines  | func run() {}", out)
+        self.assertIn("0 flagged, 1 listed, 0 not checked", out)
+
+    def test_flag_exits_one_and_names_the_block(self):
+        self.repo.write("a.go", GROWN)
+        status, out, _ = self.call(self.base)
+        self.assertEqual(status, 1)
+        self.assertIn("FLAG a.go:1  GREW  1 -> 2 lines  | func run() {}", out)
+        self.assertIn("1 flagged, 1 listed, 0 not checked", out)
+
+    def test_user_facing_option_removes_the_flag(self):
+        self.repo.write("a.go", GROWN)
+        status, out, _ = self.call(self.base, "--user-facing", "*.go")
+        self.assertEqual(status, 0)
+        self.assertIn("(user-facing, not flagged)", out)
+
+    def test_not_checked_file_is_in_the_output(self):
+        self.repo.write("rules.xyz", "?? note\n")
+        status, out, _ = self.call(self.base)
+        self.assertEqual(status, 0)
+        self.assertIn("rules.xyz  NOT CHECKED", out)
+
+    def test_git_error_exits_two(self):
+        status, _, err = self.call("no-such-ref")
+        self.assertEqual(status, 2)
+        self.assertIn("comment_growth:", err)
+
+    def test_usage_error_exits_two(self):
+        status, _, _ = self.call("--no-such-option")
+        self.assertEqual(status, 2)
+
+    def test_outside_a_repository_exits_two(self):
+        with tempfile.TemporaryDirectory() as directory:
+            os.chdir(directory)
+            status, _, _ = self.call("HEAD")
+        self.assertEqual(status, 2)
+
 if __name__ == "__main__":
     unittest.main()
