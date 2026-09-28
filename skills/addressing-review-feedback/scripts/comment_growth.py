@@ -288,7 +288,12 @@ class GitError(Exception):
 
 
 def git(cwd: str, *args: str) -> str:
-    result = subprocess.run(["git", *args], cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # Ignore a repository location inherited from the shell (for example
+    # from a git hook), so the command always resolves against cwd.
+    env = dict(os.environ)
+    for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+        env.pop(name, None)
+    result = subprocess.run(["git", *args], cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode != 0:
         message = result.stderr.decode("utf-8", errors="replace").strip()
         raise GitError(message or "git " + " ".join(args) + " failed")

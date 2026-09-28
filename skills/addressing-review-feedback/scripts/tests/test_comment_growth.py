@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import contextlib
+import difflib
 import io
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
@@ -203,8 +205,8 @@ class CompareTest(unittest.TestCase):
         findings = gate.compare("f", old, new, gate.SLASH)
         self.assertEqual([(f.status, f.line, f.flagged) for f in findings], [(gate.GREW, 4, True)])
 
-    def test_carriage_return_line_endings_are_compared_as_lines(self):
-        old = "// run starts the job.\r\nfunc run() {}\r\n"
+    def test_mixed_line_endings_are_still_compared_as_lines(self):
+        old = "// run starts the job.\nfunc run() {}\n"
         new = "// run starts the job.\r\n// It also stops it.\r\nfunc run() {}\r\n"
         self.assertEqual(statuses(old, new), [(gate.GREW, 1, 2, True)])
 
@@ -270,8 +272,36 @@ class CompareTest(unittest.TestCase):
             [(gate.REMOVED, 1, 0, False)],
         )
 
+    def test_anchor_ratio_just_above_the_limit_pairs(self):
+        old_anchor = "func run(job Job) error {"
+        new_anchor = "func process(item Item) error {"
+        ratio = difflib.SequenceMatcher(None, old_anchor, new_anchor).ratio()
+        self.assertGreaterEqual(ratio, gate.SIMILAR_ANCHOR)
+        old = "// run starts the job.\n%s\n}\n" % old_anchor
+        new = "// run starts the job.\n// It waits for limit.\n%s\n}\n" % new_anchor
+        self.assertEqual(statuses(old, new), [(gate.GREW, 1, 2, True)])
+
+    def test_anchor_ratio_just_below_the_limit_does_not_pair(self):
+        old_anchor = "func run(job Job) error {"
+        new_anchor = "func process(items Items) error {"
+        ratio = difflib.SequenceMatcher(None, old_anchor, new_anchor).ratio()
+        self.assertLess(ratio, gate.SIMILAR_ANCHOR)
+        old = "// run starts the job.\n%s\n}\n" % old_anchor
+        new = "// run starts the job.\n// It waits for limit.\n%s\n}\n" % new_anchor
+        self.assertEqual(statuses(old, new), [(gate.ADDED, 0, 2, False), (gate.REMOVED, 1, 0, False)])
+
+def _isolated_git_env():
+    """A git environment freed from this machine's global config and from a repository inherited via the shell."""
+    env = dict(os.environ)
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+        env.pop(name, None)
+    return env
+
+
 def sh(cwd, *args):
-    subprocess.run(args, cwd=cwd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(args, cwd=cwd, check=True, env=_isolated_git_env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
 class Repository:
@@ -299,8 +329,31 @@ class Repository:
             "-c", "commit.gpgsign=false", "commit", "-q", "-m", message,
         )
         return subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.path, check=True, stdout=subprocess.PIPE
+            ["git", "rev-parse", "HEAD"], cwd=self.path, check=True, env=_isolated_git_env(), stdout=subprocess.PIPE
         ).stdout.decode().strip()
+
+
+class GitEnvIsolationTest(unittest.TestCase):
+    def test_repository_setup_ignores_a_hostile_global_config(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            hooks_dir = os.path.join(scratch, "hooks")
+            os.makedirs(hooks_dir)
+            hook_path = os.path.join(hooks_dir, "pre-commit")
+            with open(hook_path, "w", encoding="utf-8") as handle:
+                handle.write("#!/bin/sh\nexit 1\n")
+            os.chmod(hook_path, 0o755)
+            global_config = os.path.join(scratch, "gitconfig")
+            with open(global_config, "w", encoding="utf-8") as handle:
+                handle.write("[core]\n\thooksPath = %s\n" % hooks_dir)
+            previous = os.environ.get("GIT_CONFIG_GLOBAL")
+            self.addCleanup(
+                lambda: os.environ.pop("GIT_CONFIG_GLOBAL", None)
+                if previous is None
+                else os.environ.update(GIT_CONFIG_GLOBAL=previous)
+            )
+            os.environ["GIT_CONFIG_GLOBAL"] = global_config
+            repo = Repository(self)
+            self.assertTrue(os.path.isdir(os.path.join(repo.path, ".git")))
 
 
 OLD = "// run starts the job.\nfunc run() {}\n"
@@ -330,16 +383,19 @@ class RunTest(unittest.TestCase):
         self.assertEqual(self.summary(gate.run(self.repo.path, base)), [("a.go", gate.GREW, True)])
 
     def test_comparison_starts_at_the_merge_base(self):
-        self.repo.write("a.go", OLD)
-        self.repo.commit("add a")
+        # shared.go exists at the fork. main shortens its comment after the
+        # fork; topic never touches shared.go. Diffing against main's tip
+        # (the wrong base) would show shared.go growing back to its longer
+        # form; diffing against the merge base omits it, since topic's copy
+        # never changed relative to the fork.
+        self.repo.write("shared.go", "// shared does one thing.\n// It also does another.\nfunc shared() {}\n")
+        self.repo.commit("add shared")
         sh(self.repo.path, "git", "checkout", "-q", "-b", "topic")
-        self.repo.write("a.go", GROWN)
-        self.repo.commit("grow a")
         sh(self.repo.path, "git", "checkout", "-q", "main")
-        self.repo.write("b.go", OLD)
-        self.repo.commit("add b on main")
+        self.repo.write("shared.go", "// shared does one thing.\nfunc shared() {}\n")
+        self.repo.commit("shorten the comment on main")
         sh(self.repo.path, "git", "checkout", "-q", "topic")
-        self.assertEqual(self.summary(gate.run(self.repo.path, "main")), [("a.go", gate.GREW, True)])
+        self.assertEqual(gate.run(self.repo.path, "main").findings, ())
 
     def test_untracked_file_is_scanned(self):
         self.repo.write("new.go", OLD)
@@ -353,12 +409,17 @@ class RunTest(unittest.TestCase):
         self.repo.write("new.go", GROWN + body)
         self.assertEqual(self.summary(gate.run(self.repo.path, base)), [("new.go", gate.GREW, True)])
 
-    def test_deleted_file_is_not_listed(self):
+    def test_deleted_file_lists_its_removed_comments(self):
         self.repo.write("a.go", OLD)
         base = self.repo.commit("add a")
         os.remove(os.path.join(self.repo.path, "a.go"))
         report = gate.run(self.repo.path, base)
-        self.assertEqual((report.findings, report.not_checked), ((), ()))
+        self.assertEqual(
+            [(f.path, f.status, f.old_length, f.new_length, f.flagged) for f in report.findings],
+            [("a.go", gate.REMOVED, 1, 0, False)],
+        )
+        self.assertEqual(report.not_checked, ())
+        self.assertFalse(report.flagged)
 
     def test_unknown_file_type_is_listed_as_not_checked(self):
         self.repo.write("rules.xyz", "?? a comment in a syntax the gate does not know\n")
@@ -424,6 +485,21 @@ class RunTest(unittest.TestCase):
         with self.assertRaises(gate.GitError):
             gate.run(self.repo.path, "no-such-ref")
 
+    def test_run_ignores_an_inherited_git_dir(self):
+        other = Repository(self)
+        other.write("other.go", "// unrelated file in a different repository.\nfunc other() {}\n")
+        other.commit("seed other")
+        previous = os.environ.get("GIT_DIR")
+        self.addCleanup(
+            lambda: os.environ.pop("GIT_DIR", None) if previous is None else os.environ.update(GIT_DIR=previous)
+        )
+        os.environ["GIT_DIR"] = os.path.join(other.path, ".git")
+        self.repo.write("a.go", OLD)
+        base = self.repo.commit("add a")
+        self.repo.write("a.go", GROWN)
+        report = gate.run(self.repo.path, base)
+        self.assertEqual(self.summary(report), [("a.go", gate.GREW, True)])
+
 class MainTest(unittest.TestCase):
     def setUp(self):
         self.repo = Repository(self)
@@ -485,7 +561,16 @@ class MainTest(unittest.TestCase):
         self.assertEqual(status, 2)
 
     def test_outside_a_repository_exits_two(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory() as parent:
+            directory = os.path.join(parent, "no-repo")
+            os.makedirs(directory)
+            previous = os.environ.get("GIT_CEILING_DIRECTORIES")
+            self.addCleanup(
+                lambda: os.environ.pop("GIT_CEILING_DIRECTORIES", None)
+                if previous is None
+                else os.environ.update(GIT_CEILING_DIRECTORIES=previous)
+            )
+            os.environ["GIT_CEILING_DIRECTORIES"] = parent
             os.chdir(directory)
             status, _, _ = self.call("HEAD")
         self.assertEqual(status, 2)
