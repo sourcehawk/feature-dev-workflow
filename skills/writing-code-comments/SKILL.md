@@ -97,7 +97,7 @@ A doc comment, an inline comment, and a page of documentation are claims that so
 
 Some text in the code ships to users: a description in a public schema, an error message, the reference text of a public interface. For that text, accuracy comes first. When it is false, correct it, even when the correct text is longer. A doc comment that generates reference text is still a contract. It can grow as far as accuracy needs, and it never describes how the body works.
 
-This section comes before each rule of this skill that tells you to delete, shorten, or move text. For text that users read, do not apply such a rule: keep the text, and remove only what is false.
+This section comes before each rule of this skill that tells you to delete, shorten, or move text. For text that users read, do not apply such a rule to save length: keep what is true. One rule stays in force: a doc comment does not describe how the body works, also when it generates reference text. Remove such a description, and keep each fact that a user of the interface needs.
 
 ## Red flags
 
