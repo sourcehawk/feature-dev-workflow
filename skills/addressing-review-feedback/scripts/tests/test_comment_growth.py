@@ -615,6 +615,36 @@ class RunTest(unittest.TestCase):
             [("b.go", 5, gate.GREW, 1, 3, True)],
         )
 
+    def test_unrelated_blocks_above_a_common_anchor_in_two_files_are_not_paired(self):
+        self.repo.write("a.go", "package a\n\nfunc A() error {\n\tx()\n\t// Nothing to undo.\n\treturn nil\n}\n")
+        self.repo.write("b.go", "package b\n\nfunc B() error {\n\ty()\n\treturn nil\n}\n")
+        self.repo.write("a.py", 'class A:\n    def run(self):\n        """Run it."""\n        return 1\n')
+        self.repo.write("b.py", "class B:\n    pass\n")
+        base = self.repo.commit("add the files")
+        self.repo.write("a.go", "package a\n\nfunc A() error {\n\tx()\n\treturn nil\n}\n")
+        self.repo.write(
+            "b.go",
+            "package b\n\nfunc B() error {\n\ty()\n"
+            "\t// The caller retries on error, so a partial\n"
+            "\t// write here is safe: the next call starts\n"
+            "\t// from the saved offset.\n"
+            "\treturn nil\n}\n",
+        )
+        self.repo.write("a.py", "class A:\n    pass\n")
+        self.repo.write(
+            "b.py", 'class B:\n    def sum(self):\n        """Add the values.\n\n        Skips None.\n        """\n        return 2\n'
+        )
+        report = gate.run(self.repo.path, base)
+        self.assertEqual(
+            [(f.path, f.status, f.flagged) for f in report.findings],
+            [
+                ("a.go", gate.REMOVED, False),
+                ("a.py", gate.REMOVED, False),
+                ("b.go", gate.ADDED, False),
+                ("b.py", gate.ADDED, False),
+            ],
+        )
+
     def test_block_that_moved_to_another_file_unchanged_is_not_listed(self):
         retry = "// retry calls f until it succeeds.\nfunc retry(f func() error) error {\n\treturn f()\n}\n"
         self.repo.write("a.go", "package p\n\nfunc keep() {}\n\n" + retry)

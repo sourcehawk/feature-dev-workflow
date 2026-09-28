@@ -227,6 +227,9 @@ REMOVED = "REMOVED"
 
 # Two anchor lines at or above this ratio are the same declaration after an edit.
 SIMILAR_ANCHOR = 0.6
+# Across files a pair must also keep this share of the old words, since a
+# common anchor (a return, an error check, no anchor at all) repeats in every file.
+KEPT_ACROSS_FILES = 0.5
 
 _WORDS = re.compile(r"\w+")
 
@@ -252,9 +255,12 @@ class Finding:
     user_facing: bool = False
 
 
-def pair(old: Sequence[Block], new: Sequence[Block]) -> Tuple[Dict[int, Optional[int]], Tuple[int, ...]]:
+def pair(
+    old: Sequence[Block], new: Sequence[Block], min_kept: float = 0.0
+) -> Tuple[Dict[int, Optional[int]], Tuple[int, ...]]:
     """Maps the index of each changed or added block of new to the index of its block in old (or to None), and
-    lists the indexes of the blocks of old that have no partner in new."""
+    lists the indexes of the blocks of old that have no partner in new. A pair keeps at least min_kept of the
+    old words."""
     # (order, block) for each block of old not yet claimed by an unchanged match.
     free: List[Tuple[int, Block]] = list(enumerate(old))
     open_indexes: List[int] = []
@@ -278,7 +284,9 @@ def pair(old: Sequence[Block], new: Sequence[Block]) -> Tuple[Dict[int, Optional
                 None, candidate.anchor, block.anchor
             ).ratio()
             if similarity >= SIMILAR_ANCHOR:
-                candidates.append((similarity + _kept(candidate, block), abs(order - index), index, order))
+                kept = _kept(candidate, block)
+                if kept >= min_kept:
+                    candidates.append((similarity + kept, abs(order - index), index, order))
     candidates.sort(key=lambda candidate: (-candidate[0], candidate[1]))
 
     pairs: Dict[int, Optional[int]] = {index: None for index in open_indexes}
@@ -418,7 +426,9 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
         if base is None
     ]
     gone = [(number, block) for number, (_, _, _, removed) in enumerate(files) for block in removed]
-    moved, left = pair([block for _, block in gone], [files[number][1][index] for number, index in added])
+    moved, left = pair(
+        [block for _, block in gone], [files[number][1][index] for number, index in added], KEPT_ACROSS_FILES
+    )
     for file in files:
         file[3].clear()
     for order in left:
