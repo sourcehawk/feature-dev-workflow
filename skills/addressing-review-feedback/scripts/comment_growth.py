@@ -352,6 +352,12 @@ def pair(
         pairs[index] = order
         claimed_new.add(index)
         claimed_old.add(order)
+    # A block left without a partner may still be the one that grew, when a
+    # sibling that copies the old words took its old block. It shares that
+    # block, so the growth is flagged rather than missed.
+    for score, distance, index, order in candidates:
+        if pairs[index] is None and new[index].length > old[order].length:
+            pairs[index] = order
 
     return pairs, tuple(order for order in free if order not in claimed_old)
 

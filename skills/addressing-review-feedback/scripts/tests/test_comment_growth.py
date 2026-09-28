@@ -392,6 +392,42 @@ class CompareTest(unittest.TestCase):
             [(gate.ADDED, 1, 0, 1, False), (gate.GREW, 5, 1, 2, True)],
         )
 
+    def test_block_that_grew_with_new_words_is_flagged_beside_a_sibling_that_copies_the_old_words(self):
+        old = "// Close the file.\nfunc (f *File) Close() error {\n}\n"
+        new = (
+            "// Close the file.\n"
+            "func (f *File) CloseAll() error {\n"
+            "}\n"
+            "\n"
+            "// Flushes pending writes first; a\n"
+            "// second call is a no-op.\n"
+            "func (f *File) Close() error {\n"
+            "}\n"
+        )
+        findings = gate.compare("f", old, new, gate.SLASH)
+        self.assertEqual(
+            [(f.status, f.line, f.old_length, f.new_length, f.flagged) for f in findings],
+            [(gate.CHANGED, 1, 1, 1, False), (gate.GREW, 5, 1, 2, True)],
+        )
+
+    def test_rewritten_block_that_grew_is_flagged_beside_a_sibling_with_most_of_the_old_words(self):
+        old = "// Send writes the message to the socket.\nfunc Send(m Message) error {\n}\n"
+        new = (
+            "// SendAll writes each message to the socket.\n"
+            "func SendAll(ms []Message) error {\n"
+            "}\n"
+            "\n"
+            "// Send frames m, writes it, and retries\n"
+            "// once when the write times out.\n"
+            "func Send(m Message) error {\n"
+            "}\n"
+        )
+        findings = gate.compare("f", old, new, gate.SLASH)
+        self.assertEqual(
+            [(f.status, f.line, f.old_length, f.new_length, f.flagged) for f in findings],
+            [(gate.CHANGED, 1, 1, 1, False), (gate.GREW, 5, 1, 2, True)],
+        )
+
     def test_comment_rewritten_fully_above_the_same_anchor_is_paired(self):
         old = "// run starts the job.\nfunc run() {}\n"
         new = "// Blocks until every worker has stopped.\nfunc run() {}\n"
@@ -406,7 +442,7 @@ class CompareTest(unittest.TestCase):
         findings = gate.compare("f", old, new, gate.SLASH)
         self.assertEqual(
             [(f.status, f.line, f.old_length, f.new_length) for f in findings],
-            [(gate.ADDED, 2, 0, 3), (gate.GREW, 6, 1, 3), (gate.GREW, 10, 2, 3)],
+            [(gate.GREW, 2, 1, 3), (gate.GREW, 6, 1, 3), (gate.GREW, 10, 2, 3)],
         )
 
     def test_inline_comment_deleted_while_its_code_line_stays(self):
