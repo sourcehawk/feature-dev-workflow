@@ -143,13 +143,7 @@ def cgroup_limit_mib(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgrou
     return min(limits)[0] // (1024 * 1024) if limits else None
 
 
-def cgroup_available_mib(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[int]:
-    """Returns the smallest memory limit of the cgroup of this process and of its parents, less the use
-    at the level of that limit, or None when the limit or the use cannot be read."""
-    limits = _cgroup_limits(proc_root, cgroup_root)
-    if not limits:
-        return None
-    limit, directory, use_name, inactive_name = min(limits)
+def _level_available(limit: int, directory: str, use_name: str, inactive_name: str) -> Optional[int]:
     try:
         with open(os.path.join(directory, use_name)) as handle:
             use = int(handle.read().strip())
@@ -163,6 +157,19 @@ def cgroup_available_mib(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/c
         if len(parts) == 2 and parts[0] == inactive_name and parts[1].isdigit():
             return max(0, limit - max(0, use - int(parts[1]))) // (1024 * 1024)
     return None
+
+
+def cgroup_available_mib(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[int]:
+    """Returns the smallest free memory of the cgroup of this process and of its parents: the limit of a
+    level less the use at that level. Returns None when the use at the smallest limit cannot be read."""
+    limits = _cgroup_limits(proc_root, cgroup_root)
+    if not limits:
+        return None
+    smallest = _level_available(*min(limits))
+    if smallest is None:
+        return None
+    others = [_level_available(*level) for level in limits]
+    return min([smallest] + [value for value in others if value is not None])
 
 
 def total_memory_mib(

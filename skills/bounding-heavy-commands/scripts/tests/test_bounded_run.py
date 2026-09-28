@@ -675,6 +675,27 @@ class CgroupFreeMemoryTest(unittest.TestCase):
     def test_no_cgroup_files_gives_the_free_memory_of_the_host(self):
         self.assertEqual(self.available(), 16384)
 
+    def test_a_parent_with_a_larger_limit_and_less_free_memory_decides(self):
+        self.membership("0::/container/unit-1.scope\n")
+        self.write("container/unit-1.scope", "memory.max", str(4096 * 1024 ** 2))
+        self.write("container/unit-1.scope", "memory.current", str(1024 * 1024 ** 2))
+        self.write("container/unit-1.scope", "memory.stat", "inactive_file 0\n")
+        self.write("container", "memory.max", str(8192 * 1024 ** 2))
+        self.write("container", "memory.current", str(8000 * 1024 ** 2))
+        self.write("container", "memory.stat", "inactive_file 0\n")
+        self.assertEqual(self.available(), 192)
+
+    def test_levels_with_the_same_limit_give_the_smallest_free_memory(self):
+        for full in ("container", "container/unit-1.scope"):
+            with self.subTest(full=full):
+                shutil.rmtree(self.cgroups)
+                self.membership("0::/container/unit-1.scope\n")
+                for level in ("container", "container/unit-1.scope"):
+                    self.write(level, "memory.max", str(4096 * 1024 ** 2))
+                    self.write(level, "memory.current", str((4000 if level == full else 1024) * 1024 ** 2))
+                    self.write(level, "memory.stat", "inactive_file 0\n")
+                self.assertEqual(self.available(), 96)
+
     def test_the_use_is_read_at_the_level_of_the_limit_in_a_parent(self):
         self.membership("0::/container/unit-1.scope\n")
         self.write("container/unit-1.scope", "memory.max", "max")
