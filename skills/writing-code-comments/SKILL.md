@@ -43,7 +43,7 @@ A heading labeled "Contract" does not make the paragraph under it one. If it res
 
 **Move a fact, do not delete it.** The fact that moves is one that the code cannot show; a description of how the body works is not such a fact. The reason that a line exists goes in one short comment beside that line. A constraint that applies at one call site goes at that call site. The comparison of options, and why this one won, goes in the pull request body. When the same fact is in the doc comment and again at the line that it constrains, keep one copy. Keep it in the doc comment when the caller must handle it. Otherwise keep it at the line, because a copy in the doc comment is far from the code that can make it false.
 
-**When the doc comment is longer than the body, and it does not generate text that users read, name the caller decision that each paragraph serves.** Decide it for yourself; do not write it in the comment. Keep a paragraph that serves a caller decision. Move a paragraph that serves none and that holds a fact that the code cannot show, such as a constraint from outside or the reason that a plainer version does not work, to the code that it constrains. Delete a paragraph that describes how the body works, and a paragraph that explains nothing.
+**When the doc comment is longer than the body, and it does not generate text that users read, find the caller decision that each paragraph serves.** Do not write it in the comment. Keep a paragraph that serves a caller decision. Move a paragraph that serves none and that holds a fact that the code cannot show, such as a constraint from outside or the reason that a plainer version does not work, to the code that it constrains. Delete a paragraph that describes how the body works, and a paragraph that explains nothing.
 
 **The generator test.** If a tool can make the comment from the identifier and a verb, the comment holds no information. Delete it or write the fact that the name does not give.
 
@@ -101,7 +101,7 @@ This section comes before each rule of this skill that tells you to delete, shor
 
 ## Red flags
 
-Stop when you see one of these in your own diff:
+When you see one of these in your own diff, stop and correct it before you continue:
 
 - A comment and the line under it say the same thing.
 - You wrote a comment to explain a name that you could have changed.
@@ -110,7 +110,7 @@ Stop when you see one of these in your own diff:
 - A doc comment got a paragraph about how the body works.
 - A doc comment is longer than the body that it documents, and it does not generate text that users read.
 - The same fact is in the doc comment and at the line it constrains.
-- You deleted a fact that the code cannot show, and you did not move it beside the code that it constrains.
+- You deleted a fact that the code cannot show, and you did not give it a place: beside the code that it constrains, in the pull request body when it is the comparison of options, or in your reply when an instruction told you to remove it.
 - Your change altered a behavior, and a comment that states the old behavior is not in your diff.
 
 ## Common mistakes
