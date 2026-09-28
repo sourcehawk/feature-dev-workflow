@@ -4,6 +4,7 @@ import contextlib
 import difflib
 import io
 import os
+import random
 import subprocess
 import sys
 import tempfile
@@ -481,6 +482,44 @@ class CompareTest(unittest.TestCase):
             [(gate.GREW, 5, 1, 2, True), (gate.ADDED, 10, 0, 2, False)],
         )
 
+    def test_copy_stays_unchanged_beside_a_new_block_of_the_same_length(self):
+        old = "func f() {\n\t// Check the error.\n\tif err != nil {\n\t}\n}\n"
+        new = (
+            "func f() {\n\t// Check the error again.\n\tif err != nil {\n\t}\n"
+            "\t// Check the error.\n\tif err != nil {\n\t}\n}\n"
+        )
+        self.assertEqual(statuses(old, new), [(gate.ADDED, 0, 1, False)])
+
+    def test_copy_stays_unchanged_beside_a_longer_block_that_keeps_only_some_of_its_words(self):
+        old = "// Close the file.\nfunc (f *File) Close() error {\n}\n"
+        new = (
+            "// Close the file.\nfunc (f *File) Close() error {\n}\n\n"
+            "// Close each socket\n// and the log.\nfunc (f *File) CloseAll() error {\n}\n"
+        )
+        self.assertEqual(statuses(old, new), [(gate.ADDED, 0, 2, False)])
+
+    def test_copy_of_a_block_with_no_words_stays_unchanged_beside_a_longer_block(self):
+        old = "// --------\nfunc (s *Server) Start() error {\n}\n"
+        new = (
+            "// --------\nfunc (s *Server) Start() error {\n}\n\n"
+            "// Stop halts the server.\n// It waits.\nfunc (s *Server) Stop() error {\n}\n"
+        )
+        self.assertEqual(statuses(old, new), [(gate.ADDED, 0, 2, False)])
+
+    def test_two_copies_stay_unchanged_beside_a_longer_block_above_another_anchor(self):
+        check = "\t// Check the error.\n\tif err != nil {\n\t}\n"
+        old = "func f() {\n" + check + check + "}\n"
+        new = "// Check the error, then\n// log it.\nvar logger = newLogger()\n\nfunc f() {\n" + check + check + "}\n"
+        self.assertEqual(statuses(old, new), [(gate.ADDED, 0, 2, False)])
+
+    def test_second_copy_pairs_with_a_changed_block_when_the_longer_block_is_itself_unchanged(self):
+        check = "\t// Check the error.\n\tif err != nil {\n\t}\n"
+        longer = "\t// Check the error.\n\t// It may be nil.\n\tif err != nil {\n\t}\n"
+        other = "\t// Retry once,\n\t// then stop,\n\t// and report.\n\tif err != nil {\n\t}\n"
+        old = "func f() {\n" + check + longer + other + "}\n"
+        new = "func f() {\n" + check + check + longer + "}\n"
+        self.assertEqual(statuses(old, new), [(gate.CHANGED, 3, 1, False)])
+
     def test_identical_copy_of_a_doc_string_that_grew_does_not_hide_the_growth(self):
         old = 'class A:\n    def __init__(self):\n        """Set up."""\n        pass\n'
         new = (
@@ -583,6 +622,35 @@ class PairCostTest(unittest.TestCase):
             pairs, removed = gate.pair(old, new, gate.KEPT_ACROSS_FILES)
         self.assertEqual((set(pairs.values()), len(removed)), ({None}, 200))
         self.assertLessEqual(matcher.call_count, len(old))
+
+    def test_index_of_words_gives_the_same_pairs_as_scoring_every_pair(self):
+        def every_block(old_words, postings, indexes, min_kept):
+            return indexes if old_words else []
+
+        rng = random.Random(7)
+        words = "a b c d e f".split()
+
+        def block():
+            text = tuple(
+                "// " + " ".join(rng.choice(words) for _ in range(rng.randint(0, 5))) for _ in range(rng.randint(1, 3))
+            )
+            return gate.Block(1, text, rng.choice(["func a() {", "func b() {", "return nil", ""]))
+
+        for _ in range(2000):
+            old = [block() for _ in range(rng.randint(0, 6))]
+            new = [block() for _ in range(rng.randint(0, 6))]
+            indexed = gate.pair(old, new, gate.KEPT_ACROSS_FILES, one_file=False)
+            with mock.patch.object(gate, "_reach", side_effect=every_block):
+                self.assertEqual(gate.pair(old, new, gate.KEPT_ACROSS_FILES, one_file=False), indexed, (old, new))
+
+    def test_block_across_files_pairs_at_exactly_the_limit_of_kept_words(self):
+        new = [gate.Block(1, ("// alpha gamma delta",), "return nil")]
+        half = [gate.Block(1, ("// alpha beta",), "return nil")]
+        third = [gate.Block(1, ("// alpha beta epsilon",), "return nil")]
+        self.assertEqual(gate._kept(["alpha", "beta"], ["alpha", "gamma", "delta"]), gate.KEPT_ACROSS_FILES)
+        self.assertLess(gate._kept(["alpha", "beta", "epsilon"], ["alpha", "gamma", "delta"]), gate.KEPT_ACROSS_FILES)
+        self.assertEqual(gate.pair(half, new, gate.KEPT_ACROSS_FILES, one_file=False), ({0: 0}, ()))
+        self.assertEqual(gate.pair(third, new, gate.KEPT_ACROSS_FILES, one_file=False), ({0: None}, (0,)))
 
 
 def _isolated_git_env():
@@ -751,6 +819,32 @@ class RunTest(unittest.TestCase):
             "FLAG b.go:5  GREW  1 -> 3 lines  | func retry(f func() error) error {  (moved from a.go, old line 5)",
         )
 
+    def test_moved_blocks_name_their_old_lines_and_only_their_own_file(self):
+        self.repo.write(
+            "a.go",
+            "package a\n\n// retry calls f until it succeeds.\nfunc retry(f func() error) error {\n}\n\n"
+            "// wait sleeps for d.\nfunc wait(d Duration) {\n}\n",
+        )
+        self.repo.write("c.go", "package c\n\n// count counts.\nfunc count() {\n}\n")
+        base = self.repo.commit("add a and c")
+        os.remove(os.path.join(self.repo.path, "a.go"))
+        self.repo.write(
+            "b.go",
+            "package b\n\nfunc x() {\n}\n\n"
+            "// retry calls f until it succeeds.\n// It waits between two calls.\nfunc retry(f func() error) error {\n}\n\n"
+            "// wait sleeps for d seconds.\nfunc wait(d Duration) {\n}\n",
+        )
+        self.repo.write("c.go", "package c\n\n// count counts the calls.\nfunc count() {\n}\n")
+        self.assertEqual(
+            gate.render(gate.run(self.repo.path, base)).splitlines(),
+            [
+                "FLAG b.go:6  GREW  1 -> 2 lines  | func retry(f func() error) error {  (moved from a.go, old line 3)",
+                "     b.go:11  CHANGED  1 -> 1 lines  | func wait(d Duration) {  (moved from a.go, old line 7)",
+                "     c.go:3  CHANGED  1 -> 1 lines  | func count() {",
+                "1 flagged, 3 listed, 0 removed, 0 not checked",
+            ],
+        )
+
     def test_unrelated_blocks_above_a_common_anchor_in_two_files_are_not_paired(self):
         self.repo.write("a.go", "package a\n\nfunc A() error {\n\tx()\n\t// Nothing to undo.\n\treturn nil\n}\n")
         self.repo.write("b.go", "package b\n\nfunc B() error {\n\ty()\n\treturn nil\n}\n")
@@ -783,7 +877,7 @@ class RunTest(unittest.TestCase):
 
     def test_too_many_blocks_to_pair_across_files_are_listed_and_the_report_says_so(self):
         retry = "// retry calls f until it succeeds.\nfunc retry(f func() error) error {\n\treturn f()\n}\n"
-        self.repo.write("a.go", "package p\n\n" + retry)
+        self.repo.write("a.go", "package p\n\n" + retry + "\n// wait sleeps.\nfunc wait() {\n}\n")
         base = self.repo.commit("add a")
         os.remove(os.path.join(self.repo.path, "a.go"))
         self.repo.write("b.go", "package p\n\n// retry calls f until it succeeds.\n// It waits.\nfunc retry(f func() error) error {\n}\n")
@@ -791,16 +885,51 @@ class RunTest(unittest.TestCase):
             report = gate.run(self.repo.path, base)
         self.assertEqual(
             [(f.path, f.status, f.flagged) for f in report.findings],
-            [("a.go", gate.REMOVED, False), ("b.go", gate.ADDED, False)],
+            [("a.go", gate.REMOVED, False), ("a.go", gate.REMOVED, False), ("b.go", gate.ADDED, False)],
         )
-        self.assertEqual(report.not_paired_across_files, (1, 1))
+        self.assertEqual(report.not_paired_across_files, (2, 1))
         self.assertIn(
-            "     1 removed and 1 added blocks NOT PAIRED ACROSS FILES, too many to compare; read their diff",
+            "     2 removed and 1 added blocks NOT PAIRED ACROSS FILES, too many to compare; read their diff",
             gate.render(report),
         )
         self.assertEqual(
             gate.render(report).splitlines()[-1],
-            "0 flagged, 2 listed, 1 removed, 0 not checked, 2 not paired across files",
+            "0 flagged, 3 listed, 2 removed, 0 not checked, 3 not paired across files",
+        )
+
+    def test_pairing_across_files_runs_at_exactly_the_cap(self):
+        self.repo.write("a.go", "package p\n\n// retry calls f until it succeeds.\nfunc retry(f func() error) error {\n}\n")
+        base = self.repo.commit("add a")
+        os.remove(os.path.join(self.repo.path, "a.go"))
+        self.repo.write("b.go", "package p\n\n// retry calls f until it succeeds.\n// It waits.\nfunc retry(f func() error) error {\n}\n")
+        with mock.patch.object(gate, "MOST_PAIRS_ACROSS_FILES", 1):
+            report = gate.run(self.repo.path, base)
+        self.assertEqual([(f.path, f.status) for f in report.findings], [("b.go", gate.GREW)])
+        self.assertIsNone(report.not_paired_across_files)
+
+    def test_old_block_of_another_file_is_not_shared_with_a_longer_block(self):
+        self.repo.write("a.go", "package p\n\n// Close the file now.\nfunc (f *File) Close() error {\n}\n")
+        base = self.repo.commit("add a")
+        os.remove(os.path.join(self.repo.path, "a.go"))
+        self.repo.write(
+            "b.go",
+            "package p\n\n// Close the file now.\nfunc (f *File) CloseAll() error {\n}\n\n"
+            "// Close the file, and flush\n// it first.\nfunc (f *File) Close() error {\n}\n",
+        )
+        self.assertEqual(
+            [(f.path, f.line, f.status) for f in gate.run(self.repo.path, base).findings],
+            [("b.go", 3, gate.CHANGED), ("b.go", 7, gate.ADDED)],
+        )
+
+    def test_copy_in_another_file_is_the_old_block_moved_unchanged(self):
+        check = "\t// Check the error.\n\tif err != nil {\n\t}\n"
+        self.repo.write("a.go", "package p\n\nfunc load() {\n" + check + "}\n")
+        base = self.repo.commit("add a")
+        os.remove(os.path.join(self.repo.path, "a.go"))
+        self.repo.write("b.go", "package p\n\nfunc load() {\n" + check + "}\n")
+        self.repo.write("c.go", "package p\n\nfunc save() {\n\t// Check the error.\n\t// Log it.\n\tif err != nil {\n\t}\n}\n")
+        self.assertEqual(
+            [(f.path, f.status) for f in gate.run(self.repo.path, base).findings], [("c.go", gate.ADDED)]
         )
 
     def test_block_of_a_removed_file_pairs_with_one_block_of_another_file(self):
@@ -948,6 +1077,14 @@ class MainTest(unittest.TestCase):
             except SystemExit as stop:
                 status = stop.code
         return status, out.getvalue(), err.getvalue()
+
+    def test_blocks_not_paired_across_files_alone_exit_zero(self):
+        os.remove(os.path.join(self.repo.path, "a.go"))
+        self.repo.write("b.go", GROWN)
+        with mock.patch.object(gate, "MOST_PAIRS_ACROSS_FILES", 0):
+            status, out, _ = self.call(self.base)
+        self.assertEqual(status, 0)
+        self.assertIn("2 not paired across files", out)
 
     def test_no_flag_exits_zero(self):
         self.repo.write("a.go", "// run starts one job.\nfunc run() {}\n")
