@@ -88,6 +88,8 @@ Optionally, install the [simple-english](https://github.com/AminBlg/SimpleEnglis
 
 The skills also assume the [`gh`](https://cli.github.com/) CLI is installed and authenticated.
 
+The skills that ship a script need Python 3.9 or later as `python3`, with no extra packages. macOS provides it with the Xcode Command Line Tools. A skill whose script cannot run says so once per session and continues with a weaker fallback.
+
 Stacked PRs (a linear chain where each PR builds on the one before it) also need GitHub's official [`gh stack`](https://github.com/github/gh-stack) extension. The skills check for it before any stacked work and ask you to install it if it is missing:
 
 ```
