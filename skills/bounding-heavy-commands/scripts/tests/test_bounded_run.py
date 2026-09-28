@@ -740,7 +740,6 @@ class WrapperProcessTest(WrapperProcessCase):
         )
         self.processes.append(process)
         output, errors = process.communicate("text for the command", timeout=60)
-        process.stdin = None
         self.assertEqual((process.returncode, output), (0, "TEXT FOR THE COMMAND\n"), errors)
 
     def test_a_nested_call_does_not_wait_for_its_own_slots(self):
@@ -760,7 +759,7 @@ class WrapperProcessTest(WrapperProcessCase):
         for signum, code in ((signal.SIGTERM, 143), (signal.SIGINT, 130)):
             with self.subTest(signal=signum):
                 name = "stopped-%d" % code
-                process = self.worker(name, "2G", hold="30")
+                process = self.worker(name, "2G", hold="300")
                 line = self.wait_for_event("start", name)
                 process.send_signal(signum)
                 self.assertEqual(process.wait(timeout=60), code)
@@ -799,7 +798,7 @@ class WrapperProcessTest(WrapperProcessCase):
             "descriptor = os.open(os.environ['EVENTS'], os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)\n"
             "os.write(descriptor, ('start stubborn %d\\n' % os.getpid()).encode())\n"
             "os.close(descriptor)\n"
-            "time.sleep(30)\n"
+            "time.sleep(300)\n"
         )
         process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", script])
         self.wait_for_event("start", "stubborn")
