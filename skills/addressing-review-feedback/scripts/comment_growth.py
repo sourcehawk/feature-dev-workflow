@@ -302,12 +302,13 @@ class Finding:
 
 
 def pair(
-    old: Sequence[Block], new: Sequence[Block], min_kept: float = 0.0, most: Optional[int] = None, share: bool = True
+    old: Sequence[Block], new: Sequence[Block], min_kept: float = 0.0, most: Optional[int] = None,
+    one_file: bool = True,
 ) -> Tuple[Dict[int, Optional[int]], Tuple[int, ...]]:
     """Maps the index of each changed or added block of new to the index of its block in old (or to None), and
     lists the indexes of the blocks of old that have no partner in new. A pair keeps at least min_kept of the
-    old words. Raises TooManyPairs when more than most pairs of blocks would need a score. With share, a longer
-    block left without a partner shares an old block it could have paired with."""
+    old words. Raises TooManyPairs when more than most pairs of blocks would need a score. Only in one_file does
+    an identical copy leave its old block free for a longer block, and a longer block share an old block."""
     old_words = [_words(block) for block in old]
     new_words = [_words(block) for block in new]
     # The orders of the blocks of old not yet claimed by an unchanged match, by (anchor, text).
@@ -315,8 +316,6 @@ def pair(
     for order, block in enumerate(old):
         unchanged.setdefault((block.anchor, block.text), []).append(order)
     fresh = [index for index, block in enumerate(new) if (block.anchor, block.text) not in unchanged]
-    fresh_postings = _postings(new_words, fresh)
-    scored = 0
     open_indexes: List[int] = []
     # The block of old that each identical copy in new leaves free for a longer block that keeps all its words.
     copies: Dict[int, int] = {}
@@ -328,13 +327,9 @@ def pair(
             open_indexes.append(index)
             continue
         words = old_words[orders[0]]
-        grown = _reach(words, fresh_postings, fresh, 1.0) if words else []
-        scored += len(grown)
-        if most is not None and scored > most:
-            raise TooManyPairs()
         longer = {
             other
-            for other in grown
+            for other in (fresh if one_file and words else ())
             if new[other].length > block.length
             and _similarity(block.anchor, new[other].anchor) >= SIMILAR_ANCHOR
             and _kept(words, new_words[other]) == 1.0
@@ -352,7 +347,7 @@ def pair(
         reach[order] = _reach(old_words[order], postings, open_indexes, min_kept)
         if order in freed_for:
             reach[order] = [index for index in reach[order] if index in freed_for[order]]
-    if most is not None and scored + sum(len(indexes) for indexes in reach.values()) > most:
+    if most is not None and sum(len(indexes) for indexes in reach.values()) > most:
         raise TooManyPairs()
     new_sets = {index: set(new_words[index]) for index in open_indexes}
 
@@ -388,7 +383,7 @@ def pair(
     # the growth is flagged rather than missed, and a new block beside a
     # comment changed in place is not.
     for score, distance, index, order in candidates:
-        if share and pairs[index] is None and new[index].length > old[order].length:
+        if one_file and pairs[index] is None and new[index].length > old[order].length:
             anchor = old[order].anchor
             if _similarity(anchor, new[index].anchor) > _similarity(anchor, new[taker[order]].anchor):
                 pairs[index] = order
@@ -527,7 +522,8 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
 
     # A block that moved to another file is still free on both sides after
     # the pairing inside each file, so the free blocks pair once more across files.
-    # A block moves to one place, so there an old block is never shared.
+    # A block moves to one place, so the rules of one file (a copy that leaves
+    # its old block free, a longer block that shares one) do not apply here.
     added = [
         (number, index)
         for number, (_, _, pairs, _) in enumerate(files)
@@ -541,7 +537,7 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
     try:
         moved, left = pair(
             [block for _, block in gone], [files[number][1][index] for number, index in added],
-            KEPT_ACROSS_FILES, MOST_PAIRS_ACROSS_FILES, share=False,
+            KEPT_ACROSS_FILES, MOST_PAIRS_ACROSS_FILES, one_file=False,
         )
     except TooManyPairs:
         not_paired = (len(gone), len(added))
