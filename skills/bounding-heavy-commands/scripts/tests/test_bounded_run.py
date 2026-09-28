@@ -775,6 +775,23 @@ class WrapperProcessTest(WrapperProcessCase):
                         alive = False
                 self.assertFalse(alive, "the command still runs")
 
+    def test_a_hangup_stops_the_command_and_gives_129(self):
+        name = "hangup-129"
+        process = self.worker(name, "2G", hold="300")
+        line = self.wait_for_event("start", name)
+        process.send_signal(signal.SIGHUP)
+        self.assertEqual(process.wait(timeout=60), 129)
+        child = int(line.split()[2])
+        deadline = time.time() + 5
+        alive = True
+        while alive and time.time() < deadline:
+            try:
+                os.kill(child, 0)
+                time.sleep(0.05)
+            except ProcessLookupError:
+                alive = False
+        self.assertFalse(alive, "the command still runs")
+
     def test_a_second_stop_signal_kills_a_command_that_ignores_the_first(self):
         script = (
             "import os, signal, sys, time\n"
