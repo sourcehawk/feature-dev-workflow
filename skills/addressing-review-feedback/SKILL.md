@@ -121,7 +121,7 @@ When the output has too many blocks to pair across files, a line ends with `NOT 
 
 The last line gives the counts, such as `2 flagged, 6 listed, 1 removed, 1 not checked`, and ends with `, 800 not paired across files` or another count when the pairing across files did not run.
 
-**If `python3` is missing or older than 3.9,** the gate cannot run. If you have not already done so in this session, tell the user once that the gate needs Python 3.9 or later. Then compare by hand. Read `git diff "$REVIEW_BASE"`, and give each comment that the diff adds, changes, or removes the kind from the table above. Continue with step 6. In your report, say that the gate did not run.
+**If `python3` is missing or older than 3.9,** the gate cannot run. If you have not already done so in this session, tell the user once that the gate needs Python 3.9 or later. Then compare by hand. Read `git diff "$(git merge-base "$REVIEW_BASE" HEAD)"`, which compares the merge base with the working tree, and read each file that `git ls-files --others --exclude-standard` lists, because the diff does not show a file that git does not track. Give each comment that they add, change, or remove the kind from the table above. Continue with step 6, and compare by hand again where a later step runs the gate again. In your report, say that the gate did not run.
 
 ## Apply the verdicts
 
