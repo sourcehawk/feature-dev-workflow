@@ -1053,6 +1053,33 @@ class RunCommandTest(unittest.TestCase):
         self.assertFalse(alive, "the command still runs")
 
 
+class LeftProcessTest(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(bounded_run, "log")
+        self.log = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_process_that_the_command_leaves_running_gives_a_warning(self):
+        groups = []
+
+        def stop():
+            for group in groups:
+                try:
+                    os.killpg(group, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+
+        self.addCleanup(stop)
+        code, _ = bounded_run.run_command(["sh", "-c", "sleep 300 >/dev/null 2>&1 &"], os.environ, on_start=groups.append)
+        self.assertEqual(code, 0)
+        self.log.assert_called_once_with("WARNING: the command left a process that still runs; the queue does not count its memory")
+
+    def test_a_command_that_leaves_no_process_gives_no_warning(self):
+        code, _ = bounded_run.run_command(["sh", "-c", "sleep 0.1 & wait"], os.environ)
+        self.assertEqual(code, 0)
+        self.log.assert_not_called()
+
+
 class ParentDeathSignalTest(unittest.TestCase):
     def setUp(self):
         patcher = mock.patch.object(bounded_run, "log")

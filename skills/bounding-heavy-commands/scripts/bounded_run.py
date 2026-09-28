@@ -613,6 +613,16 @@ def parent_death_signal(platform: str = sys.platform) -> Optional[Callable[[], N
     return set_signal
 
 
+def _group_runs(group: int) -> bool:
+    try:
+        os.killpg(group, 0)
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 def run_command(
     command: Sequence[str], environ: Mapping[str, str],
     on_start: Optional[Callable[[int], None]] = None,
@@ -656,6 +666,8 @@ def run_command(
                 pass
             raise
         process.returncode = exit_code_of(status)
+        if not received and _group_runs(process.pid):
+            log("WARNING: the command left a process that still runs; the queue does not count its memory")
     finally:
         for signum, handler in previous.items():
             signal.signal(signum, handler)
