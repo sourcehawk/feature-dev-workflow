@@ -106,5 +106,45 @@ class SettingsTest(unittest.TestCase):
             bounded_run.Settings({"BOUNDED_RUN_POLL_SECONDS": "fast"}, read_total=lambda: 1)
 
 
+class LockDirectoryTest(unittest.TestCase):
+    def test_override_wins(self):
+        environ = {"BOUNDED_RUN_LOCK_DIR": "/x/locks", "XDG_RUNTIME_DIR": "/run/user/7"}
+        self.assertEqual(bounded_run.lock_directory(environ, 7), "/x/locks")
+
+    def test_uses_the_runtime_directory(self):
+        self.assertEqual(bounded_run.lock_directory({"XDG_RUNTIME_DIR": "/run/user/7"}, 7), "/run/user/7/bounded-run")
+
+    def test_falls_back_to_a_directory_for_the_user(self):
+        self.assertEqual(bounded_run.lock_directory({}, 999999999), "/tmp/bounded-run-999999999")
+
+    def test_does_not_depend_on_TMPDIR(self):
+        self.assertEqual(bounded_run.lock_directory({"TMPDIR": "/elsewhere"}, 999999999), "/tmp/bounded-run-999999999")
+
+    def test_creates_the_directory_for_the_user_only(self):
+        with tempfile.TemporaryDirectory() as base:
+            path = os.path.join(base, "locks")
+            bounded_run.ensure_lock_directory(path, os.getuid())
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o700)
+
+    def test_closes_a_directory_that_other_users_can_read(self):
+        with tempfile.TemporaryDirectory() as base:
+            path = os.path.join(base, "locks")
+            os.mkdir(path, 0o755)
+            bounded_run.ensure_lock_directory(path, os.getuid())
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o700)
+
+    def test_rejects_a_directory_of_a_different_user(self):
+        with tempfile.TemporaryDirectory() as base:
+            with self.assertRaises(bounded_run.WrapperError):
+                bounded_run.ensure_lock_directory(base, os.getuid() + 1)
+
+    def test_rejects_a_symbolic_link(self):
+        with tempfile.TemporaryDirectory() as base:
+            link = os.path.join(base, "link")
+            os.symlink(base, link)
+            with self.assertRaises(bounded_run.WrapperError):
+                bounded_run.ensure_lock_directory(link, os.getuid())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -119,3 +119,33 @@ def _number(environ: Mapping[str, str], name: str, fallback: float) -> float:
     if value < 0:
         raise WrapperError("%s must not be less than zero" % name)
     return value
+
+
+def lock_directory(environ: Mapping[str, str], uid: int) -> str:
+    override = environ.get("BOUNDED_RUN_LOCK_DIR")
+    if override:
+        return override
+    runtime = environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        return os.path.join(runtime, PREFIX)
+    login_directory = "/run/user/%d" % uid
+    try:
+        if os.stat(login_directory).st_uid == uid:
+            return os.path.join(login_directory, PREFIX)
+    except OSError:
+        pass
+    return "/tmp/%s-%d" % (PREFIX, uid)
+
+
+def ensure_lock_directory(path: str, uid: int) -> None:
+    try:
+        os.makedirs(path, mode=0o700, exist_ok=True)
+        info = os.lstat(path)
+    except OSError as error:
+        raise WrapperError("cannot use the lock directory %s: %s" % (path, error))
+    if not stat.S_ISDIR(info.st_mode):
+        raise WrapperError("the lock directory %s is not a directory" % path)
+    if info.st_uid != uid:
+        raise WrapperError("the lock directory %s belongs to a different user" % path)
+    if stat.S_IMODE(info.st_mode) & 0o077:
+        os.chmod(path, 0o700)
