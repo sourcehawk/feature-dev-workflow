@@ -241,8 +241,15 @@ class Reservation:
         self.descriptors = []
 
 
+def _open_lock_file(path: str) -> int:
+    try:
+        return os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    except OSError as error:
+        raise WrapperError("cannot open %s: %s" % (path, error.strerror if error.strerror else error))
+
+
 def _try_lock(path: str) -> Optional[int]:
-    descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    descriptor = _open_lock_file(path)
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -256,7 +263,7 @@ def _try_lock(path: str) -> Optional[int]:
 
 
 def try_reserve(directory: str, count: int, needed: int, exclusive_files: Sequence[str]) -> Optional[Reservation]:
-    turn = os.open(os.path.join(directory, "reserve.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    turn = _open_lock_file(os.path.join(directory, "reserve.lock"))
     held: List[int] = []
     try:
         fcntl.flock(turn, fcntl.LOCK_EX)

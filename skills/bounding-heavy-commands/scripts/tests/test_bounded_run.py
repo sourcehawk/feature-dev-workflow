@@ -406,6 +406,30 @@ class ReserveTest(unittest.TestCase):
         self.addCleanup(second_try.release)
         self.assertEqual(len(second_try.descriptors), 2)
 
+    def test_a_slot_file_that_cannot_be_opened_is_reported(self):
+        os.mkdir(os.path.join(self.directory, "slot-000.lock"))
+        with self.assertRaises(bounded_run.WrapperError) as caught:
+            bounded_run.try_reserve(self.directory, 1, 1, [])
+        self.assertIn("slot-000.lock", str(caught.exception))
+        self.assertIn(os.strerror(errno.EISDIR), str(caught.exception))
+
+    def test_a_turn_file_that_cannot_be_opened_is_reported(self):
+        os.mkdir(os.path.join(self.directory, "reserve.lock"))
+        with self.assertRaises(bounded_run.WrapperError) as caught:
+            bounded_run.try_reserve(self.directory, 1, 1, [])
+        self.assertIn("reserve.lock", str(caught.exception))
+        self.assertIn(os.strerror(errno.EISDIR), str(caught.exception))
+
+    def test_an_open_error_leaves_no_slot_held(self):
+        blocked = os.path.join(self.directory, "slot-001.lock")
+        os.mkdir(blocked)
+        with self.assertRaises(bounded_run.WrapperError):
+            bounded_run.try_reserve(self.directory, 2, 2, ["exclusive-abc-port.lock"])
+        os.rmdir(blocked)
+        second = bounded_run.try_reserve(self.directory, 2, 2, ["exclusive-abc-port.lock"])
+        self.assertIsNotNone(second, "a slot or the exclusive lock is still held")
+        second.release()
+
     def test_the_turn_lock_is_free_while_the_wrapper_waits(self):
         # Hold all slots so reserve has to wait
         blocker = bounded_run.try_reserve(self.directory, 1, 1, [])
@@ -1226,6 +1250,14 @@ class WrapperProcessTest(WrapperProcessCase):
         self.assertIn("BOUNDED_RUN_LOCK_DIR", errors)
         self.assertNotIn("Traceback", errors)
         self.assertFalse(os.path.exists(os.path.join(self.base.name, "locks")))
+
+    def test_a_lock_file_that_cannot_be_opened_gives_125(self):
+        os.makedirs(os.path.join(self.environ["BOUNDED_RUN_LOCK_DIR"], "reserve.lock"))
+        process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", "print('ran')"])
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual((process.returncode, output), (125, ""), errors)
+        self.assertTrue(errors.startswith("bounded-run: "), errors)
+        self.assertNotIn("Traceback", errors)
 
     def test_each_run_reports_the_budget_and_the_peak(self):
         process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", "pass"])
