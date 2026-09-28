@@ -761,6 +761,16 @@ class RunTest(unittest.TestCase):
             gate.render(report),
         )
 
+    def test_block_with_no_words_is_not_paired_across_files(self):
+        self.repo.write("a.py", "x = 1\n\n#*******\n\ndef main():\n    return x\n")
+        base = self.repo.commit("add a")
+        os.remove(os.path.join(self.repo.path, "a.py"))
+        self.repo.write("b.py", "y = 2\n\n# Reads the arguments\n# and runs the tool.\ndef main():\n    return y\n")
+        self.assertEqual(
+            [(f.path, f.status, f.flagged) for f in gate.run(self.repo.path, base).findings],
+            [("a.py", gate.REMOVED, False), ("b.py", gate.ADDED, False)],
+        )
+
     def test_block_that_moved_to_another_file_unchanged_is_not_listed(self):
         retry = "// retry calls f until it succeeds.\nfunc retry(f func() error) error {\n\treturn f()\n}\n"
         self.repo.write("a.go", "package p\n\nfunc keep() {}\n\n" + retry)

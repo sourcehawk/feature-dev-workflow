@@ -274,9 +274,12 @@ def _postings(new_words: Sequence[List[str]], indexes: List[int]) -> Dict[str, L
 
 
 def _reach(old_words: Sequence[str], postings: Dict[str, List[int]], indexes: List[int], min_kept: float) -> List[int]:
-    """The blocks among indexes that can keep min_kept of old_words."""
-    if min_kept <= 0 or not old_words:
+    """The blocks among indexes that can keep min_kept of old_words. With a share to keep, a block with no
+    words has none to share and reaches no block."""
+    if min_kept <= 0:
         return indexes
+    if not old_words:
+        return []
     # To keep `need` of the words, a block holds a word from each set of
     # len - need + 1 positions, so the rarest such set names every candidate.
     need = math.ceil(min_kept * len(old_words))
