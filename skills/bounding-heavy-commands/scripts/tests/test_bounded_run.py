@@ -146,5 +146,82 @@ class LockDirectoryTest(unittest.TestCase):
                 bounded_run.ensure_lock_directory(link, os.getuid())
 
 
+class ReserveTest(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(bounded_run, "log")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.base = tempfile.TemporaryDirectory()
+        self.addCleanup(self.base.cleanup)
+        self.directory = self.base.name
+
+    def test_takes_the_slots_that_it_needs(self):
+        reservation = bounded_run.try_reserve(self.directory, 3, 2, [])
+        self.addCleanup(reservation.release)
+        self.assertEqual(len(reservation.descriptors), 2)
+
+    def test_gives_nothing_when_too_few_slots_are_free(self):
+        first = bounded_run.try_reserve(self.directory, 3, 2, [])
+        self.addCleanup(first.release)
+        self.assertIsNone(bounded_run.try_reserve(self.directory, 3, 2, []))
+
+    def test_holds_no_slot_after_a_failed_try(self):
+        first = bounded_run.try_reserve(self.directory, 3, 2, [])
+        self.addCleanup(first.release)
+        self.assertIsNone(bounded_run.try_reserve(self.directory, 3, 2, []))
+        third = bounded_run.try_reserve(self.directory, 3, 1, [])
+        self.assertIsNotNone(third)
+        third.release()
+
+    def test_release_frees_the_slots(self):
+        first = bounded_run.try_reserve(self.directory, 2, 2, [])
+        first.release()
+        second = bounded_run.try_reserve(self.directory, 2, 2, [])
+        self.assertIsNotNone(second)
+        second.release()
+
+    def test_an_exclusive_lock_blocks_the_same_name(self):
+        first = bounded_run.try_reserve(self.directory, 4, 1, ["exclusive-abc-port.lock"])
+        self.addCleanup(first.release)
+        self.assertIsNone(bounded_run.try_reserve(self.directory, 4, 1, ["exclusive-abc-port.lock"]))
+
+    def test_a_blocked_exclusive_lock_holds_no_slot(self):
+        first = bounded_run.try_reserve(self.directory, 2, 1, ["exclusive-abc-port.lock"])
+        self.addCleanup(first.release)
+        self.assertIsNone(bounded_run.try_reserve(self.directory, 2, 1, ["exclusive-abc-port.lock"]))
+        other = bounded_run.try_reserve(self.directory, 2, 1, [])
+        self.assertIsNotNone(other)
+        other.release()
+
+    def test_a_different_name_does_not_block(self):
+        first = bounded_run.try_reserve(self.directory, 4, 1, ["exclusive-abc-port.lock"])
+        self.addCleanup(first.release)
+        second = bounded_run.try_reserve(self.directory, 4, 1, ["exclusive-abc-tool.lock"])
+        self.assertIsNotNone(second)
+        second.release()
+
+    def test_the_descriptors_are_not_inheritable(self):
+        reservation = bounded_run.try_reserve(self.directory, 2, 2, ["exclusive-abc-port.lock"])
+        self.addCleanup(reservation.release)
+        for descriptor in reservation.descriptors:
+            self.assertFalse(os.get_inheritable(descriptor))
+
+    def test_reserve_tries_again_until_the_slots_are_free(self):
+        first = bounded_run.try_reserve(self.directory, 1, 1, [])
+        sleeps = []
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == 2:
+                first.release()
+
+        second = bounded_run.reserve(self.directory, 1, 1, [], 0.2, sleep=sleep)
+        self.addCleanup(second.release)
+        self.assertEqual(len(sleeps), 2)
+        for seconds in sleeps:
+            self.assertGreaterEqual(seconds, 0.1)
+            self.assertLess(seconds, 0.3)
+
+
 if __name__ == "__main__":
     unittest.main()

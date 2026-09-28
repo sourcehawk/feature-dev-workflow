@@ -149,3 +149,69 @@ def ensure_lock_directory(path: str, uid: int) -> None:
         raise WrapperError("the lock directory %s belongs to a different user" % path)
     if stat.S_IMODE(info.st_mode) & 0o077:
         os.chmod(path, 0o700)
+
+
+class Reservation:
+    def __init__(self, descriptors: Sequence[int]) -> None:
+        self.descriptors = list(descriptors)
+
+    def release(self) -> None:
+        for descriptor in self.descriptors:
+            os.close(descriptor)
+        self.descriptors = []
+
+
+def _try_lock(path: str) -> Optional[int]:
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(descriptor)
+        return None
+    return descriptor
+
+
+def try_reserve(directory: str, count: int, needed: int, exclusive_files: Sequence[str]) -> Optional[Reservation]:
+    turn = os.open(os.path.join(directory, "reserve.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    held: List[int] = []
+    try:
+        fcntl.flock(turn, fcntl.LOCK_EX)
+        names = list(exclusive_files) + ["slot-%03d.lock" % index for index in range(count)]
+        slots = 0
+        for position, name in enumerate(names):
+            is_slot = position >= len(exclusive_files)
+            if is_slot and slots == needed:
+                break
+            descriptor = _try_lock(os.path.join(directory, name))
+            if descriptor is None:
+                if is_slot:
+                    continue
+                break
+            held.append(descriptor)
+            if is_slot:
+                slots += 1
+        if slots == needed and len(held) == needed + len(exclusive_files):
+            reservation = Reservation(held)
+            held = []
+            return reservation
+        return None
+    finally:
+        for descriptor in held:
+            os.close(descriptor)
+        os.close(turn)
+
+
+def reserve(
+    directory: str, count: int, needed: int, exclusive_files: Sequence[str], poll_seconds: float,
+    sleep: Callable[[float], None] = time.sleep,
+) -> Reservation:
+    announced = False
+    while True:
+        reservation = try_reserve(directory, count, needed, exclusive_files)
+        if reservation is not None:
+            log("holding %d of %d slot(s)" % (needed, count))
+            return reservation
+        if not announced:
+            log("waiting for %d of %d slot(s)" % (needed, count))
+            announced = True
+        sleep(poll_seconds * (0.5 + random.random()))
