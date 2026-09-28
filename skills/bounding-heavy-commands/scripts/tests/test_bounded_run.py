@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import os
+import re
 import select
 import signal
 import subprocess
@@ -101,6 +102,10 @@ class SlotCountTest(unittest.TestCase):
     def test_default_budget_is_a_quarter_in_full_slots(self):
         self.assertEqual(bounded_run.default_budget_mib(32768, 2048), 8192)
         self.assertEqual(bounded_run.default_budget_mib(6000, 2048), 2048)
+
+    def test_default_budget_is_never_more_than_the_total(self):
+        self.assertEqual(bounded_run.default_budget_mib(1024, 2048), 1024)
+        self.assertEqual(bounded_run.default_budget_mib(2048, 2048), 2048)
 
     def test_total_memory_of_this_machine_is_positive(self):
         self.assertGreater(bounded_run.total_memory_mib(), 0)
@@ -1313,6 +1318,13 @@ class WrapperProcessTest(WrapperProcessCase):
         output, errors = process.communicate(timeout=60)
         self.assertRegex(errors, r"bounded-run: budget 2048 MiB, peak \d+ MiB \(sampled, approximate\), exit 0\n")
         self.assertNotIn("suggested budget", errors)
+
+    def test_the_default_budget_on_a_small_machine_is_not_more_than_its_memory(self):
+        process = self.wrapper([], [sys.executable, "-c", "pass"], BOUNDED_RUN_TOTAL_MIB="1024", BOUNDED_RUN_RESERVE_MIB="")
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(process.returncode, 0, errors)
+        budget = int(re.search(r"bounded-run: budget (\d+) MiB, peak", errors).group(1))
+        self.assertLessEqual(budget, 1024)
 
     def test_without_a_cap_the_output_says_so(self):
         process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", "pass"])

@@ -151,7 +151,7 @@ def slots_needed(budget_mib: int, slot_mib: int, count: int) -> int:
 
 
 def default_budget_mib(total_mib: int, slot_mib: int) -> int:
-    return max(1, math.ceil(total_mib / 4 / slot_mib)) * slot_mib
+    return min(total_mib, max(1, math.ceil(total_mib / 4 / slot_mib)) * slot_mib)
 
 
 class Settings:
