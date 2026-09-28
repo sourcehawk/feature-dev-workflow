@@ -9,11 +9,12 @@ script failed before the command gave a result.
 A normal call sets none of the environment variables below. A person can
 set the tuning values in the profile of the shell, so that every session
 on the machine uses the same values. The tests of this script set the
-rest, for the tests themselves and for diagnosis.
+rest, and so do its maintainers when they look for a fault of the script.
 
-A call that sets one of these for itself does not share the queue with
-the other sessions of the machine. Do not set one of them for a single
-call.
+Do not set one of them for a single call. A call with its own slot size,
+reserve, or lock directory does not share the queue with the other
+sessions of the machine, and a call with no cap can take the memory of
+all of them.
 
 Tuning values, with their defaults:
 
@@ -21,7 +22,7 @@ Tuning values, with their defaults:
   BOUNDED_RUN_RESERVE_MIB          memory that the queue never gives out
   BOUNDED_RUN_MEMORY_WAIT_SECONDS  time limit of the wait for free memory (default 300)
 
-Values for tests and for diagnosis:
+Values for the tests of this script, and for its maintainers:
 
   BOUNDED_RUN_TOTAL_MIB            memory of the machine, in place of the measured value
   BOUNDED_RUN_POLL_SECONDS         time between two tries for the slots (default 2)

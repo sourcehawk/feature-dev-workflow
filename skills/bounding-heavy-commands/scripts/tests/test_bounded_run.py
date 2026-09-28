@@ -43,6 +43,21 @@ class UsageTextTest(unittest.TestCase):
             bounded_run.__doc__,
         )
 
+    def test_names_the_risk_of_a_variable_for_a_single_call(self):
+        text = " ".join(bounded_run.__doc__.split())
+        self.assertIn(
+            "Do not set one of them for a single call. A call with its own slot size, reserve, or lock "
+            "directory does not share the queue with the other sessions of the machine, and a call with "
+            "no cap can take the memory of all of them.",
+            text,
+        )
+
+    def test_says_who_the_test_values_are_for(self):
+        text = " ".join(bounded_run.__doc__.split())
+        self.assertIn("The tests of this script set the rest, and so do its maintainers when they look for a fault of the script.", text)
+        self.assertIn("Values for the tests of this script, and for its maintainers:", text)
+        self.assertNotIn("diagnosis", text)
+
 
 class SizeTest(unittest.TestCase):
     def test_reads_gibibytes(self):
