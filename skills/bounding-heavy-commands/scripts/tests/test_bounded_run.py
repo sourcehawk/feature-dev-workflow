@@ -226,6 +226,14 @@ class LockDirectoryTest(unittest.TestCase):
         environ = {"BOUNDED_RUN_LOCK_DIR": "/x/locks", "XDG_RUNTIME_DIR": "/run/user/7"}
         self.assertEqual(bounded_run.lock_directory(environ, 7), "/x/locks")
 
+    def test_rejects_an_override_that_is_not_an_absolute_path(self):
+        for value in ("locks", "./locks", "../x/locks"):
+            with self.subTest(value=value):
+                with self.assertRaises(bounded_run.WrapperError) as caught:
+                    bounded_run.lock_directory({"BOUNDED_RUN_LOCK_DIR": value}, 7)
+                self.assertIn("BOUNDED_RUN_LOCK_DIR", str(caught.exception))
+                self.assertIn("'%s'" % value, str(caught.exception))
+
     def test_uses_the_runtime_directory(self):
         self.assertEqual(bounded_run.lock_directory({"XDG_RUNTIME_DIR": "/run/user/7"}, 7), "/run/user/7/bounded-run")
 
@@ -1204,6 +1212,20 @@ class WrapperProcessTest(WrapperProcessCase):
         output, errors = process.communicate(timeout=60)
         self.assertEqual((process.returncode, output), (125, ""), errors)
         self.assertIn("bounded-run: cannot use the lock directory", errors)
+
+    def test_a_relative_lock_directory_gives_125(self):
+        variables = dict(self.environ, BOUNDED_RUN_LOCK_DIR="locks")
+        process = subprocess.Popen(
+            [sys.executable, WRAPPER, "--memory", "2G", "--", sys.executable, "-c", "print('ran')"],
+            env=variables, cwd=self.base.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        self.processes.append(process)
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual((process.returncode, output), (125, ""), errors)
+        self.assertTrue(errors.startswith("bounded-run: "), errors)
+        self.assertIn("BOUNDED_RUN_LOCK_DIR", errors)
+        self.assertNotIn("Traceback", errors)
+        self.assertFalse(os.path.exists(os.path.join(self.base.name, "locks")))
 
     def test_each_run_reports_the_budget_and_the_peak(self):
         process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", "pass"])

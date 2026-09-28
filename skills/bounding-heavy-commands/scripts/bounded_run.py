@@ -27,7 +27,7 @@ Values for the tests of this script, and for its maintainers:
   BOUNDED_RUN_TOTAL_MIB            memory of the machine, in place of the measured value
   BOUNDED_RUN_POLL_SECONDS         time between two tries for the slots (default 2)
   BOUNDED_RUN_SAMPLE_SECONDS       time between two memory samples (default 1)
-  BOUNDED_RUN_LOCK_DIR             directory of the lock files
+  BOUNDED_RUN_LOCK_DIR             directory of the lock files, as an absolute path
   BOUNDED_RUN_NO_CAP               when set, do not apply the hard cap
 """
 from __future__ import annotations
@@ -182,6 +182,8 @@ def _number(environ: Mapping[str, str], name: str, fallback: float) -> float:
 def lock_directory(environ: Mapping[str, str], uid: int) -> str:
     override = environ.get("BOUNDED_RUN_LOCK_DIR")
     if override:
+        if not os.path.isabs(override):
+            raise WrapperError("cannot use BOUNDED_RUN_LOCK_DIR='%s'; use an absolute path" % override)
         return override
     runtime = environ.get("XDG_RUNTIME_DIR")
     if runtime:
