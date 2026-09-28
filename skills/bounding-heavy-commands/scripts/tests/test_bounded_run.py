@@ -36,6 +36,14 @@ WORKER = (
 )
 
 
+class UsageTextTest(unittest.TestCase):
+    def test_says_who_sets_the_environment_variables(self):
+        self.assertIn(
+            "A normal call sets none of the environment variables below.",
+            bounded_run.__doc__,
+        )
+
+
 class SizeTest(unittest.TestCase):
     def test_reads_gibibytes(self):
         self.assertEqual(bounded_run.parse_size_mib("6G"), 6144)

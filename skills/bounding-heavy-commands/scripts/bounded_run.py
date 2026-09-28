@@ -6,14 +6,25 @@ Usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measur
 The exit code is the exit code of the command. Exit code 125 means that this
 script failed before the command gave a result.
 
-These environment variables are settings for the machine, not for one call.
-Two sessions with different values do not count the same slots.
+A normal call sets none of the environment variables below. A person can
+set the tuning values in the profile of the shell, so that every session
+on the machine uses the same values. The tests of this script set the
+rest, for the tests themselves and for diagnosis.
+
+A call that sets one of these for itself does not share the queue with
+the other sessions of the machine. Do not set one of them for a single
+call.
+
+Tuning values, with their defaults:
 
   BOUNDED_RUN_SLOT_MIB             size of one memory slot (default 2048)
   BOUNDED_RUN_RESERVE_MIB          memory that the queue never gives out
+  BOUNDED_RUN_MEMORY_WAIT_SECONDS  time limit of the wait for free memory (default 300)
+
+Values for tests and for diagnosis:
+
   BOUNDED_RUN_TOTAL_MIB            memory of the machine, in place of the measured value
   BOUNDED_RUN_POLL_SECONDS         time between two tries for the slots (default 2)
-  BOUNDED_RUN_MEMORY_WAIT_SECONDS  time limit of the wait for free memory (default 300)
   BOUNDED_RUN_SAMPLE_SECONDS       time between two memory samples (default 1)
   BOUNDED_RUN_LOCK_DIR             directory of the lock files
   BOUNDED_RUN_NO_CAP               when set, do not apply the hard cap
