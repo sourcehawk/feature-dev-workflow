@@ -190,7 +190,7 @@ def lock_directory(environ: Mapping[str, str], uid: int) -> str:
             raise WrapperError("cannot use BOUNDED_RUN_LOCK_DIR='%s'; use an absolute path" % override)
         return override
     runtime = environ.get("XDG_RUNTIME_DIR")
-    if runtime:
+    if runtime and os.path.isabs(runtime):
         return os.path.join(runtime, PREFIX)
     login_directory = "/run/user/%d" % uid
     try:

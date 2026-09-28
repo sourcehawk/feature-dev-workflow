@@ -252,6 +252,9 @@ class LockDirectoryTest(unittest.TestCase):
     def test_uses_the_runtime_directory(self):
         self.assertEqual(bounded_run.lock_directory({"XDG_RUNTIME_DIR": "/run/user/7"}, 7), "/run/user/7/bounded-run")
 
+    def test_ignores_a_runtime_directory_that_is_not_an_absolute_path(self):
+        self.assertEqual(bounded_run.lock_directory({"XDG_RUNTIME_DIR": "run"}, 999999999), "/tmp/bounded-run-999999999")
+
     def test_falls_back_to_a_directory_for_the_user(self):
         self.assertEqual(bounded_run.lock_directory({}, 999999999), "/tmp/bounded-run-999999999")
 
