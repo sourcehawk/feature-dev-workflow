@@ -1293,6 +1293,18 @@ class WrapperProcessTest(WrapperProcessCase):
         self.assertTrue(errors.startswith("bounded-run: "), errors)
         self.assertNotIn("Traceback", errors)
 
+    def test_an_exclusive_name_in_a_removed_working_directory_gives_125(self):
+        script = 'mkdir gone && cd gone && rmdir ../gone && exec "$@"'
+        process = subprocess.Popen(
+            ["sh", "-c", script, "sh", sys.executable, WRAPPER, "--memory", "2G", "--exclusive", "port", "--", sys.executable, "-c", "print('ran')"],
+            env=self.environ, cwd=self.base.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        self.processes.append(process)
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual((process.returncode, output), (125, ""), errors)
+        self.assertTrue(errors.startswith("bounded-run: "), errors)
+        self.assertNotIn("Traceback", errors)
+
     def test_each_run_reports_the_budget_and_the_peak(self):
         process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", "pass"])
         output, errors = process.communicate(timeout=60)

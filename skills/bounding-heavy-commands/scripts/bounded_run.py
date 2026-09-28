@@ -663,7 +663,12 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
     uid = os.getuid()
     directory = lock_directory(environ, uid)
     ensure_lock_directory(directory, uid)
-    repository = repository_id(os.getcwd()) if options.exclusive else ""
+    repository = ""
+    if options.exclusive:
+        try:
+            repository = repository_id(os.getcwd())
+        except OSError as error:
+            raise WrapperError("cannot read the working directory for --exclusive: %s" % error)
     exclusive_files = [exclusive_file_name(repository, name) for name in options.exclusive]
 
     unit = "%s-%d-%06x" % (PREFIX, os.getpid(), random.randrange(16 ** 6))
