@@ -337,5 +337,62 @@ class ExclusiveNameTest(unittest.TestCase):
             self.assertNotEqual(bounded_run.repository_id(first), bounded_run.repository_id(second))
 
 
+class MemoryReadTest(unittest.TestCase):
+    def test_reads_the_available_memory_of_meminfo(self):
+        text = "MemTotal:       32000000 kB\nMemFree:         1000000 kB\nMemAvailable:    8388608 kB\n"
+        self.assertEqual(bounded_run.parse_meminfo(text), 8192)
+
+    def test_meminfo_without_the_line_gives_nothing(self):
+        self.assertIsNone(bounded_run.parse_meminfo("MemTotal: 1 kB\n"))
+
+    def test_reads_the_pages_of_vm_stat(self):
+        text = (
+            "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n"
+            "Pages free:                               10000.\n"
+            "Pages active:                            900000.\n"
+            "Pages inactive:                           20000.\n"
+            "Pages speculative:                         2000.\n"
+            "Pages wired down:                        100000.\n"
+        )
+        self.assertEqual(bounded_run.parse_vm_stat(text), 32000 * 16384 // (1024 * 1024))
+
+    def test_vm_stat_without_a_page_size_gives_nothing(self):
+        self.assertIsNone(bounded_run.parse_vm_stat("Pages free: 10.\n"))
+
+
+class MemoryWaitTest(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(bounded_run, "log")
+        self.log = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def wait(self, values, limit):
+        readings = list(values)
+        sleeps = []
+        result = bounded_run.wait_for_memory(
+            4096, limit, 5.0, read_available=lambda: readings.pop(0), sleep=sleeps.append,
+        )
+        return result, sleeps
+
+    def test_starts_at_once_when_the_memory_is_free(self):
+        self.assertEqual(self.wait([8000], 300), (True, []))
+
+    def test_waits_until_the_memory_is_free(self):
+        self.assertEqual(self.wait([1000, 2000, 5000], 300), (True, [5.0, 5.0]))
+
+    def test_starts_after_the_time_limit(self):
+        self.assertEqual(self.wait([1000, 1000, 1000], 10), (False, [5.0, 5.0]))
+
+    def test_a_limit_of_zero_does_not_wait(self):
+        self.assertEqual(self.wait([1000], 0), (False, []))
+
+    def test_a_start_after_the_time_limit_is_a_warning(self):
+        self.wait([1000], 0)
+        self.assertTrue(self.log.call_args[0][0].startswith("WARNING: "))
+
+    def test_starts_when_the_memory_is_not_readable(self):
+        self.assertEqual(self.wait([None], 300), (True, []))
+
+
 if __name__ == "__main__":
     unittest.main()

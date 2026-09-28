@@ -239,3 +239,60 @@ def reserve(
             log("waiting for %d of %d slot(s)" % (needed, count))
             announced = True
         sleep(poll_seconds * (0.5 + random.random()))
+
+
+def parse_meminfo(text: str) -> Optional[int]:
+    for line in text.splitlines():
+        if line.startswith("MemAvailable:"):
+            return int(line.split()[1]) // 1024
+    return None
+
+
+def parse_vm_stat(text: str) -> Optional[int]:
+    page = None
+    pages = 0
+    for line in text.splitlines():
+        size = re.search(r"page size of (\d+) bytes", line)
+        if size is not None:
+            page = int(size.group(1))
+        counted = re.match(r"^Pages (free|inactive|speculative):\s+(\d+)\.", line)
+        if counted is not None:
+            pages += int(counted.group(2))
+    if page is None:
+        return None
+    return pages * page // (1024 * 1024)
+
+
+def available_memory_mib() -> Optional[int]:
+    try:
+        with open("/proc/meminfo") as handle:
+            return parse_meminfo(handle.read())
+    except OSError:
+        pass
+    try:
+        done = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return parse_vm_stat(done.stdout)
+
+
+def wait_for_memory(
+    budget_mib: int, limit_seconds: float, poll_seconds: float,
+    read_available: Callable[[], Optional[int]] = available_memory_mib,
+    sleep: Callable[[float], None] = time.sleep,
+) -> bool:
+    waited = 0.0
+    while True:
+        available = read_available()
+        if available is None:
+            log("cannot read the free memory; starting")
+            return True
+        if available >= budget_mib:
+            log("%d MiB free, budget %d MiB; starting" % (available, budget_mib))
+            return True
+        if waited >= limit_seconds:
+            log("WARNING: only %d MiB free after %ds, budget %d MiB; starting" % (available, waited, budget_mib))
+            return False
+        log("%d MiB free, budget %d MiB; waiting (%d of %ds)" % (available, budget_mib, waited, limit_seconds))
+        sleep(poll_seconds)
+        waited += poll_seconds
