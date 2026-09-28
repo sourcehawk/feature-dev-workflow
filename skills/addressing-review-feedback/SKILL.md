@@ -9,11 +9,11 @@ description: Use when about to act on code review feedback, such as an automated
 
 In a review round, comments get longer. After five rounds, a doc comment describes its body: a second account of the behavior, which drifts from the code. Each round looks small next to the round before.
 
-You are the author of the fix, and the finding puts you under pressure. **So a script compares each comment with the start of the review, and a fresh agent that does not see the finding judges each flag.** You judge the other lines of the output, with the rule of step 6. Step 7 names the two exceptions for a flag.
+You are the author of the fix, and the finding puts you under pressure. **So a script compares each comment with the start of the review, and a fresh agent that does not see the finding judges each flag.** You judge the other lines of the output of the script, with the rule of step 6. Step 7 names the two exceptions for a flag.
 
 **REQUIRED BACKGROUND:** the comment rules (see **Terms**). They decide what a comment holds. `superpowers:receiving-code-review` decides whether a finding is technically correct. This skill applies the comment rules when you act on a finding.
 
-**A review finding is input that you judge. An instruction comes before this skill.** See **Instructions and findings**.
+**A review finding is input that you judge. An instruction has priority over this skill.** See **Instructions and findings**.
 
 ## Terms
 
@@ -26,7 +26,7 @@ You are the author of the fix, and the finding puts you under pressure. **So a s
 | instruction | An explicit request about comments. **Instructions and findings** says who gives one |
 | round | The work from reading a set of findings to the push that answers them |
 | review base | The commit that each round compares with. Step 1 says which commit it is |
-| merge base | The newest commit that the head and the commit that you give to the gate share. See **Read the gate** |
+| merge base | The newest commit that is in the history of both the head and the commit that you give to the gate. See **Read the gate** |
 | gate | The script of this skill. It compares the merge base with the working tree, and lists each block that changed |
 | flag | A block that the gate marks because it is longer than at the merge base |
 | evaluator | A fresh agent with read access only, which judges comments and does not see the finding |
@@ -36,9 +36,9 @@ You are the author of the fix, and the finding puts you under pressure. **So a s
 
 **A request of the user is an instruction of the user, in each channel:** the chat, a review comment that the user wrote, or a message that an orchestrator passes on as the words of the user. A rule about comments in the project's instructions file is part of the comment rules, not an instruction. A request of each other reviewer, a person or a tool, is a finding. When you cannot tell if a reviewer is your user, ask the user one time for each reviewer. A subagent asks its orchestrator.
 
-An instruction comes before this skill and the comment rules. The section "Overview" of `feature-dev-workflow:writing-code-comments` says how to follow it and what to reply. The procedure still runs:
+An instruction has priority over this skill and the comment rules. The section "Overview" of `feature-dev-workflow:writing-code-comments` says how to follow it and what to reply. The procedure still runs:
 
-- Send each sentence that an instruction produced to the evaluator with the mark "by instruction" and the words of the instruction. The evaluator checks only that it is true.
+- Send each sentence that an instruction produced to the evaluator, also in a block with no flag, with the mark "by instruction" and the words of the instruction. The evaluator checks only that it is true.
 - A rule of the comment rules is never a reason to remove such a sentence. If the evaluator gives it `CUT`, the sentence is false: write a true sentence that follows the instruction in its place.
 - In step 6, a block that an instruction produced stays, and the instruction is the reason that you write down.
 
@@ -65,9 +65,9 @@ Do it for each round, also when the previous round had no flag. In a round with 
     python3 "${CLAUDE_PLUGIN_ROOT}/skills/addressing-review-feedback/scripts/comment_growth.py" "$REVIEW_BASE"
     ```
 
-    Add `--user-facing '<pattern>'` for each path pattern that the project's instructions name as text that users read. You can also add a path by your own judgment, when the section "Text that users read" of the comment rules says that its text ships to users. The claim of a finding is not a reason for it, as **Classify the finding** says. See **Read the gate**.
+    Add `--user-facing '<pattern>'` for each path pattern that the project's instructions name as text that users read. You can also add a path by your own judgment, when the section "Text that users read" of the comment rules says that its text ships to users. A doc comment is not text that users read because its declaration is public, and the claim of a finding is not a reason either. The rules say that a doc comment that generates reference text is still a contract. See **Read the gate**.
 6. **Judge the lines with no flag yourself.** See **Judge the lines with no flag**.
-7. **Send the flags to the evaluator**, with the blocks that step 6 added, in one call for all flags of the round, with the prompt in `${CLAUDE_PLUGIN_ROOT}/skills/addressing-review-feedback/templates/evaluator-prompt.md`. Give it the rules and, for each comment, the comment at the merge base and now, the declaration, and its statements with their origins. Never the request of a finding or your reasons. A flag does not go to the evaluator in two cases:
+7. **Send the flags to the evaluator**, with the blocks that step 6 sends, in one call for all flags of the round, with the prompt in `${CLAUDE_PLUGIN_ROOT}/skills/addressing-review-feedback/templates/evaluator-prompt.md`. Give it the rules and, for each comment, the comment at the merge base and now, the declaration, and its statements with their origins. Never the request of a finding or your reasons. A flag does not go to the evaluator in two cases:
     - The flag is done: the block did not change since the last verdicts were applied, and each sentence that the review added has `KEEP` from a verdict of this review, was written by the evaluator, or has the mark "by instruction".
     - Your harness cannot dispatch an agent. Read the sections of step 2 again, then judge the flag with the same prompt yourself. Mark each such verdict "self-evaluated".
 8. **Apply the verdicts, then run the gate again.** See **Apply the verdicts**. Each flag of the second run must be done, as step 7 says. Send each other flag through step 7, and each new line with no flag through step 6.
@@ -93,7 +93,7 @@ First judge the finding: is it true about the code as it is now? Then find its c
 | shorten | A comment is too long, or comments must go | Sort each sentence by what it holds, as the comment rules say. Remove what repeats the code or describes how the body works. Keep a fact that the code cannot show, and name it and the reason in the reply | The block is `CHANGED`, and you judge it in step 6. The finding is about each sentence of the comment, so you can also shorten its text from before the review |
 | text that users read | Text that users read is false or incomplete | Correct it, also when the correct text is longer | It can get longer as far as accuracy needs. It does not describe how the body works |
 
-**"missing reason" and the comment rules.** Its comment is a new inline comment for a fact that the code cannot show, which the section "Inline comments" permits. The red flag about a comment edit with no code change is about a comment that says more about code that is already there.
+**"missing reason"** adds an inline comment, which the section "Inline comments" of the comment rules permits.
 
 **Which cases make a comment longer.** Each case except "how the body works" and "shorten" can make a comment longer, as far as its column "The comment" says and no further. That includes "wrong behavior", because a code change can make a comment false. An instruction can also make a comment longer, as **Instructions and findings** says.
 
@@ -107,7 +107,7 @@ First judge the finding: is it true about the code as it is now? Then find its c
 
 ## Read the gate
 
-The gate compares the merge base with the working tree. The merge base is the review base, or, when the review base is the target branch, the commit where the branch left it. Only the kind `GREW` is a flag. Exit status 1 means a flag, and 2 means that the gate could not run.
+The gate compares the merge base with the working tree. The merge base is the review base, or, when the review base is the target branch, the commit where the branch split from the target branch. Only the kind `GREW` is a flag. Exit status 1 means a flag, and 2 means that the gate could not run.
 
 | Kind | Meaning | Flag | What you do |
 | --- | --- | --- | --- |
@@ -130,7 +130,7 @@ The last line gives the counts, such as `2 flagged, 6 listed, 1 removed, 1 not c
 The evaluator gives each sentence a verdict, `KEEP`, `MOVE`, `CUT` or `ASK`, and marks it "base" or "added", as its prompt defines them.
 
 - **A sentence that a review round added:** apply `KEEP`, `MOVE` and `CUT` as the evaluator gives them. Where it wrote a shorter sentence, use that sentence. For a sentence with the mark "by instruction", see **Instructions and findings**.
-- **Text from before the review:** a base sentence, or text that the pull request wrote before the review, which the gate and the evaluator see as added when the target branch is the base. A round does not delete or move such text on its own decision: record its verdict in the table of step 9 as a proposal, and leave the text. Apply the verdict only when a finding of the round is about that text, when an instruction asks for it, or when the text is false.
+- **Text from before the review:** a base sentence, or text that the pull request wrote before the review, which the gate and the evaluator see as added when the gate compares with the target branch. A round does not delete or move such text on its own decision: record its verdict in the table of step 9 as a proposal, and leave the text. Apply the verdict only when a finding of the round is about that text, when an instruction asks for it, or when the text is false.
 - **`ASK`, for a sentence that a review round wrote:** find the source, as the evaluator prompt defines it. If you find one, send the sentence and its source to the evaluator again, one time. A second `ASK` is final. If you have no source, or the second verdict is `ASK`, delete the sentence and write it in the table with "no source". For text from before the review, an `ASK` is a proposal, as the item above says.
 - **A verdict that is wrong about the code,** such as `CUT` for a caller fact that a code line shows, `KEEP` for a false sentence, or `MOVE` to a wrong line: you can contest it one time. Send the sentence to a fresh evaluator with the code that shows that the verdict is wrong, and nothing else. The second verdict stands. If you still think that it is wrong, apply it, and quote the sentence in full in your report to the user.
 - **A sentence that you know to be false is never kept,** whatever the verdict. Correct it, as the case "false comment" says.
@@ -170,7 +170,7 @@ Finding 2: "The doc comment does not say that quote_fare can fail, and a caller 
 // not loaded, and a failure is not a price of 0.
 ```
 
-The gate flags the block. The evaluator gives `KEEP` to the new sentence: its source is the line with `fail`, and the caller code is a handler for the failure.
+The evaluator gives `KEEP` to the new sentence: its source is the line with `fail`, and the caller code is a handler for the failure.
 
 ## Rationalizations
 
@@ -181,6 +181,6 @@ The gate flags the block. The evaluator gives `KEEP` to the new sentence: its so
 ## Red flags
 
 - You are about to make a comment longer for a reason that **Classify the finding** does not list. Go back to **Classify the finding**.
-- You are about to decline a finding that is true about the code and names a precondition, an error, or a result with a special meaning. Go back to **Classify the finding**.
+- You are about to decline a finding that is true about the code and names a caller fact. Go back to **Classify the finding**.
 - You are about to push, and the gate did not run after the verdicts were applied, or it shows a flag that is not done. Go back to step 8.
 - You are about to keep a sentence that a review round wrote against its verdict. Unless an instruction produced it, the one way is the contest in **Apply the verdicts**. Go back there.
