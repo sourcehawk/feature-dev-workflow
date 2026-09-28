@@ -598,11 +598,24 @@ class RunCommandTest(unittest.TestCase):
     def test_an_error_after_the_start_stops_the_command(self):
         pids = []
 
+        def cleanup():
+            for pid in pids:
+                try:
+                    os.killpg(pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+                try:
+                    os.waitpid(pid, 0)
+                except ChildProcessError:
+                    pass
+
+        self.addCleanup(cleanup)
+
         def on_start(pid):
             pids.append(pid)
             raise RuntimeError("boom")
 
-        command = [sys.executable, "-c", "import time; time.sleep(300)"]
+        command = [sys.executable, "-c", "import time; time.sleep(300)", "run-command-test-marker-8f2c1"]
         with self.assertRaises(RuntimeError):
             bounded_run.run_command(command, dict(os.environ), on_start=on_start)
         self.assertEqual(len(pids), 1)
