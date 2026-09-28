@@ -503,6 +503,56 @@ class ReserveTest(unittest.TestCase):
         self.assertTrue(turn_lock_acquired[0], "turn lock should be free while reserve waits")
 
 
+class LockFileTest(unittest.TestCase):
+    def setUp(self):
+        self.base = tempfile.TemporaryDirectory()
+        self.addCleanup(self.base.cleanup)
+        self.path = os.path.join(self.base.name, "slot-000.lock")
+
+    def test_a_file_that_was_deleted_before_the_lock_is_not_the_lock(self):
+        real_open = bounded_run._open_lock_file
+        calls = []
+
+        def open_then_delete(path):
+            descriptor = real_open(path)
+            calls.append(descriptor)
+            if len(calls) == 1:
+                os.unlink(path)
+            return descriptor
+
+        with mock.patch.object(bounded_run, "_open_lock_file", open_then_delete):
+            descriptor = bounded_run._try_lock(self.path)
+        self.addCleanup(os.close, descriptor)
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(os.path.samestat(os.stat(self.path), os.fstat(descriptor)))
+
+    def test_a_lock_makes_the_file_new_for_a_cleaner_of_old_files(self):
+        Path(self.path).write_text("")
+        os.utime(self.path, (1000, 1000))
+        descriptor = bounded_run._try_lock(self.path)
+        self.addCleanup(os.close, descriptor)
+        self.assertGreater(os.stat(self.path).st_mtime, time.time() - 60)
+        self.assertGreater(os.stat(self.path).st_atime, time.time() - 60)
+
+    def test_the_turn_lock_is_not_a_file_that_was_deleted_before_the_lock(self):
+        real_open = bounded_run._open_lock_file
+        turn_path = os.path.join(self.base.name, "reserve.lock")
+        opened = []
+
+        def open_then_delete(path):
+            descriptor = real_open(path)
+            if path == turn_path:
+                opened.append(descriptor)
+                if len(opened) == 1:
+                    os.unlink(path)
+            return descriptor
+
+        with mock.patch.object(bounded_run, "_open_lock_file", open_then_delete):
+            reservation = bounded_run.try_reserve(self.base.name, 1, 1, [])
+        self.addCleanup(reservation.release)
+        self.assertEqual(len(opened), 2)
+
+
 class ExclusiveNameTest(unittest.TestCase):
     def test_name_holds_the_repository_and_the_resource(self):
         self.assertEqual(bounded_run.exclusive_file_name("abc123", "port-8080"), "exclusive-abc123-port-8080.lock")

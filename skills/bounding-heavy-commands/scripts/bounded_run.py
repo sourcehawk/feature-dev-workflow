@@ -293,17 +293,45 @@ def _open_lock_file(path: str) -> int:
         raise WrapperError("cannot open %s: %s" % (path, error.strerror if error.strerror else error))
 
 
-def _try_lock(path: str) -> Optional[int]:
-    descriptor = _open_lock_file(path)
+def _is_the_file_at(path: str, descriptor: int) -> bool:
     try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
+        return os.path.samestat(os.stat(path), os.fstat(descriptor))
+    except OSError:
+        return False
+
+
+def _refresh(descriptor: int) -> None:
+    # A cleaner of a temporary directory deletes a file by its age, also while a lock is held on it.
+    try:
+        os.utime(descriptor)
+    except (OSError, TypeError, NotImplementedError):
+        pass
+
+
+def _lock(path: str, wait: bool) -> Optional[int]:
+    """Locks the file that the path names now. Returns None when wait is false and the lock is held."""
+    while True:
+        descriptor = _open_lock_file(path)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(descriptor)
+            return None
+        except OSError as error:
+            os.close(descriptor)
+            raise _lock_error(path, error)
+        except BaseException:
+            os.close(descriptor)
+            raise
+        # A file that was deleted after the open is locked by this process only: the next caller makes a new one.
+        if _is_the_file_at(path, descriptor):
+            _refresh(descriptor)
+            return descriptor
         os.close(descriptor)
-        return None
-    except OSError as error:
-        os.close(descriptor)
-        raise _lock_error(path, error)
-    return descriptor
+
+
+def _try_lock(path: str) -> Optional[int]:
+    return _lock(path, wait=False)
 
 
 def _lock_error(path: str, error: OSError) -> WrapperError:
@@ -313,13 +341,9 @@ def _lock_error(path: str, error: OSError) -> WrapperError:
 
 def try_reserve(directory: str, count: int, needed: int, exclusive_files: Sequence[str]) -> Optional[Reservation]:
     turn_path = os.path.join(directory, "reserve.lock")
-    turn = _open_lock_file(turn_path)
+    turn = _lock(turn_path, wait=True)
     held: List[int] = []
     try:
-        try:
-            fcntl.flock(turn, fcntl.LOCK_EX)
-        except OSError as error:
-            raise _lock_error(turn_path, error)
         names = list(exclusive_files) + ["slot-%03d.lock" % index for index in range(count)]
         slots = 0
         for position, name in enumerate(names):
