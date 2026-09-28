@@ -47,6 +47,11 @@ import threading
 import time
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
+try:
+    import ctypes
+except ImportError:
+    ctypes = None
+
 PREFIX = "bounded-run"
 EXIT_WRAPPER = 125
 ACTIVE_VARIABLE = "BOUNDED_RUN_ACTIVE"
@@ -58,6 +63,7 @@ SAMPLE_SECONDS = 1.0
 MARGIN_EXACT = 0.25
 MARGIN_APPROXIMATE = 0.5
 BUDGET_STEP_MIB = 256
+PR_SET_PDEATHSIG = 1
 USAGE = "usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measure] -- COMMAND..."
 
 
@@ -542,6 +548,31 @@ def exit_code_of(status: int) -> int:
     return code
 
 
+def parent_death_signal(platform: str = sys.platform) -> Optional[Callable[[], None]]:
+    """Returns a preexec_fn that makes the kernel kill the child when this process stops, or None where no such call exists.
+
+    The kernel ties the signal to the thread that starts the child, and preexec_fn is safe only
+    while this process has no other thread: call Popen from the main thread before a tracker starts.
+    """
+    # macOS has no parent-death signal: there a command lives on after a hard kill of the wrapper.
+    if ctypes is None or not platform.startswith("linux"):
+        return None
+    try:
+        prctl = ctypes.CDLL(None, use_errno=True).prctl
+    except (OSError, AttributeError):
+        return None
+    parent = os.getpid()
+    kill = int(signal.SIGKILL)
+
+    def set_signal() -> None:
+        prctl(PR_SET_PDEATHSIG, kill, 0, 0, 0)
+        # A parent that stopped before the call sends no signal; the child then has a new parent.
+        if os.getppid() != parent:
+            os._exit(EXIT_WRAPPER)
+
+    return set_signal
+
+
 def run_command(
     command: Sequence[str], environ: Mapping[str, str],
     on_start: Optional[Callable[[int], None]] = None,
@@ -561,7 +592,7 @@ def run_command(
     previous = {signum: signal.signal(signum, forward) for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
     try:
         try:
-            process = subprocess.Popen(list(command), env=dict(environ), start_new_session=True)
+            process = subprocess.Popen(list(command), env=dict(environ), start_new_session=True, preexec_fn=parent_death_signal())
         except OSError as error:
             raise WrapperError("cannot start '%s': %s" % (command[0], error))
         started.append(process.pid)
@@ -608,7 +639,7 @@ def inside_cap(
     previous = {signum: signal.signal(signum, keep_running) for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
     try:
         try:
-            process = subprocess.Popen(list(command))
+            process = subprocess.Popen(list(command), preexec_fn=parent_death_signal())
         except OSError as error:
             log("cannot start '%s': %s" % (command[0], error))
             return EXIT_WRAPPER

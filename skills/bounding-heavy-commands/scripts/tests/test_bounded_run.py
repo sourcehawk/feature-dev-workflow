@@ -984,6 +984,47 @@ class RunCommandTest(unittest.TestCase):
         self.assertFalse(alive, "the command still runs")
 
 
+class ParentDeathSignalTest(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(bounded_run, "log")
+        self.log = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_nothing_on_a_different_system(self):
+        self.assertIsNone(bounded_run.parent_death_signal(platform="darwin"))
+
+    def test_nothing_without_ctypes(self):
+        with mock.patch.object(bounded_run, "ctypes", None):
+            self.assertIsNone(bounded_run.parent_death_signal(platform="linux"))
+        self.log.assert_not_called()
+
+    def test_nothing_without_prctl(self):
+        for library in (mock.Mock(side_effect=OSError("no library")), mock.Mock(return_value=object())):
+            with self.subTest(library=library):
+                with mock.patch.object(bounded_run, "ctypes", mock.Mock(CDLL=library)):
+                    self.assertIsNone(bounded_run.parent_death_signal(platform="linux"))
+        self.log.assert_not_called()
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "only Linux has a parent-death signal")
+    def test_a_child_whose_parent_is_already_gone_exits(self):
+        with mock.patch.object(bounded_run.os, "getpid", return_value=1):
+            set_signal = bounded_run.parent_death_signal()
+        process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"], preexec_fn=set_signal)
+
+        def stop():
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+
+        self.addCleanup(stop)
+        self.assertEqual(process.wait(timeout=60), bounded_run.EXIT_WRAPPER)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "only Linux has a parent-death signal")
+    def test_a_child_of_this_process_runs(self):
+        process = subprocess.Popen([sys.executable, "-c", "pass"], preexec_fn=bounded_run.parent_death_signal())
+        self.assertEqual(process.wait(timeout=60), 0)
+
+
 class BoundedCleanupTest(unittest.TestCase):
     """Calls bounded() in this process, with run_command and cap_usable replaced by stubs.
 
@@ -1165,6 +1206,30 @@ class WrapperProcessCase(unittest.TestCase):
                 return buffer
             buffer += chunk.decode(errors="replace")
 
+    def gone(self, pid, seconds=10.0):
+        """Returns True when the process stops, or is a zombie, within seconds."""
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+            try:
+                if Path("/proc/%d/stat" % pid).read_text().rsplit(")", 1)[1].split()[0] == "Z":
+                    return True
+            except OSError:
+                return True
+            time.sleep(0.05)
+        return False
+
+    def kill_later(self, pid):
+        def kill():
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        self.addCleanup(kill)
+
     def peak_concurrency(self):
         running = 0
         peak = 0
@@ -1345,6 +1410,15 @@ class WrapperProcessTest(WrapperProcessCase):
         self.assertEqual(follower.wait(timeout=60), 0)
         self.assertLess(time.time() - started, 30.0)
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "only Linux has a parent-death signal")
+    def test_a_hard_kill_of_the_wrapper_stops_the_command(self):
+        process = self.worker("orphan", "2G", hold="300")  # runs until the kill below ends it
+        command = int(self.wait_for_event("start", "orphan").split()[2])
+        self.kill_later(command)
+        process.kill()
+        process.wait(timeout=60)
+        self.assertTrue(self.gone(command), "the command still runs")
+
     def test_the_command_does_not_inherit_the_locks(self):
         script = (
             "import os\n"
@@ -1522,6 +1596,18 @@ class HardCapTest(WrapperProcessCase):
             while time.time() < deadline:
                 os.kill(int(line.split()[2]), 0)
                 time.sleep(0.05)
+
+    def test_a_hard_kill_of_the_wrapper_stops_the_inside_process_and_the_command(self):
+        process = self.worker("capped-orphan", "1G", hold="300")  # runs until the kill below ends it
+        command = int(self.wait_for_event("start", "capped-orphan").split()[2])
+        inside = int(Path("/proc/%d/stat" % command).read_text().rsplit(")", 1)[1].split()[1])
+        self.kill_later(inside)
+        self.kill_later(command)
+        self.assertIn(b"--inside-cap", Path("/proc/%d/cmdline" % inside).read_bytes())
+        process.kill()
+        process.wait(timeout=60)
+        self.assertTrue(self.gone(inside), "the --inside-cap process still runs")
+        self.assertTrue(self.gone(command), "the command still runs")
 
     def test_the_peak_comes_from_the_cgroup(self):
         script = "import time\ndata = bytearray(150 * 1024 * 1024)\nfor index in range(0, len(data), 4096):\n    data[index] = 1\ntime.sleep(1.2)\n"
