@@ -1,6 +1,6 @@
 ---
 name: writing-code-comments
-description: Use when about to write, edit, or delete a comment in source code, such as a doc comment on a declaration, an inline comment, or a file header, or when a diff under review adds or changes comments.
+description: Use when about to write, edit, or delete a comment in source code, such as a doc comment on a declaration, an inline comment, or a file header, or when a diff under review adds, changes, or removes comments.
 ---
 
 # writing-code-comments
