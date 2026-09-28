@@ -303,6 +303,7 @@ def cap_prefix(budget_mib: int, cpus: Optional[int], unit: str) -> List[str]:
         "systemd-run", "--user", "--scope", "--quiet", "--collect", "--unit", unit,
         "-p", "MemoryMax=%dM" % budget_mib,
         "-p", "MemorySwapMax=0",
+        "-p", "OOMPolicy=continue",
     ]
     if cpus is not None:
         prefix += ["-p", "CPUQuota=%d%%" % (cpus * 100)]

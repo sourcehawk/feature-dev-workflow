@@ -399,7 +399,7 @@ class CapTest(unittest.TestCase):
     def test_prefix_holds_the_limits(self):
         self.assertEqual(bounded_run.cap_prefix(6144, 4, "unit-1"), [
             "systemd-run", "--user", "--scope", "--quiet", "--collect", "--unit", "unit-1",
-            "-p", "MemoryMax=6144M", "-p", "MemorySwapMax=0",
+            "-p", "MemoryMax=6144M", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue",
             "-p", "CPUQuota=400%", "--",
         ])
 
