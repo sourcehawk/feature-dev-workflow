@@ -309,13 +309,14 @@ def wait_for_memory(
         waited += poll_seconds
 
 
-def cap_prefix(budget_mib: int, cpus: Optional[int], unit: str) -> List[str]:
+def cap_prefix(budget_mib: int, cpus: Optional[int], unit: str, oom_policy: bool = True) -> List[str]:
     prefix = [
         "systemd-run", "--user", "--scope", "--quiet", "--collect", "--unit", unit,
         "-p", "MemoryMax=%dM" % budget_mib,
         "-p", "MemorySwapMax=0",
-        "-p", "OOMPolicy=continue",
     ]
+    if oom_policy:
+        prefix += ["-p", "OOMPolicy=continue"]
     if cpus is not None:
         prefix += ["-p", "CPUQuota=%d%%" % (cpus * 100)]
     return prefix + ["--"]
@@ -333,6 +334,18 @@ def cap_usable(
     except (OSError, subprocess.TimeoutExpired):
         return False
     return done.returncode == 0
+
+
+def choose_cap_prefix(
+    budget_mib: int, cpus: Optional[int], unit: str,
+    usable: Callable[[Sequence[str]], bool],
+) -> Optional[List[str]]:
+    """Returns the prefix of the hard cap for the unit, or None when no cap is usable here."""
+    # A scope unit accepts OOMPolicy= from systemd 253; an older systemd rejects the whole prefix.
+    for oom_policy in (True, False):
+        if usable(cap_prefix(budget_mib, cpus, unit + "-probe", oom_policy)):
+            return cap_prefix(budget_mib, cpus, unit, oom_policy)
+    return None
 
 
 def cgroup_directory(pid: int, unit: str, proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[str]:
@@ -583,11 +596,12 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
     exclusive_files = [exclusive_file_name(repository, name) for name in options.exclusive]
 
     unit = "%s-%d-%06x" % (PREFIX, os.getpid(), random.randrange(16 ** 6))
-    capped = not settings.no_cap and cap_usable(cap_prefix(budget, options.cpus, unit + "-probe"))
+    prefix = None if settings.no_cap else choose_cap_prefix(budget, options.cpus, unit, cap_usable)
+    capped = prefix is not None
     peak_file = os.path.join(directory, "peak-%s" % unit)
-    if capped:
+    if prefix is not None:
         inside = [sys.executable, os.path.abspath(__file__), "--inside-cap", peak_file, unit, "--"]
-        command = cap_prefix(budget, options.cpus, unit) + inside + command
+        command = prefix + inside + command
     else:
         log("no hard cap is available here; the queue and the wait for free memory are the full protection")
 

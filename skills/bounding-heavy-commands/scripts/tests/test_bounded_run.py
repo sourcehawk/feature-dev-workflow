@@ -414,6 +414,51 @@ class CapTest(unittest.TestCase):
     def test_prefix_without_cpus_has_no_quota(self):
         self.assertNotIn("CPUQuota", " ".join(bounded_run.cap_prefix(6144, None, "unit-1")))
 
+    def test_prefix_without_the_oom_policy(self):
+        prefix = bounded_run.cap_prefix(6144, None, "unit-1", oom_policy=False)
+        self.assertNotIn("OOMPolicy", " ".join(prefix))
+        self.assertIn("MemoryMax=6144M", prefix)
+
+    def choose(self, answers):
+        probes = []
+
+        def usable(prefix):
+            probes.append(list(prefix))
+            return answers[len(probes) - 1]
+
+        return bounded_run.choose_cap_prefix(1024, 2, "unit-1", usable), probes
+
+    def test_uses_the_oom_policy_when_the_first_probe_passes(self):
+        prefix, probes = self.choose([True])
+        self.assertEqual(prefix, bounded_run.cap_prefix(1024, 2, "unit-1"))
+        self.assertEqual(len(probes), 1)
+        self.assertIn("OOMPolicy=continue", probes[0])
+        self.assertNotIn("unit-1", probes[0])
+
+    def test_uses_the_prefix_without_the_oom_policy_when_only_the_second_probe_passes(self):
+        prefix, probes = self.choose([False, True])
+        self.assertEqual(prefix, bounded_run.cap_prefix(1024, 2, "unit-1", oom_policy=False))
+        self.assertEqual(len(probes), 2)
+        self.assertNotIn("OOMPolicy=continue", probes[1])
+
+    def test_no_cap_when_both_probes_fail(self):
+        prefix, probes = self.choose([False, False])
+        self.assertIsNone(prefix)
+        self.assertEqual(len(probes), 2)
+
+    def test_no_command_runs_on_a_different_system(self):
+        calls = []
+
+        def run(command, **keywords):
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 0)
+
+        def usable(prefix):
+            return bounded_run.cap_usable(prefix, platform="darwin", which=lambda name: "/usr/bin/systemd-run", run=run)
+
+        self.assertIsNone(bounded_run.choose_cap_prefix(1024, 2, "unit-1", usable))
+        self.assertEqual(calls, [])
+
     def probe(self, platform, tool, code=0, error=None):
         calls = []
 
@@ -1099,7 +1144,7 @@ class WrapperProcessTest(WrapperProcessCase):
 
 
 @unittest.skipUnless(
-    bounded_run.cap_usable(bounded_run.cap_prefix(256, 1, "bounded-run-test-probe-%d" % os.getpid())),
+    bounded_run.choose_cap_prefix(256, 1, "bounded-run-test-%d" % os.getpid(), bounded_run.cap_usable) is not None,
     "no hard cap on this machine",
 )
 class HardCapTest(WrapperProcessCase):
