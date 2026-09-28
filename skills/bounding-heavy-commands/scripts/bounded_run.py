@@ -589,7 +589,8 @@ def parent_death_signal(platform: str = sys.platform) -> Optional[Callable[[], N
     kill = int(signal.SIGKILL)
 
     def set_signal() -> None:
-        prctl(PR_SET_PDEATHSIG, kill, 0, 0, 0)
+        if prctl(PR_SET_PDEATHSIG, kill, 0, 0, 0) != 0:
+            os.write(2, ("%s: WARNING: cannot set the parent-death signal; the command lives on after a hard kill of the wrapper\n" % PREFIX).encode())
         # A parent that stopped before the call sends no signal; the child then has a new parent.
         if os.getppid() != parent:
             os._exit(EXIT_WRAPPER)

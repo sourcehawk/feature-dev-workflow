@@ -1072,8 +1072,23 @@ class ParentDeathSignalTest(unittest.TestCase):
         self.addCleanup(stop)
         self.assertEqual(process.wait(timeout=60), bounded_run.EXIT_WRAPPER)
 
+    def test_a_call_that_the_kernel_refuses_gives_a_warning_and_the_child_runs(self):
+        library = mock.Mock(return_value=mock.Mock(prctl=mock.Mock(return_value=-1)))
+        with mock.patch.object(bounded_run, "ctypes", mock.Mock(CDLL=library)):
+            set_signal = bounded_run.parent_death_signal(platform="linux")
+        process = subprocess.Popen([sys.executable, "-c", "pass"], preexec_fn=set_signal, stderr=subprocess.PIPE, text=True)
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(process.returncode, 0, errors)
+        self.assertIn("bounded-run: WARNING: cannot set the parent-death signal; the command lives on after a hard kill of the wrapper", errors)
+
     @unittest.skipUnless(sys.platform.startswith("linux"), "only Linux has a parent-death signal")
     def test_a_child_of_this_process_runs(self):
+        process = subprocess.Popen([sys.executable, "-c", "pass"], preexec_fn=bounded_run.parent_death_signal(), stderr=subprocess.PIPE, text=True)
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual((process.returncode, errors), (0, ""))
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "only Linux has a parent-death signal")
+    def test_a_child_of_this_process_runs_with_no_pipe(self):
         process = subprocess.Popen([sys.executable, "-c", "pass"], preexec_fn=bounded_run.parent_death_signal())
         self.assertEqual(process.wait(timeout=60), 0)
 
