@@ -559,6 +559,35 @@ class RunTest(unittest.TestCase):
         self.assertEqual(report.not_checked, ())
         self.assertFalse(report.flagged)
 
+    def test_block_that_moved_to_another_file_and_grew_is_flagged_at_its_new_path(self):
+        retry = "// retry calls f until it succeeds.\nfunc retry(f func() error) error {\n\treturn f()\n}\n"
+        self.repo.write("a.go", "package p\n\nfunc keep() {}\n\n" + retry)
+        self.repo.write("b.go", "package p\n\nfunc other() {}\n")
+        base = self.repo.commit("add a and b")
+        self.repo.write("a.go", "package p\n\nfunc keep() {}\n")
+        self.repo.write(
+            "b.go",
+            "package p\n\nfunc other() {}\n\n"
+            "// retry calls f until it succeeds.\n"
+            "// It waits one second between two calls.\n"
+            "// It stops after five calls.\n"
+            "func retry(f func() error) error {\n\treturn f()\n}\n",
+        )
+        report = gate.run(self.repo.path, base)
+        self.assertEqual(
+            [(f.path, f.line, f.status, f.old_length, f.new_length, f.flagged) for f in report.findings],
+            [("b.go", 5, gate.GREW, 1, 3, True)],
+        )
+
+    def test_block_that_moved_to_another_file_unchanged_is_not_listed(self):
+        retry = "// retry calls f until it succeeds.\nfunc retry(f func() error) error {\n\treturn f()\n}\n"
+        self.repo.write("a.go", "package p\n\nfunc keep() {}\n\n" + retry)
+        self.repo.write("b.go", "package p\n\nfunc other() {}\n")
+        base = self.repo.commit("add a and b")
+        self.repo.write("a.go", "package p\n\nfunc keep() {}\n")
+        self.repo.write("b.go", "package p\n\nfunc other() {}\n\n" + retry)
+        self.assertEqual(gate.run(self.repo.path, base).findings, ())
+
     def test_unknown_file_type_is_listed_as_not_checked(self):
         self.repo.write("rules.xyz", "?? a comment in a syntax the gate does not know\n")
         report = gate.run(self.repo.path, "HEAD")

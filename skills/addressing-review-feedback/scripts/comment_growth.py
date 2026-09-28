@@ -252,9 +252,9 @@ class Finding:
     user_facing: bool = False
 
 
-def pair(old: Sequence[Block], new: Sequence[Block]) -> Tuple[Dict[int, Optional[Block]], Tuple[Block, ...]]:
-    """Maps the index of each changed or added block of new to its block in old (or to None), and lists the
-    blocks of old that have no partner in new."""
+def pair(old: Sequence[Block], new: Sequence[Block]) -> Tuple[Dict[int, Optional[int]], Tuple[int, ...]]:
+    """Maps the index of each changed or added block of new to the index of its block in old (or to None), and
+    lists the indexes of the blocks of old that have no partner in new."""
     # (order, block) for each block of old not yet claimed by an unchanged match.
     free: List[Tuple[int, Block]] = list(enumerate(old))
     open_indexes: List[int] = []
@@ -281,24 +281,22 @@ def pair(old: Sequence[Block], new: Sequence[Block]) -> Tuple[Dict[int, Optional
                 candidates.append((similarity + _kept(candidate, block), abs(order - index), index, order))
     candidates.sort(key=lambda candidate: (-candidate[0], candidate[1]))
 
-    pairs: Dict[int, Optional[Block]] = {index: None for index in open_indexes}
+    pairs: Dict[int, Optional[int]] = {index: None for index in open_indexes}
     claimed_new = set()
     claimed_old = set()
     for score, distance, index, order in candidates:
         if index in claimed_new or order in claimed_old:
             continue
-        pairs[index] = old[order]
+        pairs[index] = order
         claimed_new.add(index)
         claimed_old.add(order)
 
-    removed = tuple(block for order, block in free if order not in claimed_old)
-    return pairs, removed
+    return pairs, tuple(order for order, _ in free if order not in claimed_old)
 
 
-def compare(path: str, old_source: str, new_source: str, family: Family) -> List[Finding]:
-    old = scan(old_source, family)
-    new = scan(new_source, family)
-    pairs, removed = pair(old, new)
+def _findings(
+    path: str, new: Sequence[Block], pairs: Dict[int, Optional[Block]], removed: Sequence[Block]
+) -> List[Finding]:
     findings = []
     for index, base in sorted(pairs.items()):
         block = new[index]
@@ -311,6 +309,16 @@ def compare(path: str, old_source: str, new_source: str, family: Family) -> List
     for block in removed:
         findings.append(Finding(path, block.line, REMOVED, block.length, 0, block.anchor, False))
     return findings
+
+
+def _pair_blocks(old: Sequence[Block], new: Sequence[Block]) -> Tuple[Dict[int, Optional[Block]], List[Block]]:
+    pairs, removed = pair(old, new)
+    return {index: None if order is None else old[order] for index, order in pairs.items()}, [old[o] for o in removed]
+
+
+def compare(path: str, old_source: str, new_source: str, family: Family) -> List[Finding]:
+    new = scan(new_source, family)
+    return _findings(path, new, *_pair_blocks(scan(old_source, family), new))
 
 
 class GitError(Exception):
@@ -374,7 +382,8 @@ class Report:
 def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
     top = git(cwd, "rev-parse", "--show-toplevel").strip()
     merge_base = git(top, "merge-base", base, "HEAD").strip()
-    findings: List[Finding] = []
+    # (path, new blocks, pairs, removed blocks) of each file that was compared.
+    files: List[Tuple[str, List[Block], Dict[int, Optional[Block]], List[Block]]] = []
     not_checked: List[str] = []
     for change in changed_files(top, merge_base):
         full_path = os.path.join(top, change.path)
@@ -397,8 +406,34 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
         else:
             new_source = ""
         old_source = git(top, "show", merge_base + ":" + change.base_path) if change.base_path else ""
-        exempt = any(fnmatch.fnmatchcase(change.path, glob) for glob in user_facing)
-        for finding in compare(change.path, old_source, new_source, family):
+        new = scan(new_source, family)
+        files.append((change.path, new, *_pair_blocks(scan(old_source, family), new)))
+
+    # A block that moved to another file is still free on both sides after
+    # the pairing inside each file, so the free blocks pair once more across files.
+    added = [
+        (number, index)
+        for number, (_, _, pairs, _) in enumerate(files)
+        for index, base in sorted(pairs.items())
+        if base is None
+    ]
+    gone = [(number, block) for number, (_, _, _, removed) in enumerate(files) for block in removed]
+    moved, left = pair([block for _, block in gone], [files[number][1][index] for number, index in added])
+    for file in files:
+        file[3].clear()
+    for order in left:
+        number, block = gone[order]
+        files[number][3].append(block)
+    for position, (number, index) in enumerate(added):
+        if position not in moved:
+            del files[number][2][index]
+        elif moved[position] is not None:
+            files[number][2][index] = gone[moved[position]][1]
+
+    findings: List[Finding] = []
+    for path, new, pairs, removed in files:
+        exempt = any(fnmatch.fnmatchcase(path, glob) for glob in user_facing)
+        for finding in _findings(path, new, pairs, removed):
             if exempt:
                 finding = Finding(
                     finding.path, finding.line, finding.status, finding.old_length,
