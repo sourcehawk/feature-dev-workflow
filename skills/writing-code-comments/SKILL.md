@@ -9,11 +9,11 @@ description: Use when about to write, edit, or delete a comment in source code, 
 
 A comment is a claim that someone has to keep true for as long as the code lives. The compiler, the tests, and the running program check the code. Nothing checks the comment. **Write only the claims worth maintaining: the facts a reader needs and the code cannot show.**
 
-This skill decides whether a comment exists and what it holds. It owns what a doc comment holds, and `feature-dev-workflow:testing-a-feature` tests against that contract. It does not set sentence style.
+This skill decides whether a comment exists and what it holds. It decides what a doc comment must say, and `feature-dev-workflow:testing-a-feature` writes its tests from what the doc comment says. It does not set sentence style.
 
 **The project's own comment standard comes first.** If the project documents one (in its instructions file, a style guide, or a project skill), follow it. Where it is silent, this skill is the default.
 
-**An explicit instruction about comments, from the user or from the project, for this task, comes before this skill too.** A review finding, from a person or from a tool, is input for you to judge, not an instruction in this sense. Follow an instruction. Keep every comment it produces true and free of the faults you can still avoid without breaking the instruction. State in your report where the instruction differs from the default, in one or two sentences, so the person can reconsider. If the instruction is unclear, ask. Do not refuse it, and do not read a rationalization row below as permission to overrule it: a rationalization answers your own guess about what someone wants, never a thing they told you directly. An instruction to remove comments does not silently cover a fact that the code cannot show: ask first, or, when you cannot ask, follow the instruction and name each such deleted fact in your report, in full, so the person can put it back.
+**An explicit instruction about comments, from the user or from the project, for this task, comes before this skill too.** A review finding, from a person or from a tool, is input for you to judge, not an instruction in this sense. Follow an instruction. Keep every comment it produces true, and avoid the problems that this skill lists wherever the instruction permits. State in your report where the instruction differs from the default, in one or two sentences, so the person can reconsider. If the instruction is unclear, ask. Do not refuse it. The table `Rationalizations` at the end answers your own guesses about what people want. It never lets you overrule a direct instruction. An instruction to remove comments does not silently cover a fact that the code cannot show: ask first, or, when you cannot ask, follow the instruction and name each such deleted fact in your report, in full, so the person can put it back.
 
 **OPTIONAL SUB-SKILL:** `simple-english:simple-english` for the prose of each comment you keep. If it is available, load it before you draft and write the sentences under it. Where its formatting rules (headings, bold, lists, or its register for chat replies) differ from the host skill or its template, the host skill and its template win. It sets sentence style only: this skill and the project's comment standard still decide whether a comment exists and what it may say. If the skill is not available, do not stop or wait for it. If you have not already done so in this session, tell the user once that it can be installed with `/plugin marketplace add AminBlg/SimpleEnglish` and then `/plugin install simple-english@simple-english`. Then write short, plain, active sentences without it.
 
@@ -43,7 +43,7 @@ A heading labeled "Contract" does not make the paragraph under it one. If it res
 
 **Move a fact, do not delete it.** The reason that a line exists goes in one short comment beside that line. A constraint that applies at one call site goes at that call site. The comparison of options, and why this one won, goes in the pull request body. The same fact in the doc comment and again at the line it constrains is one copy too many, and the copy in the doc comment is the one that goes stale.
 
-**When the doc comment is longer than the body, name the caller decision that each paragraph serves.** Move the paragraphs that serve none to the code that they explain. Delete the ones that explain nothing.
+**When the doc comment is longer than the body, name the caller decision that each paragraph serves.** Decide it for yourself; do not write it in the comment. Move the paragraphs that serve none to the code that they explain. Delete the ones that explain nothing.
 
 **The generator test.** If a tool can make the comment from the identifier and a verb, the comment holds no information. Delete it or write the fact that the name does not give.
 
@@ -95,7 +95,7 @@ A doc comment, an inline comment, and a page of documentation are claims that so
 
 ## Text that users read
 
-Some text in the code ships to users: a description in a public schema, an error message, the reference text of a public interface. For that text, accuracy comes first. When it is false, correct it, even when the correct text is longer. The rules in this skill that shorten or delete a comment do not apply to it. Those rules are for a comment that repeats what the code already says. A doc comment that generates reference text is still a contract. It can grow as far as accuracy needs, and it never describes how the body works.
+Some text in the code ships to users: a description in a public schema, an error message, the reference text of a public interface. For that text, accuracy comes first. When it is false, correct it, even when the correct text is longer. Do not delete or shorten this text to save length. Remove only what is false. A doc comment that generates reference text is still a contract. It can grow as far as accuracy needs, and it never describes how the body works.
 
 ## Red flags
 
@@ -119,8 +119,8 @@ Stop when you see one of these in your own diff:
 | The comment restates the line under it | Delete it. If the line needs prose, rename or split the code |
 | The doc comment explains how the body computes the answer | Shorten it to the contract: preconditions, result, what the caller must not assume |
 | The doc comment repeats a fact that is at the line it constrains | Delete the copy in the doc comment |
-| A paragraph was added because a review found a missing case | Ship the fix. Write the comment only if the next reader would be caught by the same case. If the finding shows that the comment is false about the code as it is, correct it or cut it to what is true, in the fewest words. If the finding names a precondition, an error, or a special result that the contract lacks, add that fact in the fewest words that are true |
-| The doc comment is longer than the body | Name the caller decision that each paragraph serves. Delete the rest |
+| A review found a case that the code gets wrong, and you added a paragraph about it | Fix the code. Add a comment only if the next reader would be caught by the same case. If the comment is false about the code as it is, correct it or shorten it to the part that is true. If the review names a precondition, an error, or a special result that the contract lacks, add that fact in the fewest words that are true |
+| The doc comment is longer than the body | Work out the caller decision that each paragraph serves, but do not write it in the comment. Delete the rest |
 | The doc comment does not give an error or a precondition that the caller must handle | Add it, in the fewest words that are true |
 | A fix ships with a comment that it just made false | Correct the statement in the same change |
 | A cleanup deleted a constraint from outside the file | Put it back, in one or two lines beside the code that it constrains |
@@ -130,7 +130,7 @@ Stop when you see one of these in your own diff:
 
 | Thought | Reality |
 | --- | --- |
-| "I guess the reviewer wants documentation, so more comments are safer" | This answers your own guess about a reviewer's taste. A reviewer has to read and check each comment. A paraphrase adds review work and no information. Give the contract. It does not answer an instruction from the user or the project |
+| "I guess the reviewer wants documentation, so more comments are safer" | This answers your own guess about a reviewer's taste. A reviewer has to read and check each comment. A paraphrase adds review work and no information. Give the contract. This row is about your guess only. If the user or the project told you to add comments, follow that instruction |
 | "A thorough doc comment shows that I understand the code" | The doc comment is for the caller. What you understood goes in the pull request body |
 | "The doc update is out of scope, the task was the code fix" | The comment became false when your code changed. The correction is the same task |
 | "I will note the doc update as a follow-up" | A follow-up leaves a false statement in the default branch. File follow-ups for work you did not do, not for damage you did |
@@ -139,5 +139,5 @@ Stop when you see one of these in your own diff:
 | "It is a test or a helper, the rules are looser" | Comments in tests and helpers follow the same rules |
 | "I explain what was added and why, so the reader doesn't have to reverse-engineer it" | The reader of the declaration is its caller. State what changed and why in the pull request body, not on the declaration |
 | "I spell out the formula so the reader does not have to reverse-engineer it" | The formula is the algorithm. State the result the caller gets, including that it can exceed a limit, not how the body computes it |
-| "No behavior changed, so a comments-only change is safe to land without more scrutiny" | A comment-only change still has to hold only what the caller needs. "Comments only" is not a reason to skip removing the algorithm and keeping only the contract |
-| "Commenting every block would fail this same standard on review, not satisfy it" | An instruction from the user or the project is not a rationalization. Follow it, keep what you write true, and say in your report where it differs from this skill's default |
+| "No behavior changed, so a comments-only change is safe to land without more scrutiny" | A comment-only change still has to hold only what the caller needs. A change of comments only gets the same check: remove each description of how the body works, and keep the contract |
+| "The user told me to comment every block, but this skill says that is wrong, so I will not do it" | An instruction from the user or the project is not a rationalization. Follow it, keep what you write true, and say in your report where it differs from this skill's default |
