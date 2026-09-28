@@ -150,3 +150,74 @@ def scan(source: str, family: Family) -> List[Block]:
         Block(start + 1, tuple(line.strip() for line in lines[start : end + 1]), anchor(start, end, side))
         for start, end, side in spans
     ]
+
+
+ADDED = "ADDED"
+CHANGED = "CHANGED"
+GREW = "GREW"
+
+# Two anchor lines at or above this ratio are the same declaration after an edit.
+SIMILAR_ANCHOR = 0.6
+
+
+@dataclass(frozen=True)
+class Finding:
+    path: str
+    line: int
+    status: str
+    old_length: int
+    new_length: int
+    anchor: str
+    flagged: bool
+    user_facing: bool = False
+
+
+def pair(old: Sequence[Block], new: Sequence[Block]) -> Dict[int, Optional[Block]]:
+    """Maps the index of each changed or added block of new to its block in old, or to None."""
+    free = list(old)
+    open_indexes: List[int] = []
+    for index, block in enumerate(new):
+        same = next((b for b in free if b.anchor == block.anchor and b.text == block.text), None)
+        if same is None:
+            open_indexes.append(index)
+        else:
+            free.remove(same)
+
+    pairs: Dict[int, Optional[Block]] = {}
+    for index in open_indexes:
+        match = next((b for b in free if b.anchor and b.anchor == new[index].anchor), None)
+        pairs[index] = match
+        if match is not None:
+            free.remove(match)
+
+    for index in open_indexes:
+        if pairs[index] is not None or not new[index].anchor:
+            continue
+        best: Optional[Block] = None
+        best_rank: Tuple[float, int] = (0.0, 0)
+        for candidate in free:
+            if not candidate.anchor:
+                continue
+            ratio = difflib.SequenceMatcher(None, candidate.anchor, new[index].anchor).ratio()
+            rank = (ratio, -abs(candidate.line - new[index].line))
+            if ratio >= SIMILAR_ANCHOR and (best is None or rank > best_rank):
+                best, best_rank = candidate, rank
+        if best is not None:
+            pairs[index] = best
+            free.remove(best)
+    return pairs
+
+
+def compare(path: str, old_source: str, new_source: str, family: Family) -> List[Finding]:
+    old = scan(old_source, family)
+    new = scan(new_source, family)
+    findings = []
+    for index, base in sorted(pair(old, new).items()):
+        block = new[index]
+        if base is None:
+            findings.append(Finding(path, block.line, ADDED, 0, block.length, block.anchor, False))
+        elif block.length > base.length:
+            findings.append(Finding(path, block.line, GREW, base.length, block.length, block.anchor, True))
+        else:
+            findings.append(Finding(path, block.line, CHANGED, base.length, block.length, block.anchor, False))
+    return findings
