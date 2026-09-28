@@ -95,7 +95,7 @@ A doc comment, an inline comment, and a page of documentation are claims that so
 
 ## Text that users read
 
-Some text in the code ships to users: a description in a public schema, an error message, the reference text of a public interface. For that text, accuracy comes first. When it is false, correct it, even when the correct text is longer. The rules above that cut a comment apply to comments that restate code.
+Some text in the code ships to users: a description in a public schema, an error message, the reference text of a public interface. For that text, accuracy comes first. When it is false, correct it, even when the correct text is longer. The rules above that cut a comment apply to comments that restate code. A doc comment that generates reference text is still a contract; this exception lets it grow only as far as accuracy needs, and it never makes the algorithm part of it.
 
 ## Red flags
 
@@ -104,7 +104,7 @@ Stop when you see one of these in your own diff:
 - A comment and the line under it say the same thing.
 - You wrote a comment to explain a name that you could have changed.
 - The comment describes the change, not the code that is there.
-- You edit a comment to answer a review finding, and no code line changes in the same hunk.
+- You edit a comment to answer a review finding, and no code line changes in the same hunk, unless the finding names a precondition, an error, or a special result that the contract lacks.
 - A doc comment got a paragraph about how the body works.
 - A doc comment is longer than the body that it documents.
 - The same fact is in the doc comment and at the line it constrains.
@@ -119,7 +119,7 @@ Stop when you see one of these in your own diff:
 | The comment restates the line under it | Delete it. If the line needs prose, rename or split the code |
 | The doc comment explains how the body computes the answer | Cut to the contract: preconditions, result, what the caller must not assume |
 | The doc comment repeats a fact that is at the line it constrains | Delete the copy in the doc comment |
-| A paragraph was added because a review found a missing case | Ship the fix. Write the comment only if the next reader would be caught by the same case |
+| A paragraph was added because a review found a missing case | Ship the fix. Write the comment only if the next reader would be caught by the same case, unless the finding names a precondition, an error, or a special result that the contract lacks |
 | The doc comment is longer than the body | Name the caller decision that each paragraph serves. Delete the rest |
 | The doc comment does not give an error or a precondition that the caller must handle | Add it, in the fewest words that are true |
 | A fix ships with a comment that it just made false | Correct the statement in the same change |
@@ -130,14 +130,14 @@ Stop when you see one of these in your own diff:
 
 | Thought | Reality |
 | --- | --- |
-| "I guess the reviewer wants documentation, so more comments are safer" | This answers your own guess about a reviewer's taste. A reviewer has to read and check each comment, a paraphrase adds review work and no information, so give the contract. It does not answer an instruction from the user or the project |
+| "I guess the reviewer wants documentation, so more comments are safer" | This answers your own guess about a reviewer's taste. A reviewer has to read and check each comment. A paraphrase adds review work and no information. Give the contract. It does not answer an instruction from the user or the project |
 | "A thorough doc comment shows that I understand the code" | The doc comment is for the caller. What you understood goes in the pull request body |
 | "The doc update is out of scope, the task was the code fix" | The comment became false when your code changed. The correction is the same task |
 | "I will note the doc update as a follow-up" | A follow-up leaves a false statement in the default branch. File follow-ups for work you did not do, not for damage you did |
 | "The doc comment states the contract, so the fix must keep it" | A contract is a decision, and a decision can change. If the report shows that it is the wrong one, change it and correct the prose |
 | "Comments rot, so I delete when in doubt" | A paraphrase rots. A fact that the code cannot show is the one comment that the reader needs |
 | "It is a test or a helper, the rules are looser" | Comments in tests and helpers follow the same rules |
-| "What was added, and why, so the lead doesn't have to reverse-engineer it" | The lead does not call the declaration. State what changed and why in the pull request body, not on the declaration |
-| "spelling out the backoff formula" | The formula is the algorithm. State the result the caller gets, including the case it does not cover, not how the body computes it |
-| "No behavior was changed — this is comments only, so it's safe to land before the branch cut" | A comment-only change still has to hold only what the caller needs. "Comments only" is not a reason to skip the cut from algorithm to contract |
+| "I explain what was added and why, so the reader doesn't have to reverse-engineer it" | The lead does not call the declaration. State what changed and why in the pull request body, not on the declaration |
+| "I spell out the formula so the reader does not have to reverse-engineer it" | The formula is the algorithm. State the result the caller gets, including that it can exceed a limit, not how the body computes it |
+| "No behavior changed, so a comments-only change is safe to land without more scrutiny" | A comment-only change still has to hold only what the caller needs. "Comments only" is not a reason to skip the cut from algorithm to contract |
 | "Commenting every block would fail this same standard on review, not satisfy it" | An instruction from the user or the project is not a rationalization. Follow it, keep what you write true, and say in your report where it differs from this skill's default |
