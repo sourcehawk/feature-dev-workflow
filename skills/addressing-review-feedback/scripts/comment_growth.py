@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import fnmatch
+import math
 import os
 import re
 import subprocess
@@ -230,17 +231,51 @@ SIMILAR_ANCHOR = 0.6
 # Across files a pair must also keep this share of the old words, since a
 # common anchor (a return, an error check, no anchor at all) repeats in every file.
 KEPT_ACROSS_FILES = 0.5
+# The most pairs of blocks the pairing across files scores. Past it the
+# pairing across files does not run, so its time stays bounded, and the report says so.
+MOST_PAIRS_ACROSS_FILES = 150000
 
 _WORDS = re.compile(r"\w+")
 
 
-def _kept(old: Block, new: Block) -> float:
-    """The share of the words of old that new keeps, in order. A block that grew keeps all of them."""
-    words = _WORDS.findall(" ".join(old.text).lower())
-    if not words:
+class TooManyPairs(Exception):
+    pass
+
+
+def _words(block: Block) -> List[str]:
+    return _WORDS.findall(" ".join(block.text).lower())
+
+
+def _kept(old_words: Sequence[str], new_words: Sequence[str]) -> float:
+    """The share of old_words that new_words keeps, in order. A block that grew keeps all of them."""
+    if not old_words:
         return 1.0
-    matcher = difflib.SequenceMatcher(None, words, _WORDS.findall(" ".join(new.text).lower()), autojunk=False)
-    return sum(match.size for match in matcher.get_matching_blocks()) / len(words)
+    matcher = difflib.SequenceMatcher(None, old_words, new_words, autojunk=False)
+    return sum(match.size for match in matcher.get_matching_blocks()) / len(old_words)
+
+
+def _similarity(old_anchor: str, new_anchor: str) -> float:
+    """The ratio of two anchor lines, or 0.0 when a quick upper bound of it is already below SIMILAR_ANCHOR."""
+    if old_anchor == new_anchor:
+        return 1.0
+    matcher = difflib.SequenceMatcher(None, old_anchor, new_anchor)
+    if matcher.real_quick_ratio() < SIMILAR_ANCHOR or matcher.quick_ratio() < SIMILAR_ANCHOR:
+        return 0.0
+    return matcher.ratio()
+
+
+def _reach(
+    old_words: Sequence[str], new_words: Sequence[List[str]], postings: Dict[str, List[int]], open_indexes: List[int],
+    min_kept: float,
+) -> List[int]:
+    """The open blocks of new that can keep min_kept of old_words."""
+    if min_kept <= 0 or not old_words:
+        return open_indexes
+    # To keep `need` of the words, a block holds a word from each set of
+    # len - need + 1 positions, so the rarest such set names every candidate.
+    need = math.ceil(min_kept * len(old_words))
+    rarest = sorted(old_words, key=lambda word: len(postings.get(word, ())))[: len(old_words) - need + 1]
+    return sorted(set().union(*(postings.get(word, ()) for word in rarest)))
 
 
 @dataclass(frozen=True)
@@ -256,20 +291,36 @@ class Finding:
 
 
 def pair(
-    old: Sequence[Block], new: Sequence[Block], min_kept: float = 0.0
+    old: Sequence[Block], new: Sequence[Block], min_kept: float = 0.0, most: Optional[int] = None
 ) -> Tuple[Dict[int, Optional[int]], Tuple[int, ...]]:
     """Maps the index of each changed or added block of new to the index of its block in old (or to None), and
     lists the indexes of the blocks of old that have no partner in new. A pair keeps at least min_kept of the
-    old words."""
-    # (order, block) for each block of old not yet claimed by an unchanged match.
-    free: List[Tuple[int, Block]] = list(enumerate(old))
+    old words. Raises TooManyPairs when more than most pairs of blocks would need a score."""
+    # The orders of the blocks of old not yet claimed by an unchanged match, by (anchor, text).
+    unchanged: Dict[Tuple[str, Tuple[str, ...]], List[int]] = {}
+    for order, block in enumerate(old):
+        unchanged.setdefault((block.anchor, block.text), []).append(order)
     open_indexes: List[int] = []
     for index, block in enumerate(new):
-        same = next(((order, b) for order, b in free if b.anchor == block.anchor and b.text == block.text), None)
-        if same is None:
-            open_indexes.append(index)
+        orders = unchanged.get((block.anchor, block.text))
+        if orders:
+            orders.pop(0)
         else:
-            free.remove(same)
+            open_indexes.append(index)
+    free = sorted(order for orders in unchanged.values() for order in orders)
+
+    old_words = [_words(block) for block in old]
+    new_words = [_words(block) for block in new]
+    postings: Dict[str, List[int]] = {}
+    for index in open_indexes:
+        for word in set(new_words[index]):
+            postings.setdefault(word, []).append(index)
+    reach: Dict[int, List[int]] = {}
+    for order in free:
+        reach[order] = _reach(old_words[order], new_words, postings, open_indexes, min_kept)
+    if most is not None and sum(len(indexes) for indexes in reach.values()) > most:
+        raise TooManyPairs()
+    new_sets = {index: set(new_words[index]) for index in open_indexes}
 
     # Every candidate pairing of one open block of new with one free block of
     # old, so the best match anywhere in the file is assigned before a
@@ -277,17 +328,18 @@ def pair(
     # decides whether two blocks can pair; the kept words of the comment
     # decide between a grown block and a new sibling above a similar anchor.
     candidates: List[Tuple[float, int, int, int]] = []
-    for index in open_indexes:
-        block = new[index]
-        for order, candidate in free:
-            similarity = 1.0 if candidate.anchor == block.anchor else difflib.SequenceMatcher(
-                None, candidate.anchor, block.anchor
-            ).ratio()
+    for order in free:
+        words = old_words[order]
+        for index in reach[order]:
+            # An upper bound of the kept share, cheap next to the two ratios below.
+            if min_kept and words and sum(1 for word in words if word in new_sets[index]) < min_kept * len(words):
+                continue
+            similarity = _similarity(old[order].anchor, new[index].anchor)
             if similarity >= SIMILAR_ANCHOR:
-                kept = _kept(candidate, block)
+                kept = _kept(words, new_words[index])
                 if kept >= min_kept:
                     candidates.append((similarity + kept, abs(order - index), index, order))
-    candidates.sort(key=lambda candidate: (-candidate[0], candidate[1]))
+    candidates.sort(key=lambda candidate: (-candidate[0], candidate[1], candidate[2], candidate[3]))
 
     pairs: Dict[int, Optional[int]] = {index: None for index in open_indexes}
     claimed_new = set()
@@ -299,7 +351,7 @@ def pair(
         claimed_new.add(index)
         claimed_old.add(order)
 
-    return pairs, tuple(order for order, _ in free if order not in claimed_old)
+    return pairs, tuple(order for order in free if order not in claimed_old)
 
 
 def _findings(
@@ -381,6 +433,8 @@ def changed_files(top: str, merge_base: str) -> List[Change]:
 class Report:
     findings: Tuple[Finding, ...]
     not_checked: Tuple[str, ...]
+    # (removed, added) block counts when the pairing across files did not run.
+    not_paired_across_files: Optional[Tuple[int, int]] = None
 
     @property
     def flagged(self) -> bool:
@@ -426,19 +480,25 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
         if base is None
     ]
     gone = [(number, block) for number, (_, _, _, removed) in enumerate(files) for block in removed]
-    moved, left = pair(
-        [block for _, block in gone], [files[number][1][index] for number, index in added], KEPT_ACROSS_FILES
-    )
-    for file in files:
-        file[3].clear()
-    for order in left:
-        number, block = gone[order]
-        files[number][3].append(block)
-    for position, (number, index) in enumerate(added):
-        if position not in moved:
-            del files[number][2][index]
-        elif moved[position] is not None:
-            files[number][2][index] = gone[moved[position]][1]
+    not_paired: Optional[Tuple[int, int]] = None
+    try:
+        moved, left = pair(
+            [block for _, block in gone], [files[number][1][index] for number, index in added],
+            KEPT_ACROSS_FILES, MOST_PAIRS_ACROSS_FILES,
+        )
+    except TooManyPairs:
+        not_paired = (len(gone), len(added))
+    else:
+        for file in files:
+            file[3].clear()
+        for order in left:
+            number, block = gone[order]
+            files[number][3].append(block)
+        for position, (number, index) in enumerate(added):
+            if position not in moved:
+                del files[number][2][index]
+            elif moved[position] is not None:
+                files[number][2][index] = gone[moved[position]][1]
 
     findings: List[Finding] = []
     for change, new, pairs, removed in files:
@@ -450,7 +510,7 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
                     finding.new_length, finding.anchor, False, True,
                 )
             findings.append(finding)
-    return Report(tuple(findings), tuple(not_checked))
+    return Report(tuple(findings), tuple(not_checked), not_paired)
 
 
 def render(report: Report) -> str:
@@ -467,6 +527,11 @@ def render(report: Report) -> str:
         )
     for path in report.not_checked:
         lines.append("     %s  NOT CHECKED  unknown file type, read its diff" % path)
+    if report.not_paired_across_files:
+        lines.append(
+            "     %d removed and %d added blocks NOT PAIRED ACROSS FILES, too many to compare; read their diff"
+            % report.not_paired_across_files
+        )
     flagged = sum(1 for finding in report.findings if finding.flagged)
     removed = sum(1 for finding in report.findings if finding.status == REMOVED)
     lines.append(

@@ -453,6 +453,18 @@ class CompareTest(unittest.TestCase):
         new = "// run starts the job.\n// It waits for limit.\n%s\n}\n" % new_anchor
         self.assertEqual(statuses(old, new), [(gate.ADDED, 0, 2, False), (gate.REMOVED, 1, 0, False)])
 
+class PairCostTest(unittest.TestCase):
+    def test_pairing_across_files_does_not_score_every_pair(self):
+        # Blocks that share no word can never keep half of the old words, so a
+        # pairing that scores them anyway is quadratic in its slowest step.
+        old = [gate.Block(n + 1, ("// removed%d closes it." % n,), "return nil") for n in range(200)]
+        new = [gate.Block(n + 1, ("// added%d opens it." % n, "// twice%d." % n), "return nil") for n in range(200)]
+        with mock.patch.object(gate.difflib, "SequenceMatcher", wraps=difflib.SequenceMatcher) as matcher:
+            pairs, removed = gate.pair(old, new, gate.KEPT_ACROSS_FILES)
+        self.assertEqual((set(pairs.values()), len(removed)), ({None}, 200))
+        self.assertLessEqual(matcher.call_count, len(old))
+
+
 def _isolated_git_env():
     """A git environment freed from this machine's global config and from a repository inherited via the shell."""
     env = dict(os.environ)
@@ -643,6 +655,24 @@ class RunTest(unittest.TestCase):
                 ("b.go", gate.ADDED, False),
                 ("b.py", gate.ADDED, False),
             ],
+        )
+
+    def test_too_many_blocks_to_pair_across_files_are_listed_and_the_report_says_so(self):
+        retry = "// retry calls f until it succeeds.\nfunc retry(f func() error) error {\n\treturn f()\n}\n"
+        self.repo.write("a.go", "package p\n\n" + retry)
+        base = self.repo.commit("add a")
+        os.remove(os.path.join(self.repo.path, "a.go"))
+        self.repo.write("b.go", "package p\n\n// retry calls f until it succeeds.\n// It waits.\nfunc retry(f func() error) error {\n}\n")
+        with mock.patch.object(gate, "MOST_PAIRS_ACROSS_FILES", 0):
+            report = gate.run(self.repo.path, base)
+        self.assertEqual(
+            [(f.path, f.status, f.flagged) for f in report.findings],
+            [("a.go", gate.REMOVED, False), ("b.go", gate.ADDED, False)],
+        )
+        self.assertEqual(report.not_paired_across_files, (1, 1))
+        self.assertIn(
+            "     1 removed and 1 added blocks NOT PAIRED ACROSS FILES, too many to compare; read their diff",
+            gate.render(report),
         )
 
     def test_block_that_moved_to_another_file_unchanged_is_not_listed(self):
