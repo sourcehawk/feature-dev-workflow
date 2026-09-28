@@ -240,11 +240,49 @@ class ReserveTest(unittest.TestCase):
             self.assertIn("No locks available", str(cm.exception))
 
     def test_a_lock_error_leaves_no_slot_held(self):
-        # After the previous test's patch is removed, all slots should be free
-        reservation = bounded_run.try_reserve(self.directory, 2, 2, [])
-        self.assertIsNotNone(reservation)
-        self.addCleanup(reservation.release)
-        self.assertEqual(len(reservation.descriptors), 2)
+        # Prove that when try_reserve fails mid-way, all locks it took are released.
+        # Wrap os.open to track fd -> path mapping, then use it in a flock stub.
+        fd_to_path = {}
+        real_os_open = os.open
+
+        def tracked_open(path, *args, **kwargs):
+            fd = real_os_open(path, *args, **kwargs)
+            fd_to_path[fd] = path
+            return fd
+
+        # flock will count calls and fail on the second slot file.
+        flock_calls_per_file = {}
+        real_flock = bounded_run.fcntl.flock
+
+        def counting_flock(fd, flags):
+            path = fd_to_path.get(fd, "<unknown>")
+            if path not in flock_calls_per_file:
+                flock_calls_per_file[path] = 0
+            flock_calls_per_file[path] += 1
+
+            # Allow the turn lock and first slot to succeed.
+            if "reserve.lock" in path or "slot-000.lock" in path:
+                return real_flock(fd, flags)
+
+            # Fail on the second slot with ENOLCK.
+            if "slot-001.lock" in path:
+                raise OSError(errno.ENOLCK, "No locks available")
+
+            # Any other file succeeds.
+            return real_flock(fd, flags)
+
+        with mock.patch.object(os, "open", tracked_open):
+            with mock.patch.object(bounded_run.fcntl, "flock", counting_flock):
+                # Call try_reserve for 2 slots; it should fail after locking slot-000.
+                with self.assertRaises(bounded_run.WrapperError):
+                    bounded_run.try_reserve(self.directory, 2, 2, [])
+
+        # Now call try_reserve again with real functions (no patches).
+        # If the first slot was not released, this will fail to get 2 slots.
+        second_try = bounded_run.try_reserve(self.directory, 2, 2, [])
+        self.assertIsNotNone(second_try)
+        self.addCleanup(second_try.release)
+        self.assertEqual(len(second_try.descriptors), 2)
 
     def test_the_turn_lock_is_free_while_the_wrapper_waits(self):
         # Hold all slots so reserve has to wait
