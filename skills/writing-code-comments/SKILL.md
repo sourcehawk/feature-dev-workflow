@@ -13,6 +13,8 @@ This skill decides whether a comment exists and what it holds. It owns what a do
 
 **The project's own comment standard comes first.** If the project documents one (in its instructions file, a style guide, or a project skill), follow it. Where it is silent, this skill is the default.
 
+**An explicit instruction about comments, from the user or from the project, for this task, comes before this skill too.** Follow it. Keep every comment it produces true and free of the faults you can still avoid without breaking the instruction. State in your report where the instruction differs from the default, in one or two sentences, so the person can reconsider. If the instruction is unclear, ask. Do not refuse it, and do not read a rationalization row below as permission to overrule it: a rationalization answers your own guess about what someone wants, never a thing they told you directly.
+
 **OPTIONAL SUB-SKILL:** `simple-english:simple-english` for the prose of each comment you keep. If it is available, load it before you draft and write the sentences under it. Where its formatting rules (headings, bold, lists, or its register for chat replies) differ from the host skill or its template, the host skill and its template win. It sets sentence style only: this skill and the project's comment standard still decide whether a comment exists and what it may say. If the skill is not available, do not stop or wait for it. If you have not already done so in this session, tell the user once that it can be installed with `/plugin marketplace add AminBlg/SimpleEnglish` and then `/plugin install simple-english@simple-english`. Then write short, plain, active sentences without it.
 
 ## Doc comments
@@ -128,7 +130,7 @@ Stop when you see one of these in your own diff:
 
 | Thought | Reality |
 | --- | --- |
-| "The reviewer wants documentation, so more comments are safer" | A reviewer has to read and check each comment. A paraphrase adds review work and no information. Give the contract |
+| "I guess the reviewer wants documentation, so more comments are safer" | This answers your own guess about a reviewer's taste. A reviewer has to read and check each comment, a paraphrase adds review work and no information, so give the contract. It does not answer an instruction someone actually gave you |
 | "A thorough doc comment shows that I understand the code" | The doc comment is for the caller. What you understood goes in the pull request body |
 | "The doc update is out of scope, the task was the code fix" | The comment became false when your code changed. The correction is the same task |
 | "I will note the doc update as a follow-up" | A follow-up leaves a false statement in the default branch. File follow-ups for work you did not do, not for damage you did |
@@ -138,3 +140,4 @@ Stop when you see one of these in your own diff:
 | "What was added, and why, so the lead doesn't have to reverse-engineer it" | The lead does not call the declaration. State what changed and why in the pull request body, not on the declaration |
 | "spelling out the backoff formula" | The formula is the algorithm. State the result the caller gets, including the case it does not cover, not how the body computes it |
 | "No behavior was changed — this is comments only, so it's safe to land before the branch cut" | A comment-only change still has to hold only what the caller needs. "Comments only" is not a reason to skip the cut from algorithm to contract |
+| "Commenting every block would fail this same standard on review, not satisfy it" | An instruction is not a rationalization. Follow it, keep what you write true, and say in your report where it differs from this skill's default |
