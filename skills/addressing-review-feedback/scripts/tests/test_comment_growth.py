@@ -161,5 +161,149 @@ class CompareTest(unittest.TestCase):
         new = "# Tools for the build.\n# Each tool reads the config.\n\nimport os\n"
         self.assertEqual(statuses(old, new, gate.HASH_DOCSTRING), [(gate.GREW, 1, 2, True)])
 
+def sh(cwd, *args):
+    subprocess.run(args, cwd=cwd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+class Repository:
+    """A throwaway git repository with one commit on branch main."""
+
+    def __init__(self, test):
+        self._directory = tempfile.TemporaryDirectory()
+        test.addCleanup(self._directory.cleanup)
+        self.path = os.path.realpath(self._directory.name)
+        sh(self.path, "git", "init", "-q")
+        sh(self.path, "git", "checkout", "-q", "-b", "main")
+        self.write("README.md", "seed\n")
+        self.commit("seed")
+
+    def write(self, name, text):
+        full_path = os.path.join(self.path, name)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+
+    def commit(self, message):
+        sh(self.path, "git", "add", "--all")
+        sh(
+            self.path, "git", "-c", "user.name=gate", "-c", "user.email=gate@example.invalid",
+            "-c", "commit.gpgsign=false", "commit", "-q", "-m", message,
+        )
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.path, check=True, stdout=subprocess.PIPE
+        ).stdout.decode().strip()
+
+
+OLD = "// run starts the job.\nfunc run() {}\n"
+GROWN = "// run starts the job.\n// It also stops it.\nfunc run() {}\n"
+
+
+class RunTest(unittest.TestCase):
+    def setUp(self):
+        self.repo = Repository(self)
+
+    def summary(self, report):
+        return [(f.path, f.status, f.flagged) for f in report.findings]
+
+    def test_change_in_the_working_tree_is_compared_with_the_base(self):
+        self.repo.write("a.go", OLD)
+        base = self.repo.commit("add a")
+        self.repo.write("a.go", GROWN)
+        report = gate.run(self.repo.path, base)
+        self.assertEqual(self.summary(report), [("a.go", gate.GREW, True)])
+        self.assertTrue(report.flagged)
+
+    def test_committed_change_is_compared_with_the_base(self):
+        self.repo.write("a.go", OLD)
+        base = self.repo.commit("add a")
+        self.repo.write("a.go", GROWN)
+        self.repo.commit("grow a")
+        self.assertEqual(self.summary(gate.run(self.repo.path, base)), [("a.go", gate.GREW, True)])
+
+    def test_comparison_starts_at_the_merge_base(self):
+        self.repo.write("a.go", OLD)
+        self.repo.commit("add a")
+        sh(self.repo.path, "git", "checkout", "-q", "-b", "topic")
+        self.repo.write("a.go", GROWN)
+        self.repo.commit("grow a")
+        sh(self.repo.path, "git", "checkout", "-q", "main")
+        self.repo.write("b.go", OLD)
+        self.repo.commit("add b on main")
+        sh(self.repo.path, "git", "checkout", "-q", "topic")
+        self.assertEqual(self.summary(gate.run(self.repo.path, "main")), [("a.go", gate.GREW, True)])
+
+    def test_untracked_file_is_scanned(self):
+        self.repo.write("new.go", OLD)
+        self.assertEqual(self.summary(gate.run(self.repo.path, "HEAD")), [("new.go", gate.ADDED, False)])
+
+    def test_renamed_file_is_compared_with_its_base_path(self):
+        body = "".join("func step%d() {}\n" % n for n in range(20))
+        self.repo.write("old.go", OLD + body)
+        base = self.repo.commit("add old")
+        sh(self.repo.path, "git", "mv", "old.go", "new.go")
+        self.repo.write("new.go", GROWN + body)
+        self.assertEqual(self.summary(gate.run(self.repo.path, base)), [("new.go", gate.GREW, True)])
+
+    def test_deleted_file_is_not_listed(self):
+        self.repo.write("a.go", OLD)
+        base = self.repo.commit("add a")
+        os.remove(os.path.join(self.repo.path, "a.go"))
+        report = gate.run(self.repo.path, base)
+        self.assertEqual((report.findings, report.not_checked), ((), ()))
+
+    def test_unknown_file_type_is_listed_as_not_checked(self):
+        self.repo.write("rules.xyz", "?? a comment in a syntax the gate does not know\n")
+        report = gate.run(self.repo.path, "HEAD")
+        self.assertEqual(report.not_checked, ("rules.xyz",))
+        self.assertFalse(report.flagged)
+
+    def test_prose_file_is_skipped_without_a_report(self):
+        self.repo.write("README.md", "seed\n<!-- note -->\n")
+        report = gate.run(self.repo.path, "HEAD")
+        self.assertEqual((report.findings, report.not_checked), ((), ()))
+
+    def test_user_facing_path_is_listed_and_not_flagged(self):
+        self.repo.write("api/types.go", OLD)
+        self.repo.write("pkg/a.go", OLD)
+        base = self.repo.commit("add both")
+        self.repo.write("api/types.go", GROWN)
+        self.repo.write("pkg/a.go", GROWN)
+        report = gate.run(self.repo.path, base, ["api/*"])
+        self.assertEqual(
+            [(f.path, f.status, f.flagged, f.user_facing) for f in report.findings],
+            [("api/types.go", gate.GREW, False, True), ("pkg/a.go", gate.GREW, True, False)],
+        )
+
+    def test_run_from_a_subdirectory_covers_the_repository(self):
+        self.repo.write("pkg/a.go", OLD)
+        base = self.repo.commit("add a")
+        self.repo.write("pkg/a.go", GROWN)
+        report = gate.run(os.path.join(self.repo.path, "pkg"), base)
+        self.assertEqual(self.summary(report), [("pkg/a.go", gate.GREW, True)])
+
+    def test_staged_change_is_seen(self):
+        self.repo.write("a.go", OLD)
+        base = self.repo.commit("add a")
+        self.repo.write("a.go", GROWN)
+        sh(self.repo.path, "git", "add", "a.go")
+        self.assertEqual(self.summary(gate.run(self.repo.path, base)), [("a.go", gate.GREW, True)])
+
+    def test_path_with_a_space_and_a_letter_outside_ascii(self):
+        self.repo.write("pkg/my fíle.go", OLD)
+        base = self.repo.commit("add file")
+        self.repo.write("pkg/my fíle.go", GROWN)
+        self.assertEqual(self.summary(gate.run(self.repo.path, base)), [("pkg/my fíle.go", gate.GREW, True)])
+
+    def test_bytes_that_are_not_text_do_not_stop_the_run(self):
+        self.repo.write("a.go", OLD)
+        base = self.repo.commit("add a")
+        with open(os.path.join(self.repo.path, "a.go"), "wb") as handle:
+            handle.write(b"// run starts the caf\xe9.\n// It also stops it.\nfunc run() {}\n")
+        self.assertEqual(self.summary(gate.run(self.repo.path, base)), [("a.go", gate.GREW, True)])
+
+    def test_unknown_base_is_a_git_error(self):
+        with self.assertRaises(gate.GitError):
+            gate.run(self.repo.path, "no-such-ref")
+
 if __name__ == "__main__":
     unittest.main()

@@ -221,3 +221,82 @@ def compare(path: str, old_source: str, new_source: str, family: Family) -> List
         else:
             findings.append(Finding(path, block.line, CHANGED, base.length, block.length, block.anchor, False))
     return findings
+
+
+class GitError(Exception):
+    pass
+
+
+def git(cwd: str, *args: str) -> str:
+    result = subprocess.run(["git", *args], cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode != 0:
+        message = result.stderr.decode("utf-8", errors="replace").strip()
+        raise GitError(message or "git " + " ".join(args) + " failed")
+    return result.stdout.decode("utf-8", errors="replace")
+
+
+@dataclass(frozen=True)
+class Change:
+    path: str
+    base_path: Optional[str]
+
+
+def changed_files(top: str, merge_base: str) -> List[Change]:
+    """Lists the files that differ from merge_base in the working tree, untracked files included."""
+    fields = git(top, "diff", "--name-status", "-M", "-z", merge_base).split("\0")
+    changes = []
+    index = 0
+    while index < len(fields) and fields[index]:
+        status = fields[index][0]
+        if status in "RC":
+            changes.append(Change(fields[index + 2], fields[index + 1]))
+            index += 3
+            continue
+        if status == "A":
+            changes.append(Change(fields[index + 1], None))
+        elif status != "D":
+            changes.append(Change(fields[index + 1], fields[index + 1]))
+        index += 2
+    for path in git(top, "ls-files", "--others", "--exclude-standard", "-z").split("\0"):
+        if path:
+            changes.append(Change(path, None))
+    return sorted(changes, key=lambda change: change.path)
+
+
+@dataclass(frozen=True)
+class Report:
+    findings: Tuple[Finding, ...]
+    not_checked: Tuple[str, ...]
+
+    @property
+    def flagged(self) -> bool:
+        return any(finding.flagged for finding in self.findings)
+
+
+def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
+    top = git(cwd, "rev-parse", "--show-toplevel").strip()
+    merge_base = git(top, "merge-base", base, "HEAD").strip()
+    findings: List[Finding] = []
+    not_checked: List[str] = []
+    for change in changed_files(top, merge_base):
+        if is_skipped(change.path):
+            continue
+        full_path = os.path.join(top, change.path)
+        if not os.path.isfile(full_path):
+            continue
+        family = family_for(change.path)
+        if family is None:
+            not_checked.append(change.path)
+            continue
+        with open(full_path, encoding="utf-8", errors="replace") as handle:
+            new_source = handle.read()
+        old_source = git(top, "show", merge_base + ":" + change.base_path) if change.base_path else ""
+        exempt = any(fnmatch.fnmatch(change.path, glob) for glob in user_facing)
+        for finding in compare(change.path, old_source, new_source, family):
+            if exempt:
+                finding = Finding(
+                    finding.path, finding.line, finding.status, finding.old_length,
+                    finding.new_length, finding.anchor, False, True,
+                )
+            findings.append(finding)
+    return Report(tuple(findings), tuple(not_checked))
