@@ -211,6 +211,17 @@ REMOVED = "REMOVED"
 # Two anchor lines at or above this ratio are the same declaration after an edit.
 SIMILAR_ANCHOR = 0.6
 
+_WORDS = re.compile(r"\w+")
+
+
+def _kept(old: Block, new: Block) -> float:
+    """The share of the words of old that new keeps, in order. A block that grew keeps all of them."""
+    words = _WORDS.findall(" ".join(old.text).lower())
+    if not words:
+        return 1.0
+    matcher = difflib.SequenceMatcher(None, words, _WORDS.findall(" ".join(new.text).lower()), autojunk=False)
+    return sum(match.size for match in matcher.get_matching_blocks()) / len(words)
+
 
 @dataclass(frozen=True)
 class Finding:
@@ -239,16 +250,18 @@ def pair(old: Sequence[Block], new: Sequence[Block]) -> Tuple[Dict[int, Optional
 
     # Every candidate pairing of one open block of new with one free block of
     # old, so the best match anywhere in the file is assigned before a
-    # weaker match elsewhere can claim the same block first.
+    # weaker match elsewhere can claim the same block first. The anchor
+    # decides whether two blocks can pair; the kept words of the comment
+    # decide between a grown block and a new sibling above a similar anchor.
     candidates: List[Tuple[float, int, int, int]] = []
     for index in open_indexes:
         block = new[index]
         for order, candidate in free:
-            score = 1.0 if candidate.anchor == block.anchor else difflib.SequenceMatcher(
+            similarity = 1.0 if candidate.anchor == block.anchor else difflib.SequenceMatcher(
                 None, candidate.anchor, block.anchor
             ).ratio()
-            if score >= SIMILAR_ANCHOR:
-                candidates.append((score, abs(order - index), index, order))
+            if similarity >= SIMILAR_ANCHOR:
+                candidates.append((similarity + _kept(candidate, block), abs(order - index), index, order))
     candidates.sort(key=lambda candidate: (-candidate[0], candidate[1]))
 
     pairs: Dict[int, Optional[Block]] = {index: None for index in open_indexes}

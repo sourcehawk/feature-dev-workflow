@@ -248,6 +248,84 @@ class CompareTest(unittest.TestCase):
             [(gate.ADDED, 1, False), (gate.GREW, 5, True)],
         )
 
+    def test_new_sibling_with_a_similar_anchor_does_not_hide_the_growth(self):
+        old = "// Sends one message.\nexport function send(msg: Message): void {\n}\n"
+        new = (
+            "// Sends a batch.\n"
+            "export function sendAll(msgs: Message[]): void {\n"
+            "}\n"
+            "\n"
+            "// Sends one message.\n"
+            "// Retries when the socket closes.\n"
+            "export function send(msg: Message, retry: number): void {\n"
+            "}\n"
+        )
+        findings = gate.compare("f", old, new, gate.SLASH)
+        self.assertEqual(
+            [(f.status, f.line, f.old_length, f.new_length, f.flagged) for f in findings],
+            [(gate.ADDED, 1, 0, 1, False), (gate.GREW, 5, 1, 2, True)],
+        )
+
+    def test_new_sibling_with_the_same_anchor_does_not_hide_the_growth(self):
+        old = (
+            "func load() error {\n"
+            "\terr := read()\n"
+            "\t// The file may be missing on first start.\n"
+            "\tif err != nil {\n"
+            "\t\treturn nil\n"
+            "\t}\n"
+            "\treturn nil\n"
+            "}\n"
+        )
+        new = (
+            "func save() error {\n"
+            "\terr := write()\n"
+            "\t// Log and continue.\n"
+            "\tif err != nil {\n"
+            "\t\treturn nil\n"
+            "\t}\n"
+            "\treturn nil\n"
+            "}\n"
+            "\n"
+            "func load() error {\n"
+            "\terr := read()\n"
+            "\t// The file may be missing on first start.\n"
+            "\t// A missing file means an empty store, so it is not an error.\n"
+            "\tif err != nil {\n"
+            "\t\treturn nil\n"
+            "\t}\n"
+            "\treturn nil\n"
+            "}\n"
+        )
+        findings = gate.compare("f", old, new, gate.SLASH)
+        self.assertEqual(
+            [(f.status, f.line, f.old_length, f.new_length, f.flagged) for f in findings],
+            [(gate.ADDED, 3, 0, 1, False), (gate.GREW, 12, 1, 2, True)],
+        )
+
+    def test_renamed_declaration_is_paired_by_its_comment_not_by_a_new_one_with_its_old_name(self):
+        old = "// parse reads a header.\nfunc parse(b []byte) (Header, error) {\n}\n"
+        new = (
+            "// parse is kept for old callers.\n"
+            "func parse(b []byte) (Header, error) {\n"
+            "}\n"
+            "\n"
+            "// decode reads a header.\n"
+            "// It rejects a header longer than the limit.\n"
+            "func decode(b []byte, limit int) (Header, error) {\n"
+            "}\n"
+        )
+        findings = gate.compare("f", old, new, gate.SLASH)
+        self.assertEqual(
+            [(f.status, f.line, f.old_length, f.new_length, f.flagged) for f in findings],
+            [(gate.ADDED, 1, 0, 1, False), (gate.GREW, 5, 1, 2, True)],
+        )
+
+    def test_comment_rewritten_fully_above_the_same_anchor_is_paired(self):
+        old = "// run starts the job.\nfunc run() {}\n"
+        new = "// Blocks until every worker has stopped.\nfunc run() {}\n"
+        self.assertEqual(statuses(old, new), [(gate.CHANGED, 1, 1, False)])
+
     def test_common_anchor_text_pairs_blocks_in_order(self):
         old = "func a() {\n    // first\n}\n\nfunc b() {\n    // second\n}\n"
         new = "func a() {\n    // first\n}\n\nfunc b() {\n    // second\n    // and more\n}\n"
