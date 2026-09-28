@@ -151,6 +151,26 @@ def ensure_lock_directory(path: str, uid: int) -> None:
         os.chmod(path, 0o700)
 
 
+def repository_id(directory: str) -> str:
+    root = os.path.realpath(directory)
+    try:
+        done = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=directory, capture_output=True, text=True, timeout=10,
+        )
+        if done.returncode == 0 and done.stdout.strip():
+            root = os.path.realpath(os.path.join(directory, done.stdout.strip()))
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return hashlib.sha256(root.encode("utf-8")).hexdigest()[:12]
+
+
+def exclusive_file_name(repository: str, name: str) -> str:
+    if re.match(r"^[A-Za-z0-9._-]+$", name) is None:
+        raise WrapperError("cannot use the name '%s'; use letters, digits, '.', '_' and '-'" % name)
+    return "exclusive-%s-%s.lock" % (repository, name)
+
+
 class Reservation:
     def __init__(self, descriptors: Sequence[int]) -> None:
         self.descriptors = list(descriptors)

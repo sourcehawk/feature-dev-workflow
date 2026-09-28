@@ -311,5 +311,31 @@ class ReserveTest(unittest.TestCase):
         self.assertTrue(turn_lock_acquired[0], "turn lock should be free while reserve waits")
 
 
+class ExclusiveNameTest(unittest.TestCase):
+    def test_name_holds_the_repository_and_the_resource(self):
+        self.assertEqual(bounded_run.exclusive_file_name("abc123", "port-8080"), "exclusive-abc123-port-8080.lock")
+
+    def test_rejects_a_name_with_a_path(self):
+        for name in ("../x", "a/b", "", "a b"):
+            with self.subTest(name=name):
+                with self.assertRaises(bounded_run.WrapperError):
+                    bounded_run.exclusive_file_name("abc123", name)
+
+    def test_worktrees_of_one_repository_have_the_same_id(self):
+        with tempfile.TemporaryDirectory() as base:
+            main = os.path.join(base, "main")
+            other = os.path.join(base, "other")
+            os.mkdir(main)
+            git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false"]
+            subprocess.run(git + ["init", "--quiet", main], check=True)
+            subprocess.run(git + ["-C", main, "commit", "--quiet", "--allow-empty", "-m", "first"], check=True)
+            subprocess.run(git + ["-C", main, "worktree", "add", "--quiet", "--detach", other], check=True)
+            self.assertEqual(bounded_run.repository_id(main), bounded_run.repository_id(other))
+
+    def test_two_directories_have_different_ids(self):
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            self.assertNotEqual(bounded_run.repository_id(first), bounded_run.repository_id(second))
+
+
 if __name__ == "__main__":
     unittest.main()
