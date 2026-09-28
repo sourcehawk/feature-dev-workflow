@@ -425,7 +425,7 @@ def run_command(
         if started:
             try:
                 os.killpg(started[0], signum if len(received) == 1 else signal.SIGKILL)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
                 pass
 
     previous = {signum: signal.signal(signum, forward) for signum in (signal.SIGINT, signal.SIGTERM)}
@@ -435,11 +435,25 @@ def run_command(
         except OSError as error:
             raise WrapperError("cannot start '%s': %s" % (command[0], error))
         started.append(process.pid)
-        if received:
-            os.killpg(process.pid, received[0])
-        if on_start is not None:
-            on_start(process.pid)
-        _, status, usage = os.wait4(process.pid, 0)
+        try:
+            if received:
+                try:
+                    os.killpg(process.pid, received[0])
+                except (ProcessLookupError, PermissionError):
+                    pass
+            if on_start is not None:
+                on_start(process.pid)
+            _, status, usage = os.wait4(process.pid, 0)
+        except BaseException:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            try:
+                os.waitpid(process.pid, 0)
+            except ChildProcessError:
+                pass
+            raise
         process.returncode = exit_code_of(status)
     finally:
         for signum, handler in previous.items():
@@ -542,7 +556,7 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
     else:
         budget = default_budget_mib(settings.total_mib, settings.slot_mib)
     command = list(options.command)
-    if shutil.which(command[0]) is None:
+    if shutil.which(command[0], path=environ.get("PATH")) is None:
         raise WrapperError("cannot start '%s': the command does not exist" % command[0])
 
     child_environ: Dict[str, str] = dict(environ)

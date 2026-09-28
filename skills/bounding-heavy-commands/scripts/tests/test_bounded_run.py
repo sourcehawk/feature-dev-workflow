@@ -594,6 +594,29 @@ class InsideCapTest(unittest.TestCase):
         self.assertIsNone(bounded_run.read_peak_file(self.peak_file))
 
 
+class RunCommandTest(unittest.TestCase):
+    def test_an_error_after_the_start_stops_the_command(self):
+        pids = []
+
+        def on_start(pid):
+            pids.append(pid)
+            raise RuntimeError("boom")
+
+        command = [sys.executable, "-c", "import time; time.sleep(300)"]
+        with self.assertRaises(RuntimeError):
+            bounded_run.run_command(command, dict(os.environ), on_start=on_start)
+        self.assertEqual(len(pids), 1)
+        deadline = time.time() + 10
+        alive = True
+        while alive and time.time() < deadline:
+            try:
+                os.kill(pids[0], 0)
+                time.sleep(0.05)
+            except ProcessLookupError:
+                alive = False
+        self.assertFalse(alive, "the command still runs")
+
+
 class WrapperProcessCase(unittest.TestCase):
     """Runs the script as a process, with two slots of 2 GiB and no hard cap."""
 
