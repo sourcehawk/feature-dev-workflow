@@ -821,6 +821,92 @@ class WrapperProcessTest(WrapperProcessCase):
         process.send_signal(signal.SIGTERM)
         self.assertEqual(process.wait(timeout=60), 143)
 
+    def test_commands_never_run_together_beyond_the_slots(self):
+        workers = [self.worker("w%d" % index, "2G", hold="0.3") for index in range(6)]
+        for process in workers:
+            self.assertEqual(process.wait(timeout=60), 0)
+        events = self.read_events()
+        self.assertEqual(len([line for line in events if line.startswith("start ")]), 6)
+        self.assertEqual(len([line for line in events if line.startswith("end ")]), 6)
+        self.assertLessEqual(self.peak_concurrency(), 2)
+
+    def test_a_command_that_needs_all_slots_runs_alone(self):
+        workers = [self.worker("w%d" % index, "4G", hold="0.2") for index in range(3)]
+        for process in workers:
+            self.assertEqual(process.wait(timeout=60), 0)
+        self.assertEqual(self.peak_concurrency(), 1)
+
+    def test_a_waiting_command_holds_no_slot(self):
+        release = os.path.join(self.base.name, "release")
+        long_holder = self.worker("holder", "2G", hold="60", release=release)
+        self.wait_for_event("start", "holder")
+        large = self.worker("large", "4G", hold="0")
+        time.sleep(0.3)
+        small = self.worker("small", "2G", hold="0")
+        self.assertEqual(small.wait(timeout=60), 0)
+        names = [line.split()[1] for line in self.read_events() if line.startswith("end ")]
+        self.assertEqual(names, ["small"])
+        Path(release).write_text("")
+        self.assertEqual(large.wait(timeout=60), 0)
+        self.assertEqual(long_holder.wait(timeout=60), 0)
+        order = [line.split()[:2] for line in self.read_events()]
+        self.assertLess(order.index(["end", "holder"]), order.index(["start", "large"]))
+
+    def test_a_hard_kill_of_the_wrapper_frees_the_slots_at_once(self):
+        holder = self.worker("holder", "4G", hold="120")
+        self.wait_for_event("start", "holder")
+        holder.kill()
+        holder.wait(timeout=60)
+        started = time.time()
+        follower = self.worker("follower", "4G", hold="0")
+        self.assertEqual(follower.wait(timeout=60), 0)
+        self.assertLess(time.time() - started, 30.0)
+
+    def test_the_command_does_not_inherit_the_locks(self):
+        script = (
+            "import os\n"
+            "directory = os.environ['BOUNDED_RUN_LOCK_DIR']\n"
+            "locks = set()\n"
+            "for name in os.listdir(directory):\n"
+            "    info = os.stat(os.path.join(directory, name))\n"
+            "    locks.add((info.st_dev, info.st_ino))\n"
+            "found = 0\n"
+            "for descriptor in range(3, 256):\n"
+            "    try:\n"
+            "        info = os.fstat(descriptor)\n"
+            "    except OSError:\n"
+            "        continue\n"
+            "    if (info.st_dev, info.st_ino) in locks:\n"
+            "        found += 1\n"
+            "print('locks', len(locks), 'inherited', found)\n"
+        )
+        process = self.wrapper(["--memory", "4G", "--exclusive", "port"], [sys.executable, "-c", script])
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(output, "locks 4 inherited 0\n", errors)
+
+    def test_commands_with_the_same_exclusive_name_take_turns(self):
+        workers = [self.worker("w%d" % index, "2G", hold="0.3", options=["--exclusive", "port-8080"]) for index in range(3)]
+        for process in workers:
+            self.assertEqual(process.wait(timeout=60), 0)
+        self.assertEqual(self.peak_concurrency(), 1)
+
+    def test_a_budget_larger_than_the_queue_runs_with_a_warning(self):
+        first = self.worker("first", "64G", hold="0.3")
+        second = self.worker("second", "64G", hold="0.3")
+        output, errors = first.communicate(timeout=60)
+        self.assertEqual(first.returncode, 0, errors)
+        self.assertIn("WARNING: the budget of 65536 MiB is more than the 4096 MiB of the queue", errors)
+        self.assertEqual(second.wait(timeout=60), 0)
+        self.assertEqual(self.peak_concurrency(), 1)
+
+    def test_a_lock_directory_that_is_a_file_gives_125(self):
+        path = os.path.join(self.base.name, "a-file")
+        Path(path).write_text("")
+        process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", "print('ran')"], BOUNDED_RUN_LOCK_DIR=path)
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual((process.returncode, output), (125, ""), errors)
+        self.assertIn("bounded-run: cannot use the lock directory", errors)
+
 
 if __name__ == "__main__":
     unittest.main()

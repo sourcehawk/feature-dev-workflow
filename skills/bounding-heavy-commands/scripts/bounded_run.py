@@ -559,12 +559,28 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
     if shutil.which(command[0], path=environ.get("PATH")) is None:
         raise WrapperError("cannot start '%s': the command does not exist" % command[0])
 
+    count = slot_count(settings.total_mib, settings.slot_mib, settings.reserve_mib)
+    needed = slots_needed(budget, settings.slot_mib, count)
+    if budget > count * settings.slot_mib:
+        log("WARNING: the budget of %d MiB is more than the %d MiB of the queue; the command takes all slots" % (budget, count * settings.slot_mib))
+    uid = os.getuid()
+    directory = lock_directory(environ, uid)
+    ensure_lock_directory(directory, uid)
+    repository = repository_id(os.getcwd()) if options.exclusive else ""
+    exclusive_files = [exclusive_file_name(repository, name) for name in options.exclusive]
+
     child_environ: Dict[str, str] = dict(environ)
     child_environ[ACTIVE_VARIABLE] = "1"
     child_environ["BOUNDED_RUN_MEMORY_MIB"] = str(budget)
     child_environ["BOUNDED_RUN_CPUS"] = str(options.cpus if options.cpus is not None else (os.cpu_count() or 1))
 
-    code, maxrss = run_command(command, child_environ)
+    reservation = reserve(directory, count, needed, exclusive_files, settings.poll_seconds)
+    try:
+        wait_for_memory(budget, settings.memory_wait_seconds, settings.poll_seconds)
+        code, maxrss = run_command(command, child_environ)
+    finally:
+        reservation.release()
+
     log("budget %d MiB, exit %d" % (budget, code))
     return code
 
