@@ -130,6 +130,13 @@ class SettingsTest(unittest.TestCase):
         with self.assertRaises(bounded_run.WrapperError):
             bounded_run.Settings({"BOUNDED_RUN_POLL_SECONDS": "fast"}, read_total=lambda: 1)
 
+    def test_rejects_a_value_that_is_not_finite(self):
+        for name in ("BOUNDED_RUN_SLOT_MIB", "BOUNDED_RUN_TOTAL_MIB", "BOUNDED_RUN_POLL_SECONDS"):
+            for text in ("nan", "inf", "1e400"):
+                with self.subTest(name=name, text=text):
+                    with self.assertRaises(bounded_run.WrapperError):
+                        bounded_run.Settings({name: text}, read_total=lambda: 16384)
+
 
 class LockDirectoryTest(unittest.TestCase):
     def test_override_wins(self):

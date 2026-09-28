@@ -128,6 +128,8 @@ def _number(environ: Mapping[str, str], name: str, fallback: float) -> float:
         value = float(text)
     except ValueError:
         raise WrapperError("cannot read %s='%s'; use a number" % (name, text))
+    if not math.isfinite(value):
+        raise WrapperError("cannot read %s='%s'; use a number" % (name, text))
     if value < 0:
         raise WrapperError("%s must not be less than zero" % name)
     return value
