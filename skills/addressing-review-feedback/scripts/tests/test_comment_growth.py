@@ -96,6 +96,63 @@ class ScanTest(unittest.TestCase):
             [gate.Block(1, ("--[[", "about", "]]"), "local x = 1"), gate.Block(5, ("-- note",), "local y = 2")],
         )
 
+
+class ScanDocStringPositionTest(unittest.TestCase):
+    def test_multi_line_string_constant_is_not_a_doc_string(self):
+        source = (
+            'QUERY = """\n'
+            'SELECT * FROM t\n'
+            '"""\n'
+            'run()\n'
+            '\n'
+            'def process(job):\n'
+            '    """Processes job."""\n'
+            '    return job()\n'
+        )
+        self.assertEqual(
+            gate.scan(source, gate.HASH_DOCSTRING),
+            [gate.Block(7, ('"""Processes job."""',), "def process(job):")],
+        )
+
+    def test_doc_string_with_a_prefix_is_still_a_doc_string(self):
+        source = 'def run(job):\n    r"""Runs job."""\n    return job()\n'
+        self.assertEqual(
+            gate.scan(source, gate.HASH_DOCSTRING),
+            [gate.Block(2, ('r"""Runs job."""',), "def run(job):")],
+        )
+
+    def test_doc_string_at_the_first_statement_of_the_file_has_no_anchor(self):
+        source = '"""Module doc."""\nimport os\n'
+        self.assertEqual(
+            gate.scan(source, gate.HASH_DOCSTRING),
+            [gate.Block(1, ('"""Module doc."""',), "")],
+        )
+
+    def test_growth_inside_a_real_doc_string_is_flagged_and_a_string_constant_change_is_not_listed(self):
+        old = (
+            'QUERY = """\n'
+            'SELECT 1\n'
+            '"""\n'
+            '\n'
+            'def process(job):\n'
+            '    """Processes."""\n'
+            '    return job()\n'
+        )
+        new = (
+            'QUERY = """\n'
+            'SELECT 2\n'
+            '"""\n'
+            '\n'
+            'def process(job):\n'
+            '    """Processes the job.\n'
+            '\n'
+            '    Retries once.\n'
+            '    """\n'
+            '    return job()\n'
+        )
+        findings = gate.compare("f", old, new, gate.HASH_DOCSTRING)
+        self.assertEqual([(f.status, f.flagged) for f in findings], [(gate.GREW, True)])
+
 def statuses(old, new, family=gate.SLASH):
     return [(f.status, f.old_length, f.new_length, f.flagged) for f in gate.compare("f", old, new, family)]
 

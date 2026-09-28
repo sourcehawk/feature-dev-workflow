@@ -13,6 +13,7 @@ import argparse
 import difflib
 import fnmatch
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -30,11 +31,16 @@ class Family:
     # The side of the anchor line for a delimited block. A block of line
     # markers always takes the code line after it.
     delimited_anchor: str
+    # True when the family's delimiters double as a plain string literal in
+    # its language, so an opening delimiter is a doc comment only in the
+    # position of one: the first statement of the file, or right after a
+    # line that ends with ':'. Elsewhere it is a string a code line opens.
+    doc_position_only: bool = False
 
 
 SLASH = Family("slash", ("//",), (("/*", "*/"),), AFTER)
 HASH = Family("hash", ("#",), (), AFTER)
-HASH_DOCSTRING = Family("hash-docstring", ("#",), (('"""', '"""'), ("'''", "'''")), BEFORE)
+HASH_DOCSTRING = Family("hash-docstring", ("#",), (('"""', '"""'), ("'''", "'''")), BEFORE, doc_position_only=True)
 DASH = Family("dash", ("--",), (("--[[", "]]"), ("{-", "-}"), ("/*", "*/")), AFTER)
 MARKUP = Family("markup", (), (("<!--", "-->"),), AFTER)
 SEMICOLON = Family("semicolon", (";",), (), AFTER)
@@ -92,11 +98,43 @@ class Block:
         return len(self.text)
 
 
+_LETTERS = re.compile(r"^[A-Za-z]*")
+
+
+def _prefix_length(stripped: str, family: Family) -> int:
+    """The length of the string-literal prefix (r, b, f, ...) before a doc-position delimiter."""
+    return len(_LETTERS.match(stripped).group()) if family.doc_position_only else 0
+
+
 def _opening(stripped: str, family: Family) -> Optional[Tuple[str, str]]:
+    body = stripped[_prefix_length(stripped, family):]
     for opening, closing in family.delimiters:
-        if stripped.startswith(opening):
+        if body.startswith(opening):
             return opening, closing
     return None
+
+
+def _is_doc_position(lines: Sequence[str], index: int) -> bool:
+    """True at the first statement of the file, or right after a line ending with ':'."""
+    previous = index - 1
+    while previous >= 0 and not lines[previous].strip():
+        previous -= 1
+    return previous < 0 or lines[previous].strip().endswith(":")
+
+
+def _string_open(stripped: str, family: Family) -> Optional[Tuple[str, str]]:
+    """Returns (closing token, remainder after it opens) for a string stripped opens but does not close, or None."""
+    earliest: Optional[Tuple[int, str, str]] = None
+    for opening, closing in family.delimiters:
+        at = stripped.find(opening)
+        if at == -1:
+            continue
+        rest = stripped[at + len(opening):]
+        if closing in rest:
+            continue
+        if earliest is None or at < earliest[0]:
+            earliest = (at, closing, rest)
+    return (earliest[1], earliest[2]) if earliest else None
 
 
 def _is_line_comment(stripped: str, family: Family) -> bool:
@@ -105,16 +143,19 @@ def _is_line_comment(stripped: str, family: Family) -> bool:
     return any(stripped.startswith(marker) for marker in family.line_markers)
 
 
-def _spans(lines: Sequence[str], family: Family) -> List[Tuple[int, int, str]]:
+def _spans(lines: Sequence[str], family: Family) -> Tuple[List[Tuple[int, int, str]], set]:
     spans: List[Tuple[int, int, str]] = []
+    # Lines that a plain string literal occupies. A doc-position family can
+    # open one on a code line; those lines are not a comment and not an anchor.
+    excluded: set = set()
     index = 0
     while index < len(lines):
         stripped = lines[index].strip()
         delimiter = _opening(stripped, family)
-        if delimiter is not None:
+        if delimiter is not None and (not family.doc_position_only or _is_doc_position(lines, index)):
             opening, closing = delimiter
             end = index
-            rest = stripped[len(opening):]
+            rest = stripped[_prefix_length(stripped, family) + len(opening):]
             while closing not in rest and end + 1 < len(lines):
                 end += 1
                 rest = lines[end]
@@ -127,15 +168,25 @@ def _spans(lines: Sequence[str], family: Family) -> List[Tuple[int, int, str]]:
             spans.append((index, end, AFTER))
             index = end + 1
         else:
-            index += 1
-    return spans
+            opened = _string_open(stripped, family) if family.doc_position_only else None
+            if opened is None:
+                index += 1
+            else:
+                closing, rest = opened
+                end = index
+                while closing not in rest and end + 1 < len(lines):
+                    end += 1
+                    rest = lines[end]
+                excluded.update(range(index, end + 1))
+                index = end + 1
+    return spans, excluded
 
 
 def scan(source: str, family: Family) -> List[Block]:
     """Returns the comment blocks of source, in source order."""
     lines = source.splitlines()
-    spans = _spans(lines, family)
-    commented = set()
+    spans, excluded = _spans(lines, family)
+    commented = set(excluded)
     for start, end, _ in spans:
         commented.update(range(start, end + 1))
 
