@@ -1,0 +1,54 @@
+name: Script tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  unittest:
+    name: ${{ matrix.os }}, Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.9", "3.x"]
+        include:
+          # The interpreter that ships with the developer tools of macOS.
+          - os: macos-latest
+            python: system
+    steps:
+      - uses: actions/checkout@v4
+
+      - if: matrix.python != 'system'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Run the tests of the scripts of each skill
+        shell: bash
+        run: |
+          if [ "${{ matrix.python }}" = system ]; then
+            python=/usr/bin/python3
+          else
+            python=python3
+          fi
+          "$python" --version
+
+          found=0
+          for tests in skills/*/scripts/tests; do
+            [ -d "$tests" ] || continue
+            found=1
+            echo "::group::$tests"
+            "$python" -m unittest discover -s "$tests" -v
+            echo "::endgroup::"
+          done
+
+          if [ "$found" = 0 ]; then
+            echo "No script tests found under skills/*/scripts/tests."
+            exit 1
+          fi
