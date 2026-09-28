@@ -302,11 +302,12 @@ class Finding:
 
 
 def pair(
-    old: Sequence[Block], new: Sequence[Block], min_kept: float = 0.0, most: Optional[int] = None
+    old: Sequence[Block], new: Sequence[Block], min_kept: float = 0.0, most: Optional[int] = None, share: bool = True
 ) -> Tuple[Dict[int, Optional[int]], Tuple[int, ...]]:
     """Maps the index of each changed or added block of new to the index of its block in old (or to None), and
     lists the indexes of the blocks of old that have no partner in new. A pair keeps at least min_kept of the
-    old words. Raises TooManyPairs when more than most pairs of blocks would need a score."""
+    old words. Raises TooManyPairs when more than most pairs of blocks would need a score. With share, a longer
+    block left without a partner shares an old block it could have paired with."""
     old_words = [_words(block) for block in old]
     new_words = [_words(block) for block in new]
     # The orders of the blocks of old not yet claimed by an unchanged match, by (anchor, text).
@@ -380,7 +381,7 @@ def pair(
     # sibling that copies the old words took its old block. It shares that
     # block, so the growth is flagged rather than missed.
     for score, distance, index, order in candidates:
-        if pairs[index] is None and new[index].length > old[order].length:
+        if share and pairs[index] is None and new[index].length > old[order].length:
             pairs[index] = order
     # A copy whose old block no other block took is that block, unchanged.
     for index, order in sorted(copies.items()):
@@ -517,6 +518,7 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
 
     # A block that moved to another file is still free on both sides after
     # the pairing inside each file, so the free blocks pair once more across files.
+    # A block moves to one place, so there an old block is never shared.
     added = [
         (number, index)
         for number, (_, _, pairs, _) in enumerate(files)
@@ -530,7 +532,7 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
     try:
         moved, left = pair(
             [block for _, block in gone], [files[number][1][index] for number, index in added],
-            KEPT_ACROSS_FILES, MOST_PAIRS_ACROSS_FILES,
+            KEPT_ACROSS_FILES, MOST_PAIRS_ACROSS_FILES, share=False,
         )
     except TooManyPairs:
         not_paired = (len(gone), len(added))
