@@ -403,3 +403,176 @@ class PeakTracker(threading.Thread):
         self.done.set()
         self.join(timeout=15)
         return self.peak
+
+
+def exit_code_of(status: int) -> int:
+    code = os.waitstatus_to_exitcode(status)
+    if code < 0:
+        return 128 - code
+    return code
+
+
+def run_command(
+    command: Sequence[str], environ: Mapping[str, str],
+    on_start: Optional[Callable[[int], None]] = None,
+) -> Tuple[int, int]:
+    """Runs the command in its own process group. Returns the exit code and ru_maxrss."""
+    received: List[int] = []
+    started: List[int] = []
+
+    def forward(signum: int, frame: object) -> None:
+        received.append(signum)
+        if started:
+            try:
+                os.killpg(started[0], signum if len(received) == 1 else signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    previous = {signum: signal.signal(signum, forward) for signum in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        try:
+            process = subprocess.Popen(list(command), env=dict(environ), start_new_session=True)
+        except OSError as error:
+            raise WrapperError("cannot start '%s': %s" % (command[0], error))
+        started.append(process.pid)
+        if received:
+            os.killpg(process.pid, received[0])
+        if on_start is not None:
+            on_start(process.pid)
+        _, status, usage = os.wait4(process.pid, 0)
+        process.returncode = exit_code_of(status)
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+    if received:
+        return 128 + received[0], usage.ru_maxrss
+    return process.returncode, usage.ru_maxrss
+
+
+def inside_cap(
+    peak_file: str, unit: str, command: Sequence[str],
+    proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup",
+) -> int:
+    """Runs the command as a child in the cgroup of the cap, then writes the peak of that cgroup.
+
+    The cgroup exists for as long as this process is in it. Thus the peak is readable after the
+    command stops, which is not possible from outside the cgroup.
+    """
+    def keep_running(signum: int, frame: object) -> None:
+        pass
+
+    previous = {signum: signal.signal(signum, keep_running) for signum in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        try:
+            process = subprocess.Popen(list(command))
+        except OSError as error:
+            log("cannot start '%s': %s" % (command[0], error))
+            return EXIT_WRAPPER
+        _, status = os.waitpid(process.pid, 0)
+        process.returncode = exit_code_of(status)
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+    directory = cgroup_directory(os.getpid(), unit, proc_root, cgroup_root)
+    peak = cgroup_peak_mib(directory, names=("memory.peak",)) if directory is not None else None
+    if peak is not None:
+        try:
+            with open(peak_file, "w") as handle:
+                handle.write("%d\n" % peak)
+        except OSError:
+            pass
+    return process.returncode
+
+
+def read_peak_file(path: str) -> Optional[int]:
+    try:
+        with open(path) as handle:
+            text = handle.read().strip()
+        os.unlink(path)
+    except OSError:
+        return None
+    return int(text) if text.isdigit() else None
+
+
+class Options:
+    def __init__(self) -> None:
+        self.memory: Optional[str] = None
+        self.cpus: Optional[int] = None
+        self.exclusive: List[str] = []
+        self.measure = False
+        self.command: List[str] = []
+
+
+def parse_arguments(argv: Sequence[str]) -> Options:
+    options = Options()
+    arguments = list(argv)
+    if "--" not in arguments:
+        raise WrapperError("the '--' before the command is missing\n" + USAGE)
+    split = arguments.index("--")
+    options.command = arguments[split + 1:]
+    if not options.command:
+        raise WrapperError("the command is missing\n" + USAGE)
+    flags = arguments[:split]
+    while flags:
+        flag = flags.pop(0)
+        if flag == "--measure":
+            options.measure = True
+            continue
+        if flag not in ("--memory", "--cpus", "--exclusive"):
+            raise WrapperError("cannot read the option '%s'\n%s" % (flag, USAGE))
+        if not flags:
+            raise WrapperError("the option '%s' needs a value\n%s" % (flag, USAGE))
+        value = flags.pop(0)
+        if flag == "--memory":
+            options.memory = value
+        elif flag == "--exclusive":
+            if value not in options.exclusive:
+                options.exclusive.append(value)
+        else:
+            if not value.isdigit() or int(value) < 1:
+                raise WrapperError("cannot read --cpus '%s'; use a whole number of 1 or more" % value)
+            options.cpus = int(value)
+    return options
+
+
+def bounded(options: Options, environ: Mapping[str, str]) -> int:
+    settings = Settings(environ)
+    if options.memory is not None:
+        budget = parse_size_mib(options.memory)
+    else:
+        budget = default_budget_mib(settings.total_mib, settings.slot_mib)
+    command = list(options.command)
+    if shutil.which(command[0]) is None:
+        raise WrapperError("cannot start '%s': the command does not exist" % command[0])
+
+    child_environ: Dict[str, str] = dict(environ)
+    child_environ[ACTIVE_VARIABLE] = "1"
+    child_environ["BOUNDED_RUN_MEMORY_MIB"] = str(budget)
+    child_environ["BOUNDED_RUN_CPUS"] = str(options.cpus if options.cpus is not None else (os.cpu_count() or 1))
+
+    code, maxrss = run_command(command, child_environ)
+    log("budget %d MiB, exit %d" % (budget, code))
+    return code
+
+
+def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, str]] = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    variables = os.environ if environ is None else environ
+    try:
+        if len(arguments) > 4 and arguments[0] == "--inside-cap" and arguments[3] == "--":
+            return inside_cap(arguments[1], arguments[2], arguments[4:])
+        options = parse_arguments(arguments)
+        if variables.get(ACTIVE_VARIABLE):
+            log("nested call; running the command directly")
+            try:
+                os.execvpe(options.command[0], options.command, dict(variables))
+            except OSError as error:
+                raise WrapperError("cannot start '%s': %s" % (options.command[0], error))
+        return bounded(options, variables)
+    except WrapperError as error:
+        log(str(error))
+        return EXIT_WRAPPER
+
+
+if __name__ == "__main__":
+    sys.exit(main())

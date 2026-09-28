@@ -520,5 +520,255 @@ class MeasurementTest(unittest.TestCase):
         self.assertIsNone(tracker.finish())
 
 
+class ArgumentTest(unittest.TestCase):
+    def test_reads_all_options(self):
+        options = bounded_run.parse_arguments(
+            ["--memory", "6G", "--cpus", "4", "--exclusive", "a", "--exclusive", "b", "--measure", "--", "tool", "--memory", "x"]
+        )
+        self.assertEqual(
+            (options.memory, options.cpus, options.exclusive, options.measure, options.command),
+            ("6G", 4, ["a", "b"], True, ["tool", "--memory", "x"]),
+        )
+
+    def test_rejects_bad_arguments(self):
+        for arguments in (["tool"], ["--memory", "6G", "--"], ["--fast", "--", "tool"], ["--memory", "--", "tool"], ["--cpus", "0", "--", "tool"], ["--cpus", "two", "--", "tool"]):
+            with self.subTest(arguments=arguments):
+                with self.assertRaises(bounded_run.WrapperError):
+                    bounded_run.parse_arguments(arguments)
+
+    def test_a_repeated_exclusive_name_is_kept_one_time(self):
+        options = bounded_run.parse_arguments(
+            ["--exclusive", "port", "--exclusive", "cache", "--exclusive", "port", "--", "tool"]
+        )
+        self.assertEqual(options.exclusive, ["port", "cache"])
+
+
+class InsideCapTest(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(bounded_run, "log")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.base = tempfile.TemporaryDirectory()
+        self.addCleanup(self.base.cleanup)
+        self.proc = os.path.join(self.base.name, "proc")
+        self.cgroups = os.path.join(self.base.name, "cgroups")
+        self.peak_file = os.path.join(self.base.name, "peak")
+        os.makedirs(os.path.join(self.proc, str(os.getpid())))
+        Path(self.proc, str(os.getpid()), "cgroup").write_text("0::/user.slice/unit-1.scope\n")
+        self.cgroup = os.path.join(self.cgroups, "user.slice", "unit-1.scope")
+        os.makedirs(self.cgroup)
+
+    def inside(self, command, unit="unit-1"):
+        return bounded_run.inside_cap(self.peak_file, unit, command, proc_root=self.proc, cgroup_root=self.cgroups)
+
+    def test_writes_the_peak_after_the_command_stops(self):
+        Path(self.cgroup, "memory.peak").write_text("%d\n" % (300 * 1024 * 1024))
+        self.assertEqual(self.inside([sys.executable, "-c", "import sys; sys.exit(6)"]), 6)
+        self.assertEqual(bounded_run.read_peak_file(self.peak_file), 300)
+        self.assertFalse(os.path.exists(self.peak_file))
+
+    def test_writes_nothing_without_the_peak_file_of_the_kernel(self):
+        Path(self.cgroup, "memory.current").write_text("%d\n" % (100 * 1024 * 1024))
+        self.assertEqual(self.inside([sys.executable, "-c", "pass"]), 0)
+        self.assertIsNone(bounded_run.read_peak_file(self.peak_file))
+
+    def test_writes_nothing_outside_the_cgroup_of_the_unit(self):
+        Path(self.cgroup, "memory.peak").write_text("%d\n" % (300 * 1024 * 1024))
+        self.assertEqual(self.inside([sys.executable, "-c", "pass"], unit="unit-2"), 0)
+        self.assertIsNone(bounded_run.read_peak_file(self.peak_file))
+
+    def test_a_command_that_a_signal_stopped_gives_128_plus_the_signal(self):
+        script = "import os, signal; os.kill(os.getpid(), signal.SIGKILL)"
+        self.assertEqual(self.inside([sys.executable, "-c", script]), 137)
+
+    def test_a_command_that_does_not_exist_gives_125(self):
+        self.assertEqual(self.inside(["/nonexistent/tool-for-the-test"]), 125)
+
+    def test_puts_the_signal_handlers_back(self):
+        before = signal.getsignal(signal.SIGTERM)
+        self.inside([sys.executable, "-c", "pass"])
+        self.assertIs(signal.getsignal(signal.SIGTERM), before)
+
+    def test_a_peak_file_with_other_text_gives_nothing(self):
+        Path(self.peak_file).write_text("not a number\n")
+        self.assertIsNone(bounded_run.read_peak_file(self.peak_file))
+
+
+class WrapperProcessCase(unittest.TestCase):
+    """Runs the script as a process, with two slots of 2 GiB and no hard cap."""
+
+    def setUp(self):
+        self.base = tempfile.TemporaryDirectory()
+        self.addCleanup(self.base.cleanup)
+        self.events = os.path.join(self.base.name, "events")
+        self.environ = dict(os.environ)
+        self.environ.pop("BOUNDED_RUN_ACTIVE", None)
+        self.environ.update({
+            "BOUNDED_RUN_LOCK_DIR": os.path.join(self.base.name, "locks"),
+            "BOUNDED_RUN_TOTAL_MIB": "6144",
+            "BOUNDED_RUN_RESERVE_MIB": "2048",
+            "BOUNDED_RUN_SLOT_MIB": "2048",
+            "BOUNDED_RUN_POLL_SECONDS": "0.05",
+            "BOUNDED_RUN_MEMORY_WAIT_SECONDS": "0",
+            "BOUNDED_RUN_SAMPLE_SECONDS": "0.1",
+            "BOUNDED_RUN_NO_CAP": "1",
+            "EVENTS": self.events,
+        })
+        self.processes = []
+
+    def tearDown(self):
+        for process in self.processes:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
+        for line in self.read_events():
+            try:
+                os.kill(int(line.split()[2]), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    def wrapper(self, options, command, **environ):
+        variables = dict(self.environ)
+        variables.update(environ)
+        process = subprocess.Popen(
+            [sys.executable, WRAPPER] + options + ["--"] + command,
+            env=variables, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        self.processes.append(process)
+        return process
+
+    def worker(self, name, memory, hold="0.3", options=(), release=""):
+        command = [sys.executable, "-c", WORKER, name]
+        return self.wrapper(["--memory", memory] + list(options), command, HOLD=hold, RELEASE=release)
+
+    def read_events(self):
+        try:
+            with open(self.events) as handle:
+                return handle.read().splitlines()
+        except OSError:
+            return []
+
+    def wait_for_event(self, kind, name, seconds=30.0):
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            for line in self.read_events():
+                if line.split()[:2] == [kind, name]:
+                    return line
+            time.sleep(0.02)
+        self.fail("no '%s %s' event after %s seconds; events: %s" % (kind, name, seconds, self.read_events()))
+
+    def peak_concurrency(self):
+        running = 0
+        peak = 0
+        for line in self.read_events():
+            running += 1 if line.startswith("start ") else -1
+            peak = max(peak, running)
+        return peak
+
+
+class WrapperProcessTest(WrapperProcessCase):
+    def test_passes_the_exit_code(self):
+        process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", "import sys; sys.exit(7)"])
+        self.assertEqual(process.wait(timeout=60), 7)
+
+    def test_passes_the_output(self):
+        process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", "print('from the command')"])
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(output, "from the command\n")
+        self.assertIn("bounded-run: budget 2048 MiB", errors)
+
+    def test_a_command_that_a_signal_stopped_gives_128_plus_the_signal(self):
+        script = "import os, signal; os.kill(os.getpid(), signal.SIGKILL)"
+        process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", script])
+        self.assertEqual(process.wait(timeout=60), 137)
+
+    def test_a_failure_of_the_wrapper_gives_125(self):
+        process = subprocess.Popen(
+            [sys.executable, WRAPPER, "--memory", "2G", "tool"], env=self.environ,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        self.processes.append(process)
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(process.returncode, 125)
+        self.assertTrue(errors.startswith("bounded-run: "), errors)
+
+    def test_a_command_that_does_not_exist_gives_125(self):
+        process = self.wrapper(["--memory", "2G"], ["/nonexistent/tool-for-the-test"])
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(process.returncode, 125)
+        self.assertIn("cannot start", errors)
+        follower = self.worker("after", "4G", hold="0")
+        self.assertEqual(follower.wait(timeout=60), 0)
+
+    def test_the_command_gets_the_budget_and_the_marker(self):
+        script = "import os; print(os.environ['BOUNDED_RUN_ACTIVE'], os.environ['BOUNDED_RUN_MEMORY_MIB'], os.environ['BOUNDED_RUN_CPUS'])"
+        process = self.wrapper(["--memory", "2G", "--cpus", "3"], [sys.executable, "-c", script])
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(output, "1 2048 3\n")
+
+    def test_the_command_reads_the_input_of_the_wrapper(self):
+        variables = dict(self.environ)
+        process = subprocess.Popen(
+            [sys.executable, WRAPPER, "--memory", "2G", "--", sys.executable, "-c", "import sys; print(sys.stdin.read().upper())"],
+            env=variables, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        self.processes.append(process)
+        output, errors = process.communicate("text for the command", timeout=60)
+        process.stdin = None
+        self.assertEqual((process.returncode, output), (0, "TEXT FOR THE COMMAND\n"), errors)
+
+    def test_a_nested_call_does_not_wait_for_its_own_slots(self):
+        inner = [sys.executable, WRAPPER, "--memory", "4G", "--", sys.executable, "-c", "import sys; print('inner'); sys.exit(3)"]
+        process = self.wrapper(["--memory", "4G"], inner)
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual((process.returncode, output), (3, "inner\n"), errors)
+        self.assertIn("nested call", errors)
+
+    def test_a_nested_call_of_a_command_that_does_not_exist_gives_125(self):
+        process = self.wrapper(["--memory", "2G"], ["/nonexistent/tool-for-the-test"], BOUNDED_RUN_ACTIVE="1")
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(process.returncode, 125, errors)
+        self.assertNotIn("Traceback", errors)
+
+    def test_a_stop_signal_stops_the_command(self):
+        for signum, code in ((signal.SIGTERM, 143), (signal.SIGINT, 130)):
+            with self.subTest(signal=signum):
+                name = "stopped-%d" % code
+                process = self.worker(name, "2G", hold="30")
+                line = self.wait_for_event("start", name)
+                process.send_signal(signum)
+                self.assertEqual(process.wait(timeout=60), code)
+                child = int(line.split()[2])
+                deadline = time.time() + 5
+                alive = True
+                while alive and time.time() < deadline:
+                    try:
+                        os.kill(child, 0)
+                        time.sleep(0.05)
+                    except ProcessLookupError:
+                        alive = False
+                self.assertFalse(alive, "the command still runs")
+
+    def test_a_second_stop_signal_kills_a_command_that_ignores_the_first(self):
+        script = (
+            "import os, signal, sys, time\n"
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            "descriptor = os.open(os.environ['EVENTS'], os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)\n"
+            "os.write(descriptor, ('start stubborn %d\\n' % os.getpid()).encode())\n"
+            "os.close(descriptor)\n"
+            "time.sleep(30)\n"
+        )
+        process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", script])
+        self.wait_for_event("start", "stubborn")
+        process.send_signal(signal.SIGTERM)
+        time.sleep(0.3)
+        self.assertIsNone(process.poll())
+        process.send_signal(signal.SIGTERM)
+        self.assertEqual(process.wait(timeout=60), 143)
+
+
 if __name__ == "__main__":
     unittest.main()
