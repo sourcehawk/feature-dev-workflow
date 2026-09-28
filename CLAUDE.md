@@ -18,7 +18,7 @@ Before you open a PR:
 A single Claude Code plugin, packaged as its own single-plugin marketplace.
 
 - `.claude-plugin/plugin.json` is the plugin manifest; `.claude-plugin/marketplace.json` makes the repo installable as a marketplace. Skills are auto-discovered from `skills/`.
-- The only runtime dependencies are the [superpowers](https://github.com/obra/superpowers) plugin, the `gh` CLI, and the official [`gh stack`](https://github.com/github/gh-stack) extension for `gh`, which the skills require only for stacked PRs. Keep it that way. Do not add a third-party dependency to make a skill work.
+- The only runtime dependencies are the [superpowers](https://github.com/obra/superpowers) plugin, the `gh` CLI, the official [`gh stack`](https://github.com/github/gh-stack) extension for `gh`, which the skills require only for stacked PRs, and Python 3.9 or later, which the skills require only for the scripts they ship. Keep it that way. Do not add a third-party dependency to make a skill work.
 
 ## Editing skills
 
@@ -26,6 +26,7 @@ A single Claude Code plugin, packaged as its own single-plugin marketplace.
 - **A skill `description:` is "Use when..." trigger text only, never a workflow summary.** A summary becomes a shortcut the agent takes instead of reading the body.
 - **Keep skills project-agnostic.** No hardcoded repo slug, no project-specific build commands, no domain examples. No language, framework, or product names in illustrations. A skill must read the same in a Go repo, a Next.js app, or a Python service. The honest test: would this still be correct in a project built on a completely different stack?
 - **Reference templates with `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/templates/<file>`.** Relative paths break once the plugin is copied into the install cache.
+- **Scripts live in `skills/<skill>/scripts/`, use the Python standard library only, and carry tests in `skills/<skill>/scripts/tests/`.** Reference them with `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/scripts/<file>`.
 - **Intra-plugin skill invocations are namespaced `feature-dev-workflow:<name>`.** Leave `superpowers:*` references and the external `review` skill alone.
 - **The `**REQUIRED SUB-SKILL:**` markers are the control flow.** If you add, rename, or remove a skill, fix every marker that points at it, in every skill, and update the diagram in `templates/project-CLAUDE.md` and the table in `README.md`.
 - **`simple-english:simple-english` is an optional style skill, not a dependency.** Skills that draft prose people read (PR and issue bodies and comments, review replies, docs, release notes, specs, ADRs, commit bodies, code and doc comments) reference it with an `**OPTIONAL SUB-SKILL:**` marker: load it when it is available, suggest the install to the user once per session when it is not, and continue either way. Every skill must work without it. It sets sentence style only: a template's sections, a skill's length rules, a commit subject's convention, and a project's comment rules still apply. Its own formatting rules (headings, bold, lists, and its register for chat replies) give way to the host skill and its template, and every marker says so. It does not cover PR and issue titles, commit subjects, code itself (identifiers, strings, log messages), plans and state files, or the skill files themselves.
@@ -43,5 +44,7 @@ A single Claude Code plugin, packaged as its own single-plugin marketplace.
 ## Verify before done
 
 - The JSON in `.claude-plugin/` must parse.
+- Every script's tests must pass: `python3 -m unittest discover -s skills/<skill>/scripts/tests`.
+- CI runs the same tests on Linux and macOS, on Python 3.9 and on the current release, from `.github/workflows/script-tests.yml`. A new script needs no change there: the workflow finds every `skills/<skill>/scripts/tests/` directory.
 - Before committing any genericization, grep the skills for leakage: no repo slug, no project-specific build commands, no product or domain identifiers.
 - Read the diff cold. If a sentence only makes sense knowing what just changed, it belongs in the commit message, not the file.
