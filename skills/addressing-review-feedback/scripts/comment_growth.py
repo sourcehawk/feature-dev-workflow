@@ -369,28 +369,30 @@ def pair(
     candidates.sort(key=lambda candidate: (-candidate[0], candidate[1], candidate[2], candidate[3]))
 
     pairs: Dict[int, Optional[int]] = {index: None for index in open_indexes}
-    claimed_new = set()
-    claimed_old = set()
+    # The block of new that took each claimed block of old.
+    taker: Dict[int, int] = {}
     for score, distance, index, order in candidates:
-        if index in claimed_new or order in claimed_old:
-            continue
-        pairs[index] = order
-        claimed_new.add(index)
-        claimed_old.add(order)
+        if pairs[index] is None and order not in taker:
+            pairs[index] = order
+            taker[order] = index
     # A block left without a partner may still be the one that grew, when a
     # sibling that copies the old words took its old block. It shares that
-    # block, so the growth is flagged rather than missed.
+    # block when its anchor is closer to the old anchor than the sibling's, so
+    # the growth is flagged rather than missed, and a new block beside a
+    # comment changed in place is not.
     for score, distance, index, order in candidates:
         if share and pairs[index] is None and new[index].length > old[order].length:
-            pairs[index] = order
+            anchor = old[order].anchor
+            if _similarity(anchor, new[index].anchor) > _similarity(anchor, new[taker[order]].anchor):
+                pairs[index] = order
     # A copy whose old block no other block took is that block, unchanged.
     for index, order in sorted(copies.items()):
-        if order in claimed_old:
+        if order in taker:
             pairs[index] = None
         else:
-            claimed_old.add(order)
+            taker[order] = index
 
-    return pairs, tuple(order for order in free if order not in claimed_old)
+    return pairs, tuple(order for order in free if order not in taker)
 
 
 def _findings(

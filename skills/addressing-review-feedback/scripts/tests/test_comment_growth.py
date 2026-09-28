@@ -428,6 +428,28 @@ class CompareTest(unittest.TestCase):
             [(gate.CHANGED, 1, 1, 1, False), (gate.GREW, 5, 1, 2, True)],
         )
 
+    def test_new_blocks_above_similar_anchors_do_not_share_a_block_changed_in_place(self):
+        old = "// Start starts the server.\nfunc (s *Server) Start() error {\n}\n"
+        new = (
+            "// Start runs the server.\nfunc (s *Server) Start() error {\n}\n\n"
+            "// Stop halts the server and\n// waits for open requests.\nfunc (s *Server) Stop() error {\n}\n\n"
+            "// Reload reads the config file\n// again and applies it.\nfunc (s *Server) Reload() error {\n}\n"
+        )
+        findings = gate.compare("f", old, new, gate.SLASH)
+        self.assertEqual(
+            [(f.status, f.line, f.flagged) for f in findings],
+            [(gate.CHANGED, 1, False), (gate.ADDED, 5, False), (gate.ADDED, 10, False)],
+        )
+
+    def test_new_doc_strings_do_not_share_a_doc_string_changed_in_place(self):
+        old = 'class S:\n    def start(self):\n        """Start the server."""\n'
+        new = (
+            'class S:\n    def start(self):\n        """Run the server."""\n\n'
+            '    def stop(self):\n        """Stop the server.\n\n        Waits for open requests.\n        """\n'
+        )
+        findings = gate.compare("f", old, new, gate.HASH_DOCSTRING)
+        self.assertEqual([(f.status, f.line, f.flagged) for f in findings], [(gate.CHANGED, 3, False), (gate.ADDED, 6, False)])
+
     def test_identical_copy_of_a_block_that_grew_does_not_hide_the_growth(self):
         old = (
             "func load() error {\n\t// Check the error.\n\tif err != nil {\n\t}\n}\n"
@@ -488,7 +510,7 @@ class CompareTest(unittest.TestCase):
         findings = gate.compare("f", old, new, gate.SLASH)
         self.assertEqual(
             [(f.status, f.line, f.old_length, f.new_length) for f in findings],
-            [(gate.GREW, 2, 1, 3), (gate.GREW, 6, 1, 3), (gate.GREW, 10, 2, 3)],
+            [(gate.ADDED, 2, 0, 3), (gate.GREW, 6, 1, 3), (gate.GREW, 10, 2, 3)],
         )
 
     def test_inline_comment_deleted_while_its_code_line_stays(self):
