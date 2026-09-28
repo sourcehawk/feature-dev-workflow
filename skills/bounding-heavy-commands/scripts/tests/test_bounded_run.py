@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import os
 import signal
 import subprocess
@@ -221,6 +222,55 @@ class ReserveTest(unittest.TestCase):
         for seconds in sleeps:
             self.assertGreaterEqual(seconds, 0.1)
             self.assertLess(seconds, 0.3)
+
+    def test_a_lock_error_that_is_not_a_busy_lock_is_reported(self):
+        with mock.patch.object(bounded_run.fcntl, "flock") as mock_flock:
+            def flock_side_effect(fd, flags):
+                # Call the real flock for the turn lock, raise ENOLCK for slot files
+                if flags & bounded_run.fcntl.LOCK_EX and not (flags & bounded_run.fcntl.LOCK_NB):
+                    # This is the turn lock (blocking), allow it
+                    return None
+                # This is a slot lock (non-blocking), fail with ENOLCK
+                raise OSError(errno.ENOLCK, "No locks available")
+
+            mock_flock.side_effect = flock_side_effect
+            with self.assertRaises(bounded_run.WrapperError) as cm:
+                bounded_run.try_reserve(self.directory, 1, 1, [])
+            self.assertIn("cannot lock", str(cm.exception))
+            self.assertIn("No locks available", str(cm.exception))
+
+    def test_a_lock_error_leaves_no_slot_held(self):
+        # After the previous test's patch is removed, all slots should be free
+        reservation = bounded_run.try_reserve(self.directory, 2, 2, [])
+        self.assertIsNotNone(reservation)
+        self.addCleanup(reservation.release)
+        self.assertEqual(len(reservation.descriptors), 2)
+
+    def test_the_turn_lock_is_free_while_the_wrapper_waits(self):
+        # Hold all slots so reserve has to wait
+        blocker = bounded_run.try_reserve(self.directory, 1, 1, [])
+        self.addCleanup(blocker.release)
+
+        turn_lock_acquired = []
+
+        def sleep_and_check(seconds):
+            # Try to acquire the turn lock while reserve is waiting
+            turn_path = os.path.join(self.directory, "reserve.lock")
+            turn_fd = os.open(turn_path, os.O_RDWR | os.O_CREAT, 0o600)
+            try:
+                import fcntl
+                fcntl.flock(turn_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                turn_lock_acquired.append(True)
+            except OSError:
+                turn_lock_acquired.append(False)
+            finally:
+                os.close(turn_fd)
+            # Release the blocker so reserve can succeed
+            blocker.release()
+
+        reservation = bounded_run.reserve(self.directory, 1, 1, [], 0.2, sleep=sleep_and_check)
+        self.addCleanup(reservation.release)
+        self.assertTrue(turn_lock_acquired[0], "turn lock should be free while reserve waits")
 
 
 if __name__ == "__main__":

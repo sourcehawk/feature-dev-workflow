@@ -165,9 +165,13 @@ def _try_lock(path: str) -> Optional[int]:
     descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+    except BlockingIOError:
         os.close(descriptor)
         return None
+    except OSError as error:
+        os.close(descriptor)
+        error_text = error.strerror if error.strerror else str(error)
+        raise WrapperError("cannot lock %s: %s. The lock directory must be on a filesystem that supports file locks." % (path, error_text))
     return descriptor
 
 
