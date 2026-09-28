@@ -394,5 +394,54 @@ class MemoryWaitTest(unittest.TestCase):
         self.assertEqual(self.wait([None], 300), (True, []))
 
 
+class CapTest(unittest.TestCase):
+    def test_prefix_holds_the_limits(self):
+        self.assertEqual(bounded_run.cap_prefix(6144, 4, "unit-1"), [
+            "systemd-run", "--user", "--scope", "--quiet", "--collect", "--unit", "unit-1",
+            "-p", "MemoryMax=6144M", "-p", "MemorySwapMax=0",
+            "-p", "CPUQuota=400%", "--",
+        ])
+
+    def test_prefix_without_cpus_has_no_quota(self):
+        self.assertNotIn("CPUQuota", " ".join(bounded_run.cap_prefix(6144, None, "unit-1")))
+
+    def probe(self, platform, tool, code=0, error=None):
+        calls = []
+
+        def run(command, **keywords):
+            calls.append(command)
+            if error is not None:
+                raise error
+            return subprocess.CompletedProcess(command, code)
+
+        usable = bounded_run.cap_usable(
+            bounded_run.cap_prefix(1024, 2, "unit-1"), platform=platform, which=lambda name: tool, run=run,
+        )
+        return usable, calls
+
+    def test_usable_when_the_probe_succeeds(self):
+        usable, calls = self.probe("linux", "/usr/bin/systemd-run")
+        self.assertTrue(usable)
+        self.assertEqual(calls[0][-1], "true")
+        self.assertIn("CPUQuota=200%", calls[0])
+
+    def test_not_usable_when_the_probe_fails(self):
+        self.assertFalse(self.probe("linux", "/usr/bin/systemd-run", code=1)[0])
+
+    def test_not_usable_when_the_probe_does_not_return(self):
+        error = subprocess.TimeoutExpired("systemd-run", 15)
+        self.assertFalse(self.probe("linux", "/usr/bin/systemd-run", error=error)[0])
+
+    def test_not_usable_without_the_tool(self):
+        usable, calls = self.probe("linux", None)
+        self.assertFalse(usable)
+        self.assertEqual(calls, [])
+
+    def test_not_usable_on_a_different_system(self):
+        usable, calls = self.probe("darwin", "/usr/bin/systemd-run")
+        self.assertFalse(usable)
+        self.assertEqual(calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()

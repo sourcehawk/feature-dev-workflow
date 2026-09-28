@@ -296,3 +296,28 @@ def wait_for_memory(
         log("%d MiB free, budget %d MiB; waiting (%d of %ds)" % (available, budget_mib, waited, limit_seconds))
         sleep(poll_seconds)
         waited += poll_seconds
+
+
+def cap_prefix(budget_mib: int, cpus: Optional[int], unit: str) -> List[str]:
+    prefix = [
+        "systemd-run", "--user", "--scope", "--quiet", "--collect", "--unit", unit,
+        "-p", "MemoryMax=%dM" % budget_mib,
+        "-p", "MemorySwapMax=0",
+    ]
+    if cpus is not None:
+        prefix += ["-p", "CPUQuota=%d%%" % (cpus * 100)]
+    return prefix + ["--"]
+
+
+def cap_usable(
+    prefix: Sequence[str], platform: str = sys.platform,
+    which: Callable[[str], Optional[str]] = shutil.which,
+    run: Callable[..., "subprocess.CompletedProcess"] = subprocess.run,
+) -> bool:
+    if not platform.startswith("linux") or which("systemd-run") is None:
+        return False
+    try:
+        done = run(list(prefix) + ["true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return done.returncode == 0
