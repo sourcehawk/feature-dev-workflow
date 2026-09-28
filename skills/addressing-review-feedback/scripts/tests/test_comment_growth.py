@@ -190,6 +190,17 @@ class ScanDocStringPositionTest(unittest.TestCase):
             [gate.Block(2, ('"""Holds.', '"""'), "class Store(Base):  # the cache")],
         )
 
+    def test_triple_quote_at_the_start_of_a_line_outside_doc_position_opens_a_string(self):
+        source = 'x = call(\n    """\n    # a line of the string\n    """,\n)\n# Runs x.\nrun(x)\n'
+        self.assertEqual(gate.scan(source, gate.HASH_DOCSTRING), [gate.Block(6, ("# Runs x.",), "run(x)")])
+
+    def test_line_of_a_string_is_never_an_anchor(self):
+        source = '# Selects the rows.\nQUERY = """SELECT id\nFROM t\n"""\nrun(QUERY)\n'
+        self.assertEqual(
+            gate.scan(source, gate.HASH_DOCSTRING),
+            [gate.Block(1, ("# Selects the rows.",), "run(QUERY)")],
+        )
+
     def test_triple_quote_inside_a_one_line_string_opens_no_string(self):
         old = "QUOTE = '\"\"\"'\n\n\ndef strip(text):\n    # Drop the quotes.\n    return text.strip(QUOTE)\n"
         new = (
@@ -387,10 +398,16 @@ class CompareTest(unittest.TestCase):
         self.assertEqual(statuses(old, new), [(gate.CHANGED, 1, 1, False)])
 
     def test_common_anchor_text_pairs_blocks_in_order(self):
-        old = "func a() {\n    // first\n}\n\nfunc b() {\n    // second\n}\n"
-        new = "func a() {\n    // first\n}\n\nfunc b() {\n    // second\n    // and more\n}\n"
+        # Each grown block keeps every word of both old blocks above the same
+        # anchor, so every pairing scores the same and position decides.
+        old = "func f() {\n\t// keep\n\tk()\n\t// retry\n\tcall()\n\t// retry\n\t// hard\n\tcall()\n}\n"
+        grown = "\t// retry\n\t// hard\n\t// now\n\tcall()\n"
+        new = "func f() {\n" + grown * 3 + "\t// keep\n\tk()\n}\n"
         findings = gate.compare("f", old, new, gate.SLASH)
-        self.assertEqual([(f.status, f.line, f.flagged) for f in findings], [(gate.GREW, 6, True)])
+        self.assertEqual(
+            [(f.status, f.line, f.old_length, f.new_length) for f in findings],
+            [(gate.ADDED, 2, 0, 3), (gate.GREW, 6, 1, 3), (gate.GREW, 10, 2, 3)],
+        )
 
     def test_inline_comment_deleted_while_its_code_line_stays(self):
         old = "// run starts the job.\nfunc run() {}\n"
@@ -409,6 +426,14 @@ class CompareTest(unittest.TestCase):
             [(f.status, f.old_length, f.new_length, f.flagged) for f in findings],
             [(gate.REMOVED, 1, 0, False)],
         )
+
+    def test_anchor_ratio_at_the_limit_pairs(self):
+        old_anchor = "func send(msg Message) error {"
+        new_anchor = "func load(ctx Context) error {"
+        self.assertEqual(difflib.SequenceMatcher(None, old_anchor, new_anchor).ratio(), gate.SIMILAR_ANCHOR)
+        old = "// send writes one message.\n%s\n}\n" % old_anchor
+        new = "// send writes one message.\n// It retries once.\n%s\n}\n" % new_anchor
+        self.assertEqual(statuses(old, new), [(gate.GREW, 1, 2, True)])
 
     def test_anchor_ratio_just_above_the_limit_pairs(self):
         old_anchor = "func run(job Job) error {"
