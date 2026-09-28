@@ -87,6 +87,8 @@ What this step writes depends on whether a later wave in the plan is still to be
 
 At the same checkpoint, with the feature whole and its behavior settled, write or update the public-facing docs the feature touches before the integration PR opens or flips ready (or before the fan-out hands back when `sub_pr_target: main`) — the integration PR is the external-review surface, and its docs are part of the first impression. **REQUIRED SUB-SKILL:** `feature-dev-workflow:writing-docs` for what earns a doc and how to verify a reader can actually use it.
 
+**REQUIRED SUB-SKILL:** `feature-dev-workflow:bounding-heavy-commands` for how to run the checks below. The project-wide suite is the heaviest command of the feature, and a checkpoint often runs while other sessions verify their own work. Run it through the wrapper.
+
 **REQUIRED SUB-SKILL:** `superpowers:verification-before-completion`. Run the project-wide checks where the integrated code lives, which depends on the state file's `sub_pr_target`:
 
 - **`feature-branch`**: the main feature worktree, which holds the integration state (sub-worktrees only hold their own sub-branch):

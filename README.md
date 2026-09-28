@@ -32,6 +32,7 @@ It is also the faster path. Breaking the feature into independent PRs lets the m
 | `fanning-out-with-worktrees` | An orchestrator dispatching parallel subagents into per-PR worktrees off a feature branch. |
 | `stacking-dependent-prs` | A PR's branch is based on another open PR's branch (a linear stack). Creates, adopts, propagates through, syncs, and merges the stack with `gh stack`, in one dedicated worktree per stack. |
 | `reviewing-feature-progress` | Orchestration checkpoints: between fan-out waves, and before the integration PR. |
+| `bounding-heavy-commands` | About to run a test suite, linter, build, or type check, or to dispatch subagents that will. Runs every heavy command through a memory queue that all sessions and projects on the machine share, so parallel work queues instead of freezing the machine. |
 | `testing-a-feature` | Writing tests for any non-trivial change. Decides the assertion shape (black-box against the contract). |
 | `testing-end-to-end` | A structurally-complete feature introduces a new user- or consumer-visible flow. Decides which flows earn an end-to-end test and what each asserts (golden path, not edge cases). |
 | `writing-code-comments` | About to write, edit, or delete a comment in source code. Decides whether the comment exists and what it holds: the contract for a doc comment, and the fact that the code cannot show for an inline comment. |
@@ -56,7 +57,7 @@ flowchart TD
     Shape -->|single PR| IssueOne[File one issue<br/>feature or bug]
     IssueOne --> PlanS[Write the plan<br/>ordered tasks · dependencies]
     PlanS --> Build[Implement directly<br/>test-first · one commit per task]
-    Build --> VerifyS[Verify green<br/>tests · lint · typecheck]
+    Build --> VerifyS[Verify green<br/>tests · lint · typecheck<br/>each through the memory queue]
     VerifyS --> PR1[Open PR → main<br/>Fixes / Closes the issue]
 
     Shape -->|many PRs| Epic[File an epic<br/>+ one sub-issue per PR, linked]
@@ -66,7 +67,7 @@ flowchart TD
     Wave --> Merge[Orchestrator reviews each sub-PR,<br/>merges it, closes its sub-issue]
     Merge --> Done{All sub-PRs<br/>merged?}
     Done -->|next wave| Wave
-    Done -->|yes| VerifyM[Verify the integrated branch<br/>green end to end]
+    Done -->|yes| VerifyM[Verify the integrated branch<br/>green end to end, through the memory queue]
     VerifyM --> PR2[Open the integration PR<br/>feature → main · Closes the epic]
 
     PR1 --> Ship([External review → merge<br/>plan + state torn down in the same diff])
