@@ -36,11 +36,13 @@ class Family:
     # position of one: the first statement of the file, or right after a
     # line that ends with ':'. Elsewhere it is a string a code line opens.
     doc_position_only: bool = False
+    # The quote characters of a one-line string, read only for a doc-position family.
+    quotes: str = ""
 
 
 SLASH = Family("slash", ("//",), (("/*", "*/"),), AFTER)
 HASH = Family("hash", ("#",), (), AFTER)
-HASH_DOCSTRING = Family("hash-docstring", ("#",), (('"""', '"""'), ("'''", "'''")), BEFORE, doc_position_only=True)
+HASH_DOCSTRING = Family("hash-docstring", ("#",), (('"""', '"""'), ("'''", "'''")), BEFORE, doc_position_only=True, quotes="'\"")
 DASH = Family("dash", ("--",), (("--[[", "]]"), ("{-", "-}"), ("/*", "*/")), AFTER)
 MARKUP = Family("markup", (), (("<!--", "-->"),), AFTER)
 SEMICOLON = Family("semicolon", (";",), (), AFTER)
@@ -123,18 +125,30 @@ def _is_doc_position(lines: Sequence[str], index: int) -> bool:
 
 
 def _string_open(stripped: str, family: Family) -> Optional[Tuple[str, str]]:
-    """Returns (closing token, remainder after it opens) for a string stripped opens but does not close, or None."""
-    earliest: Optional[Tuple[int, str, str]] = None
-    for opening, closing in family.delimiters:
-        at = stripped.find(opening)
-        if at == -1:
-            continue
-        rest = stripped[at + len(opening):]
-        if closing in rest:
-            continue
-        if earliest is None or at < earliest[0]:
-            earliest = (at, closing, rest)
-    return (earliest[1], earliest[2]) if earliest else None
+    """Returns (closing token, remainder after it opens) for a string stripped opens but does not close, or None.
+
+    A delimiter inside a one-line string or after a line marker opens nothing.
+    """
+    at = 0
+    while at < len(stripped):
+        if any(stripped.startswith(marker, at) for marker in family.line_markers):
+            return None
+        delimiter = next(((o, c) for o, c in family.delimiters if stripped.startswith(o, at)), None)
+        if delimiter is not None:
+            opening, closing = delimiter
+            end = stripped.find(closing, at + len(opening))
+            if end == -1:
+                return closing, stripped[at + len(opening):]
+            at = end + len(closing)
+        elif stripped[at] in family.quotes:
+            quote = stripped[at]
+            at += 1
+            while at < len(stripped) and stripped[at] != quote:
+                at += 2 if stripped[at] == "\\" else 1
+            at += 1
+        else:
+            at += 1
+    return None
 
 
 def _is_line_comment(stripped: str, family: Family) -> bool:

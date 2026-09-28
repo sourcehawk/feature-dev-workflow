@@ -155,6 +155,31 @@ class ScanDocStringPositionTest(unittest.TestCase):
         findings = gate.compare("f", old, new, gate.HASH_DOCSTRING)
         self.assertEqual([(f.status, f.flagged) for f in findings], [(gate.GREW, True)])
 
+    def test_triple_quote_inside_a_one_line_string_opens_no_string(self):
+        old = "QUOTE = '\"\"\"'\n\n\ndef strip(text):\n    # Drop the quotes.\n    return text.strip(QUOTE)\n"
+        new = (
+            "QUOTE = '\"\"\"'\n\n\ndef strip(text):\n"
+            "    # Drop the quotes.\n"
+            "    # Only the outer ones, since an inner quote is part of the text.\n"
+            "    # A text with no quotes is returned as it is.\n"
+            "    return text.strip(QUOTE)\n"
+        )
+        self.assertEqual(statuses(old, new, gate.HASH_DOCSTRING), [(gate.GREW, 1, 3, True)])
+
+    def test_escaped_quote_does_not_end_a_one_line_string(self):
+        source = 's = "\\"" + """\n# a line of the string\n"""\n# Drop the quotes.\nstrip(s)\n'
+        self.assertEqual(
+            gate.scan(source, gate.HASH_DOCSTRING),
+            [gate.Block(4, ("# Drop the quotes.",), "strip(s)")],
+        )
+
+    def test_triple_quote_inside_a_trailing_comment_opens_no_string(self):
+        source = 'x = 1  # a """ in a note\n# Drop the quotes.\nstrip(x)\n'
+        self.assertEqual(
+            gate.scan(source, gate.HASH_DOCSTRING),
+            [gate.Block(2, ("# Drop the quotes.",), "strip(x)")],
+        )
+
 def statuses(old, new, family=gate.SLASH):
     return [(f.status, f.old_length, f.new_length, f.flagged) for f in gate.compare("f", old, new, family)]
 
