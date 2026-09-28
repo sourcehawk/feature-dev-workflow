@@ -17,7 +17,7 @@ import os
 import re
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Dict, List, Optional, Sequence, Tuple
 
 AFTER = "after"
@@ -288,6 +288,8 @@ class Finding:
     anchor: str
     flagged: bool
     user_facing: bool = False
+    # (path, line) of the block in the old file, for a block paired with one of another file.
+    moved_from: Optional[Tuple[str, int]] = None
 
 
 def pair(
@@ -355,17 +357,23 @@ def pair(
 
 
 def _findings(
-    path: str, base_path: str, new: Sequence[Block], pairs: Dict[int, Optional[Block]], removed: Sequence[Block]
+    path: str, base_path: str, new: Sequence[Block], pairs: Dict[int, Optional[Block]], removed: Sequence[Block],
+    moved_from: Optional[Dict[int, Tuple[str, int]]] = None,
 ) -> List[Finding]:
     findings = []
     for index, base in sorted(pairs.items()):
         block = new[index]
+        origin = (moved_from or {}).get(index)
         if base is None:
             findings.append(Finding(path, block.line, ADDED, 0, block.length, block.anchor, False))
         elif block.length > base.length:
-            findings.append(Finding(path, block.line, GREW, base.length, block.length, block.anchor, True))
+            findings.append(
+                Finding(path, block.line, GREW, base.length, block.length, block.anchor, True, False, origin)
+            )
         else:
-            findings.append(Finding(path, block.line, CHANGED, base.length, block.length, block.anchor, False))
+            findings.append(
+                Finding(path, block.line, CHANGED, base.length, block.length, block.anchor, False, False, origin)
+            )
     for block in removed:
         findings.append(Finding(base_path, block.line, REMOVED, block.length, 0, block.anchor, False))
     return findings
@@ -481,6 +489,8 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
     ]
     gone = [(number, block) for number, (_, _, _, removed) in enumerate(files) for block in removed]
     not_paired: Optional[Tuple[int, int]] = None
+    # (path, line) in the old file of each block paired across files, by file number and block index.
+    moved_from: Dict[Tuple[int, int], Tuple[str, int]] = {}
     try:
         moved, left = pair(
             [block for _, block in gone], [files[number][1][index] for number, index in added],
@@ -498,17 +508,18 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
             if position not in moved:
                 del files[number][2][index]
             elif moved[position] is not None:
-                files[number][2][index] = gone[moved[position]][1]
+                old_number, block = gone[moved[position]]
+                files[number][2][index] = block
+                old_change = files[old_number][0]
+                moved_from[(number, index)] = (old_change.base_path or old_change.path, block.line)
 
     findings: List[Finding] = []
-    for change, new, pairs, removed in files:
+    for number, (change, new, pairs, removed) in enumerate(files):
         exempt = any(fnmatch.fnmatchcase(change.path, glob) for glob in user_facing)
-        for finding in _findings(change.path, change.base_path or change.path, new, pairs, removed):
+        origins = {index: origin for (owner, index), origin in moved_from.items() if owner == number}
+        for finding in _findings(change.path, change.base_path or change.path, new, pairs, removed, origins):
             if exempt:
-                finding = Finding(
-                    finding.path, finding.line, finding.status, finding.old_length,
-                    finding.new_length, finding.anchor, False, True,
-                )
+                finding = replace(finding, flagged=False, user_facing=True)
             findings.append(finding)
     return Report(tuple(findings), tuple(not_checked), not_paired)
 
@@ -518,7 +529,9 @@ def render(report: Report) -> str:
     for finding in report.findings:
         mark = "FLAG" if finding.flagged else "    "
         size = "%d -> %d lines" % (finding.old_length, finding.new_length)
-        note = "  (user-facing, not flagged)" if finding.user_facing else ""
+        note = "  (moved from %s, old line %d)" % finding.moved_from if finding.moved_from else ""
+        if finding.user_facing:
+            note += "  (user-facing, not flagged)"
         # A removed block has no line in the working tree; its line is one of the file at the base.
         where = "%s (old line %d)" if finding.status == REMOVED else "%s:%d"
         lines.append(

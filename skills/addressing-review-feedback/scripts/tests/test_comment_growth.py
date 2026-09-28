@@ -626,6 +626,10 @@ class RunTest(unittest.TestCase):
             [(f.path, f.line, f.status, f.old_length, f.new_length, f.flagged) for f in report.findings],
             [("b.go", 5, gate.GREW, 1, 3, True)],
         )
+        self.assertEqual(
+            gate.render(report).splitlines()[0],
+            "FLAG b.go:5  GREW  1 -> 3 lines  | func retry(f func() error) error {  (moved from a.go, old line 5)",
+        )
 
     def test_unrelated_blocks_above_a_common_anchor_in_two_files_are_not_paired(self):
         self.repo.write("a.go", "package a\n\nfunc A() error {\n\tx()\n\t// Nothing to undo.\n\treturn nil\n}\n")
