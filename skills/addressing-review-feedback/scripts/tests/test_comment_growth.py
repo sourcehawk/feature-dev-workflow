@@ -190,7 +190,7 @@ class CompareTest(unittest.TestCase):
     def test_unrelated_anchor_is_not_paired(self):
         old = "// run starts the job.\nfunc run(job Job) error {\n}\n"
         new = "// names lists the tenants.\n// It sorts them.\nvar names = load()\n"
-        self.assertEqual(statuses(old, new), [(gate.ADDED, 0, 2, False)])
+        self.assertEqual(statuses(old, new), [(gate.ADDED, 0, 2, False), (gate.REMOVED, 1, 0, False)])
 
     def test_comment_moved_with_its_code_is_not_listed(self):
         old = "// a does one thing.\nfunc a() {}\n\n// b does one thing.\nfunc b() {}\n"
@@ -251,6 +251,24 @@ class CompareTest(unittest.TestCase):
         new = "func a() {\n    // first\n}\n\nfunc b() {\n    // second\n    // and more\n}\n"
         findings = gate.compare("f", old, new, gate.SLASH)
         self.assertEqual([(f.status, f.line, f.flagged) for f in findings], [(gate.GREW, 6, True)])
+
+    def test_inline_comment_deleted_while_its_code_line_stays(self):
+        old = "// run starts the job.\nfunc run() {}\n"
+        new = "func run() {}\n"
+        findings = gate.compare("f", old, new, gate.SLASH)
+        self.assertEqual(
+            [(f.status, f.line, f.old_length, f.new_length, f.flagged) for f in findings],
+            [(gate.REMOVED, 1, 1, 0, False)],
+        )
+
+    def test_doc_string_deleted_while_its_def_line_stays(self):
+        old = 'def run(job):\n    """Runs job."""\n    return job()\n'
+        new = 'def run(job):\n    return job()\n'
+        findings = gate.compare("f", old, new, gate.HASH_DOCSTRING)
+        self.assertEqual(
+            [(f.status, f.old_length, f.new_length, f.flagged) for f in findings],
+            [(gate.REMOVED, 1, 0, False)],
+        )
 
 def sh(cwd, *args):
     subprocess.run(args, cwd=cwd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -365,6 +383,16 @@ class RunTest(unittest.TestCase):
             [("api/types.go", gate.GREW, False, True), ("pkg/a.go", gate.GREW, True, False)],
         )
 
+    def test_removed_comment_in_a_user_facing_path_is_marked_user_facing(self):
+        self.repo.write("api/types.go", OLD)
+        base = self.repo.commit("add api")
+        self.repo.write("api/types.go", "func run() {}\n")
+        report = gate.run(self.repo.path, base, ["api/*"])
+        self.assertEqual(
+            [(f.path, f.status, f.flagged, f.user_facing) for f in report.findings],
+            [("api/types.go", gate.REMOVED, False, True)],
+        )
+
     def test_run_from_a_subdirectory_covers_the_repository(self):
         self.repo.write("pkg/a.go", OLD)
         base = self.repo.commit("add a")
@@ -419,14 +447,21 @@ class MainTest(unittest.TestCase):
         status, out, _ = self.call(self.base)
         self.assertEqual(status, 0)
         self.assertIn("     a.go:1  CHANGED  1 -> 1 lines  | func run() {}", out)
-        self.assertIn("0 flagged, 1 listed, 0 not checked", out)
+        self.assertIn("0 flagged, 1 listed, 0 removed, 0 not checked", out)
 
     def test_flag_exits_one_and_names_the_block(self):
         self.repo.write("a.go", GROWN)
         status, out, _ = self.call(self.base)
         self.assertEqual(status, 1)
         self.assertIn("FLAG a.go:1  GREW  1 -> 2 lines  | func run() {}", out)
-        self.assertIn("1 flagged, 1 listed, 0 not checked", out)
+        self.assertIn("1 flagged, 1 listed, 0 removed, 0 not checked", out)
+
+    def test_removed_comment_alone_exits_zero(self):
+        self.repo.write("a.go", "func run() {}\n")
+        status, out, _ = self.call(self.base)
+        self.assertEqual(status, 0)
+        self.assertIn("REMOVED", out)
+        self.assertIn("0 flagged, 1 listed, 1 removed, 0 not checked", out)
 
     def test_user_facing_option_removes_the_flag(self):
         self.repo.write("a.go", GROWN)

@@ -206,6 +206,7 @@ def scan(source: str, family: Family) -> List[Block]:
 ADDED = "ADDED"
 CHANGED = "CHANGED"
 GREW = "GREW"
+REMOVED = "REMOVED"
 
 # Two anchor lines at or above this ratio are the same declaration after an edit.
 SIMILAR_ANCHOR = 0.6
@@ -223,8 +224,9 @@ class Finding:
     user_facing: bool = False
 
 
-def pair(old: Sequence[Block], new: Sequence[Block]) -> Dict[int, Optional[Block]]:
-    """Maps the index of each changed or added block of new to its block in old, or to None."""
+def pair(old: Sequence[Block], new: Sequence[Block]) -> Tuple[Dict[int, Optional[Block]], Tuple[Block, ...]]:
+    """Maps the index of each changed or added block of new to its block in old (or to None), and lists the
+    blocks of old that have no partner in new."""
     # (order, block) for each block of old not yet claimed by an unchanged match.
     free: List[Tuple[int, Block]] = list(enumerate(old))
     open_indexes: List[int] = []
@@ -258,14 +260,17 @@ def pair(old: Sequence[Block], new: Sequence[Block]) -> Dict[int, Optional[Block
         pairs[index] = old[order]
         claimed_new.add(index)
         claimed_old.add(order)
-    return pairs
+
+    removed = tuple(block for order, block in free if order not in claimed_old)
+    return pairs, removed
 
 
 def compare(path: str, old_source: str, new_source: str, family: Family) -> List[Finding]:
     old = scan(old_source, family)
     new = scan(new_source, family)
+    pairs, removed = pair(old, new)
     findings = []
-    for index, base in sorted(pair(old, new).items()):
+    for index, base in sorted(pairs.items()):
         block = new[index]
         if base is None:
             findings.append(Finding(path, block.line, ADDED, 0, block.length, block.anchor, False))
@@ -273,6 +278,8 @@ def compare(path: str, old_source: str, new_source: str, family: Family) -> List
             findings.append(Finding(path, block.line, GREW, base.length, block.length, block.anchor, True))
         else:
             findings.append(Finding(path, block.line, CHANGED, base.length, block.length, block.anchor, False))
+    for block in removed:
+        findings.append(Finding(path, block.line, REMOVED, block.length, 0, block.anchor, False))
     return findings
 
 
@@ -307,7 +314,7 @@ def changed_files(top: str, merge_base: str) -> List[Change]:
             continue
         if status == "A":
             changes.append(Change(fields[index + 1], None))
-        elif status != "D":
+        else:
             changes.append(Change(fields[index + 1], fields[index + 1]))
         index += 2
     for path in git(top, "ls-files", "--others", "--exclude-standard", "-z").split("\0"):
@@ -335,14 +342,18 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
         if is_skipped(change.path):
             continue
         full_path = os.path.join(top, change.path)
-        if not os.path.isfile(full_path):
+        exists = os.path.isfile(full_path)
+        if not exists and change.base_path is None:
             continue
         family = family_for(change.path)
         if family is None:
             not_checked.append(change.path)
             continue
-        with open(full_path, encoding="utf-8", errors="replace") as handle:
-            new_source = handle.read()
+        if exists:
+            with open(full_path, encoding="utf-8", errors="replace") as handle:
+                new_source = handle.read()
+        else:
+            new_source = ""
         old_source = git(top, "show", merge_base + ":" + change.base_path) if change.base_path else ""
         exempt = any(fnmatch.fnmatch(change.path, glob) for glob in user_facing)
         for finding in compare(change.path, old_source, new_source, family):
@@ -368,8 +379,10 @@ def render(report: Report) -> str:
     for path in report.not_checked:
         lines.append("     %s  NOT CHECKED  unknown file type, read its diff" % path)
     flagged = sum(1 for finding in report.findings if finding.flagged)
+    removed = sum(1 for finding in report.findings if finding.status == REMOVED)
     lines.append(
-        "%d flagged, %d listed, %d not checked" % (flagged, len(report.findings), len(report.not_checked))
+        "%d flagged, %d listed, %d removed, %d not checked"
+        % (flagged, len(report.findings), removed, len(report.not_checked))
     )
     return "\n".join(lines)
 
