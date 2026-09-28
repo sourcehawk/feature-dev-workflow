@@ -34,7 +34,7 @@ class Family:
     # True when the family's delimiters double as a plain string literal in
     # its language, so an opening delimiter is a doc comment only in the
     # position of one: the first statement of the file, or right after a
-    # line that ends with ':'. Elsewhere it is a string a code line opens.
+    # line whose code ends with ':'. Elsewhere it is a string a code line opens.
     doc_position_only: bool = False
     # The quote characters of a one-line string, read only for a doc-position family.
     quotes: str = ""
@@ -116,29 +116,22 @@ def _opening(stripped: str, family: Family) -> Optional[Tuple[str, str]]:
     return None
 
 
-def _is_doc_position(lines: Sequence[str], index: int) -> bool:
-    """True at the first statement of the file, or right after a line ending with ':'."""
-    previous = index - 1
-    while previous >= 0 and not lines[previous].strip():
-        previous -= 1
-    return previous < 0 or lines[previous].strip().endswith(":")
+def _read_code(stripped: str, family: Family) -> Tuple[str, Optional[Tuple[str, str]]]:
+    """Returns the code of stripped before a trailing line comment, and (closing token, remainder after it
+    opens) for a string stripped opens but does not close, or None.
 
-
-def _string_open(stripped: str, family: Family) -> Optional[Tuple[str, str]]:
-    """Returns (closing token, remainder after it opens) for a string stripped opens but does not close, or None.
-
-    A delimiter inside a one-line string or after a line marker opens nothing.
+    A delimiter or a line marker inside a one-line string, and a delimiter after a line marker, count for nothing.
     """
     at = 0
     while at < len(stripped):
         if any(stripped.startswith(marker, at) for marker in family.line_markers):
-            return None
+            return stripped[:at].rstrip(), None
         delimiter = next(((o, c) for o, c in family.delimiters if stripped.startswith(o, at)), None)
         if delimiter is not None:
             opening, closing = delimiter
             end = stripped.find(closing, at + len(opening))
             if end == -1:
-                return closing, stripped[at + len(opening):]
+                return stripped, (closing, stripped[at + len(opening):])
             at = end + len(closing)
         elif stripped[at] in family.quotes:
             quote = stripped[at]
@@ -148,7 +141,17 @@ def _string_open(stripped: str, family: Family) -> Optional[Tuple[str, str]]:
             at += 1
         else:
             at += 1
-    return None
+    return stripped, None
+
+
+def _is_doc_position(lines: Sequence[str], index: int, family: Family) -> bool:
+    """True at the first statement of the file, or right after a line whose code ends with ':'. Blank lines
+    and comment lines in between do not count, as they do not count in the language."""
+    for previous in range(index - 1, -1, -1):
+        code, _ = _read_code(lines[previous].strip(), family)
+        if code:
+            return code.endswith(":")
+    return True
 
 
 def _is_line_comment(stripped: str, family: Family) -> bool:
@@ -166,7 +169,7 @@ def _spans(lines: Sequence[str], family: Family) -> Tuple[List[Tuple[int, int, s
     while index < len(lines):
         stripped = lines[index].strip()
         delimiter = _opening(stripped, family)
-        if delimiter is not None and (not family.doc_position_only or _is_doc_position(lines, index)):
+        if delimiter is not None and (not family.doc_position_only or _is_doc_position(lines, index, family)):
             opening, closing = delimiter
             end = index
             rest = stripped[_prefix_length(stripped, family) + len(opening):]
@@ -182,7 +185,7 @@ def _spans(lines: Sequence[str], family: Family) -> Tuple[List[Tuple[int, int, s
             spans.append((index, end, AFTER))
             index = end + 1
         else:
-            opened = _string_open(stripped, family) if family.doc_position_only else None
+            opened = _read_code(stripped, family)[1] if family.doc_position_only else None
             if opened is None:
                 index += 1
             else:

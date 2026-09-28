@@ -155,6 +155,41 @@ class ScanDocStringPositionTest(unittest.TestCase):
         findings = gate.compare("f", old, new, gate.HASH_DOCSTRING)
         self.assertEqual([(f.status, f.flagged) for f in findings], [(gate.GREW, True)])
 
+    def test_doc_string_after_a_def_line_with_a_trailing_comment_that_grew_is_flagged(self):
+        old = 'def run(job):  # noqa: C901\n    """Runs job."""\n    return job()\n'
+        new = 'def run(job):  # noqa: C901\n    """Runs job.\n\n    Retries two times, then gives up.\n    """\n    return job()\n'
+        self.assertEqual(statuses(old, new, gate.HASH_DOCSTRING), [(gate.GREW, 1, 4, True)])
+
+    def test_module_doc_string_after_a_shebang_that_grew_is_flagged(self):
+        old = '#!/usr/bin/env python3\n"""Syncs the cache."""\nimport os\n'
+        new = '#!/usr/bin/env python3\n"""Syncs the cache.\n\nIt runs every hour and skips a locked file.\n"""\nimport os\n'
+        findings = gate.compare("f", old, new, gate.HASH_DOCSTRING)
+        self.assertEqual(
+            [(f.status, f.line, f.old_length, f.new_length, f.flagged) for f in findings],
+            [(gate.GREW, 2, 1, 4, True)],
+        )
+
+    def test_module_doc_string_after_an_encoding_line_and_blank_lines_is_a_doc_string(self):
+        source = '# -*- coding: utf-8 -*-\n\n\n"""Module doc.\n"""\nimport os\n'
+        self.assertEqual(
+            gate.scan(source, gate.HASH_DOCSTRING),
+            [gate.Block(1, ("# -*- coding: utf-8 -*-",), "import os"), gate.Block(4, ('"""Module doc.', '"""'), "")],
+        )
+
+    def test_doc_string_after_a_def_line_over_several_lines_is_a_doc_string(self):
+        source = 'def f(\n    a,\n) -> int:\n    """Adds.\n    """\n    return a\n'
+        self.assertEqual(
+            gate.scan(source, gate.HASH_DOCSTRING),
+            [gate.Block(4, ('"""Adds.', '"""'), ") -> int:")],
+        )
+
+    def test_doc_string_after_a_class_line_is_a_doc_string(self):
+        source = 'class Store(Base):  # the cache\n    """Holds.\n    """\n    size = 1\n'
+        self.assertEqual(
+            gate.scan(source, gate.HASH_DOCSTRING),
+            [gate.Block(2, ('"""Holds.', '"""'), "class Store(Base):  # the cache")],
+        )
+
     def test_triple_quote_inside_a_one_line_string_opens_no_string(self):
         old = "QUOTE = '\"\"\"'\n\n\ndef strip(text):\n    # Drop the quotes.\n    return text.strip(QUOTE)\n"
         new = (
