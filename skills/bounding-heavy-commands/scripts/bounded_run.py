@@ -208,7 +208,10 @@ def ensure_lock_directory(path: str, uid: int) -> None:
     if info.st_uid != uid:
         raise WrapperError("the lock directory %s belongs to a different user" % path)
     if stat.S_IMODE(info.st_mode) & 0o077:
-        os.chmod(path, 0o700)
+        try:
+            os.chmod(path, 0o700)
+        except OSError as error:
+            raise WrapperError("cannot use the lock directory %s: %s" % (path, error))
 
 
 def repository_id(directory: str) -> str:

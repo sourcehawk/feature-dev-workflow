@@ -256,6 +256,17 @@ class LockDirectoryTest(unittest.TestCase):
             bounded_run.ensure_lock_directory(path, os.getuid())
             self.assertEqual(os.stat(path).st_mode & 0o777, 0o700)
 
+    def test_a_directory_that_cannot_be_closed_is_reported(self):
+        with tempfile.TemporaryDirectory() as base:
+            path = os.path.join(base, "locks")
+            os.mkdir(path, 0o755)
+            error = PermissionError(errno.EPERM, "Operation not permitted")
+            with mock.patch.object(bounded_run.os, "chmod", side_effect=error):
+                with self.assertRaises(bounded_run.WrapperError) as caught:
+                    bounded_run.ensure_lock_directory(path, os.getuid())
+            self.assertIn(path, str(caught.exception))
+            self.assertIn("Operation not permitted", str(caught.exception))
+
     def test_rejects_a_directory_of_a_different_user(self):
         with tempfile.TemporaryDirectory() as base:
             with self.assertRaises(bounded_run.WrapperError):
