@@ -569,19 +569,52 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
     repository = repository_id(os.getcwd()) if options.exclusive else ""
     exclusive_files = [exclusive_file_name(repository, name) for name in options.exclusive]
 
+    unit = "%s-%d-%06x" % (PREFIX, os.getpid(), random.randrange(16 ** 6))
+    capped = not settings.no_cap and cap_usable(cap_prefix(budget, options.cpus, unit + "-probe"))
+    peak_file = os.path.join(directory, "peak-%s" % unit)
+    if capped:
+        inside = [sys.executable, os.path.abspath(__file__), "--inside-cap", peak_file, unit, "--"]
+        command = cap_prefix(budget, options.cpus, unit) + inside + command
+    else:
+        log("no hard cap is available here; the queue and the wait for free memory are the full protection")
+
     child_environ: Dict[str, str] = dict(environ)
     child_environ[ACTIVE_VARIABLE] = "1"
     child_environ["BOUNDED_RUN_MEMORY_MIB"] = str(budget)
     child_environ["BOUNDED_RUN_CPUS"] = str(options.cpus if options.cpus is not None else (os.cpu_count() or 1))
 
+    trackers: List[PeakTracker] = []
+
+    def start_tracker(pid: int) -> None:
+        if capped:
+            def read_sample() -> Optional[int]:
+                found = cgroup_directory(pid, unit)
+                return cgroup_peak_mib(found) if found is not None else None
+            interval = min(settings.sample_seconds, 0.5)
+        else:
+            def read_sample() -> Optional[int]:
+                return group_rss_mib(pid)
+            interval = settings.sample_seconds
+        tracker = PeakTracker(read_sample, interval)
+        tracker.start()
+        trackers.append(tracker)
+
     reservation = reserve(directory, count, needed, exclusive_files, settings.poll_seconds)
     try:
         wait_for_memory(budget, settings.memory_wait_seconds, settings.poll_seconds)
-        code, maxrss = run_command(command, child_environ)
+        code, maxrss = run_command(command, child_environ, start_tracker)
+        tracked = trackers[0].finish() if trackers else None
     finally:
         reservation.release()
 
-    log("budget %d MiB, exit %d" % (budget, code))
+    reported = read_peak_file(peak_file) if capped else None
+    exact = reported is not None
+    peak = max(reported or tracked or 0, rusage_peak_mib(maxrss))
+    log("budget %d MiB, peak %d MiB (%s), exit %d" % (budget, peak, "cgroup" if exact else "sampled, approximate", code))
+    if capped and code == 137:
+        log("the command was killed; if the peak is near the budget, the hard cap stopped it")
+    if options.measure:
+        log("suggested budget %d MiB" % suggested_budget_mib(peak, not exact))
     return code
 
 

@@ -907,6 +907,89 @@ class WrapperProcessTest(WrapperProcessCase):
         self.assertEqual((process.returncode, output), (125, ""), errors)
         self.assertIn("bounded-run: cannot use the lock directory", errors)
 
+    def test_each_run_reports_the_budget_and_the_peak(self):
+        process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", "pass"])
+        output, errors = process.communicate(timeout=60)
+        self.assertRegex(errors, r"bounded-run: budget 2048 MiB, peak \d+ MiB \(sampled, approximate\), exit 0\n")
+        self.assertNotIn("suggested budget", errors)
+
+    def test_without_a_cap_the_output_says_so(self):
+        process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", "pass"])
+        output, errors = process.communicate(timeout=60)
+        self.assertIn("no hard cap is available here", errors)
+
+    def test_measure_mode_reports_a_peak_and_a_budget(self):
+        script = "import time\ndata = bytearray(150 * 1024 * 1024)\nfor index in range(0, len(data), 4096):\n    data[index] = 1\ntime.sleep(1.0)\n"
+        process = self.wrapper(["--measure"], [sys.executable, "-c", script])
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(process.returncode, 0, errors)
+        peak = [line for line in errors.splitlines() if " peak " in line][0]
+        value = int(peak.split(" peak ")[1].split()[0])
+        self.assertGreaterEqual(value, 140)
+        self.assertLess(value, 1024)
+        self.assertIn("sampled, approximate", peak)
+        suggested = [line for line in errors.splitlines() if "suggested budget" in line][0]
+        self.assertEqual(int(suggested.split()[-2]) % 256, 0)
+        self.assertGreaterEqual(int(suggested.split()[-2]), value * 1.5)
+
+@unittest.skipUnless(
+    bounded_run.cap_usable(bounded_run.cap_prefix(256, 1, "bounded-run-test-probe-%d" % os.getpid())),
+    "no hard cap on this machine",
+)
+class HardCapTest(WrapperProcessCase):
+    def setUp(self):
+        super().setUp()
+        del self.environ["BOUNDED_RUN_NO_CAP"]
+
+    def test_a_command_that_does_not_exist_gives_125(self):
+        process = self.wrapper(["--memory", "2G"], ["/nonexistent/tool-for-the-test"])
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(process.returncode, 125, errors)
+
+    def test_the_cap_stops_a_command_that_passes_its_budget(self):
+        script = "data = bytearray(1024 * 1024 * 1024)\nfor index in range(0, len(data), 4096):\n    data[index] = 1\nprint('survived')\n"
+        process = self.wrapper(["--memory", "256M", "--cpus", "1"], [sys.executable, "-c", script])
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual((process.returncode, output), (137, ""), errors)
+        self.assertIn("the hard cap stopped it", errors)
+
+    def test_a_short_command_gets_its_peak_from_the_cgroup(self):
+        for attempt in range(5):
+            with self.subTest(attempt=attempt):
+                process = self.wrapper(["--memory", "1G", "--cpus", "2"], [sys.executable, "-c", "print(1)"])
+                output, errors = process.communicate(timeout=60)
+                self.assertEqual((process.returncode, output), (0, "1\n"), errors)
+                self.assertRegex(errors, r"bounded-run: budget 1024 MiB, peak \d+ MiB \(cgroup\), exit 0\n")
+        locks = os.listdir(self.environ["BOUNDED_RUN_LOCK_DIR"])
+        self.assertEqual([name for name in locks if name.startswith("peak-")], [])
+
+    def test_a_stop_signal_stops_a_capped_command(self):
+        process = self.worker("capped", "1G", hold="30")
+        line = self.wait_for_event("start", "capped")
+        process.send_signal(signal.SIGTERM)
+        self.assertEqual(process.wait(timeout=60), 143)
+        with self.assertRaises(ProcessLookupError):
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                os.kill(int(line.split()[2]), 0)
+                time.sleep(0.05)
+
+    def test_the_peak_comes_from_the_cgroup(self):
+        script = "import time\ndata = bytearray(150 * 1024 * 1024)\nfor index in range(0, len(data), 4096):\n    data[index] = 1\ntime.sleep(1.2)\n"
+        process = self.wrapper(["--memory", "1G", "--measure"], [sys.executable, "-c", script])
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(process.returncode, 0, errors)
+        peak = [line for line in errors.splitlines() if " peak " in line][0]
+        self.assertIn("(cgroup)", peak)
+        self.assertGreaterEqual(int(peak.split(" peak ")[1].split()[0]), 140)
+
+    def test_no_peak_file_is_left_behind_after_a_failing_command(self):
+        process = self.wrapper(["--memory", "1G"], [sys.executable, "-c", "import sys; sys.exit(9)"])
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(process.returncode, 9, errors)
+        locks = os.listdir(self.environ["BOUNDED_RUN_LOCK_DIR"])
+        self.assertEqual([name for name in locks if name.startswith("peak-")], [])
+
 
 if __name__ == "__main__":
     unittest.main()
