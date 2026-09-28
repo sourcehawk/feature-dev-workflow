@@ -106,6 +106,82 @@ class SlotCountTest(unittest.TestCase):
         self.assertGreater(bounded_run.total_memory_mib(), 0)
 
 
+class CgroupLimitTest(unittest.TestCase):
+    """Gives total_memory_mib a /proc and a cgroup filesystem in a temporary directory, and 16 GiB of physical memory."""
+
+    def setUp(self):
+        self.base = tempfile.TemporaryDirectory()
+        self.addCleanup(self.base.cleanup)
+        self.proc = os.path.join(self.base.name, "proc")
+        self.cgroups = os.path.join(self.base.name, "cgroups")
+        os.makedirs(os.path.join(self.proc, "self"))
+        os.makedirs(self.cgroups)
+
+    def membership(self, text):
+        Path(self.proc, "self", "cgroup").write_text(text)
+
+    def limit(self, relative, name, value):
+        directory = os.path.join(self.cgroups, relative)
+        os.makedirs(directory, exist_ok=True)
+        Path(directory, name).write_text(value + "\n")
+
+    def total(self):
+        return bounded_run.total_memory_mib(proc_root=self.proc, cgroup_root=self.cgroups, read_physical=lambda: 16384)
+
+    def test_a_limit_in_the_cgroup_of_the_process(self):
+        self.membership("0::/user.slice/unit-1.scope\n")
+        self.limit("user.slice/unit-1.scope", "memory.max", str(6 * 1024 ** 3))
+        self.assertEqual(self.total(), 6144)
+
+    def test_a_limit_in_a_parent_only(self):
+        self.membership("0::/user.slice/unit-1.scope\n")
+        self.limit("user.slice/unit-1.scope", "memory.max", "max")
+        self.limit("user.slice", "memory.max", str(4 * 1024 ** 3))
+        self.assertEqual(self.total(), 4096)
+
+    def test_the_smallest_limit_wins(self):
+        self.membership("0::/user.slice/unit-1.scope\n")
+        self.limit("user.slice/unit-1.scope", "memory.max", str(8 * 1024 ** 3))
+        self.limit("user.slice", "memory.max", str(3 * 1024 ** 3))
+        self.limit("", "memory.max", str(5 * 1024 ** 3))
+        self.assertEqual(self.total(), 3072)
+
+    def test_max_on_each_level_is_no_limit(self):
+        self.membership("0::/user.slice/unit-1.scope\n")
+        for relative in ("user.slice/unit-1.scope", "user.slice", ""):
+            self.limit(relative, "memory.max", "max")
+        self.assertEqual(self.total(), 16384)
+
+    def test_no_cgroup_files_is_no_limit(self):
+        self.assertEqual(self.total(), 16384)
+
+    def test_a_membership_without_limit_files_is_no_limit(self):
+        self.membership("0::/user.slice/unit-1.scope\n")
+        self.assertEqual(self.total(), 16384)
+
+    def test_a_limit_larger_than_the_physical_memory_is_no_limit(self):
+        self.membership("0::/\n")
+        self.limit("", "memory.max", str(64 * 1024 ** 3))
+        self.assertEqual(self.total(), 16384)
+
+    def test_a_file_that_is_not_readable_is_no_limit(self):
+        self.membership("0::/user.slice\n")
+        os.makedirs(os.path.join(self.cgroups, "user.slice", "memory.max"))
+        self.assertEqual(self.total(), 16384)
+
+    def test_cgroup_version_1(self):
+        self.membership("12:cpu,cpuacct:/user.slice\n5:memory:/user.slice/unit-1.scope\n0::/user.slice/unit-1.scope\n")
+        self.limit("memory/user.slice/unit-1.scope", "memory.limit_in_bytes", "9223372036854771712")
+        self.limit("memory/user.slice", "memory.limit_in_bytes", str(2 * 1024 ** 3))
+        self.assertEqual(self.total(), 2048)
+
+    def test_cgroup_version_1_without_a_limit(self):
+        self.membership("5:memory:/user.slice\n")
+        self.limit("memory/user.slice", "memory.limit_in_bytes", "9223372036854771712")
+        self.limit("memory", "memory.limit_in_bytes", "9223372036854771712")
+        self.assertEqual(self.total(), 16384)
+
+
 class SettingsTest(unittest.TestCase):
     def test_defaults(self):
         settings = bounded_run.Settings({}, read_total=lambda: 16384)
@@ -125,6 +201,13 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual((settings.slot_mib, settings.total_mib, settings.reserve_mib), (1024, 4096, 1024))
         self.assertEqual((settings.poll_seconds, settings.memory_wait_seconds), (0.05, 0.0))
         self.assertTrue(settings.no_cap)
+
+    def test_a_set_total_reads_nothing_of_the_machine(self):
+        with mock.patch("builtins.open", side_effect=AssertionError("open")), \
+                mock.patch.object(bounded_run.os, "sysconf", side_effect=AssertionError("sysconf")), \
+                mock.patch.object(bounded_run.subprocess, "run", side_effect=AssertionError("run")):
+            settings = bounded_run.Settings({"BOUNDED_RUN_TOTAL_MIB": "4096"})
+        self.assertEqual(settings.total_mib, 4096)
 
     def test_rejects_a_value_that_is_not_a_number(self):
         with self.assertRaises(bounded_run.WrapperError):

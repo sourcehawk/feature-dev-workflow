@@ -82,12 +82,56 @@ def parse_size_mib(text: str) -> int:
     return value
 
 
-def total_memory_mib() -> int:
+def physical_memory_mib() -> int:
     try:
         return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") // (1024 * 1024)
     except (ValueError, OSError):
         done = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=10)
         return int(done.stdout.strip()) // (1024 * 1024)
+
+
+def _limits_upward(root: str, path: str, name: str) -> List[int]:
+    found = []
+    relative = path.strip("/")
+    while True:
+        try:
+            with open(os.path.join(root, relative, name)) as handle:
+                found.append(int(handle.read().strip()))
+        except (OSError, ValueError):
+            pass
+        if not relative:
+            return found
+        relative = os.path.dirname(relative)
+
+
+def cgroup_limit_mib(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[int]:
+    """Returns the smallest memory limit of the cgroup of this process and of its parents, or None."""
+    try:
+        with open(os.path.join(proc_root, "self", "cgroup")) as handle:
+            text = handle.read()
+    except (OSError, ValueError):
+        return None
+    limits: List[int] = []
+    for line in text.splitlines():
+        parts = line.strip().split(":", 2)
+        if len(parts) != 3:
+            continue
+        if parts[0] == "0" and parts[1] == "":
+            limits += _limits_upward(cgroup_root, parts[2], "memory.max")
+        elif "memory" in parts[1].split(","):
+            limits += _limits_upward(os.path.join(cgroup_root, "memory"), parts[2], "memory.limit_in_bytes")
+    return min(limits) // (1024 * 1024) if limits else None
+
+
+def total_memory_mib(
+    proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup",
+    read_physical: Callable[[], int] = physical_memory_mib,
+) -> int:
+    """Returns the physical memory, or the memory limit of the cgroup of this process when that is smaller."""
+    physical = read_physical()
+    # Cgroup version 1 writes a number near 2**63 when the cgroup has no limit.
+    limit = cgroup_limit_mib(proc_root, cgroup_root)
+    return physical if limit is None else min(physical, limit)
 
 
 def default_reserve_mib(total_mib: int) -> int:
