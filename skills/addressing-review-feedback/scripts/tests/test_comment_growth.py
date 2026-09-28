@@ -790,6 +790,14 @@ class RunTest(unittest.TestCase):
         self.repo.write("new.go", GROWN + body)
         self.assertEqual(self.summary(gate.run(self.repo.path, base)), [("new.go", gate.GREW, True)])
 
+    def test_renamed_file_with_a_new_extension_is_scanned_with_the_syntax_of_its_base_path(self):
+        body = "".join("def step%d(): pass\n" % n for n in range(20))
+        self.repo.write("old.py", "# run starts the job.\ndef run(): pass\n" + body)
+        base = self.repo.commit("add old")
+        sh(self.repo.path, "git", "mv", "old.py", "new.go")
+        self.repo.write("new.go", "// run starts the job.\n// It also stops it.\ndef run(): pass\n" + body)
+        self.assertEqual(self.summary(gate.run(self.repo.path, base)), [("new.go", gate.GREW, True)])
+
     def test_removed_comment_of_a_renamed_file_is_listed_at_the_old_path(self):
         body = "".join("func step%d() {}\n" % n for n in range(20))
         self.repo.write("old.go", OLD + body)

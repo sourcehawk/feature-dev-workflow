@@ -515,8 +515,9 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
         else:
             new_source = ""
         old_source = git(top, "show", merge_base + ":" + change.base_path) if change.base_path else ""
+        old_family = (family_for(change.base_path) if change.base_path else None) or family
         new = scan(new_source, family)
-        files.append((change, new, *_pair_blocks(scan(old_source, family), new)))
+        files.append((change, new, *_pair_blocks(scan(old_source, old_family), new)))
 
     # A block that moved to another file is still free on both sides after
     # the pairing inside each file, so the free blocks pair once more across files.
