@@ -94,13 +94,14 @@ def physical_memory_mib() -> int:
         raise WrapperError("cannot read the memory of the machine: %s" % error)
 
 
-def _limits_upward(root: str, path: str, name: str) -> List[int]:
+def _limits_upward(root: str, path: str, name: str) -> List[Tuple[int, str]]:
     found = []
     relative = path.strip("/")
     while True:
+        directory = os.path.join(root, relative)
         try:
-            with open(os.path.join(root, relative, name)) as handle:
-                found.append(int(handle.read().strip()))
+            with open(os.path.join(directory, name)) as handle:
+                found.append((int(handle.read().strip()), directory))
         except (OSError, ValueError):
             pass
         if not relative:
@@ -108,23 +109,54 @@ def _limits_upward(root: str, path: str, name: str) -> List[int]:
         relative = os.path.dirname(relative)
 
 
-def cgroup_limit_mib(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[int]:
-    """Returns the smallest memory limit of the cgroup of this process and of its parents, or None."""
+def _cgroup_limits(proc_root: str, cgroup_root: str) -> List[Tuple[int, str, str, str]]:
+    """Returns the memory limit in bytes of each level of the cgroup of this process, with the directory of
+    that level and the names of its use file and of the inactive file cache line in its memory.stat."""
     try:
         with open(os.path.join(proc_root, "self", "cgroup")) as handle:
             text = handle.read()
     except (OSError, ValueError):
-        return None
-    limits: List[int] = []
+        return []
+    limits: List[Tuple[int, str, str, str]] = []
     for line in text.splitlines():
         parts = line.strip().split(":", 2)
         if len(parts) != 3:
             continue
         if parts[0] == "0" and parts[1] == "":
-            limits += _limits_upward(cgroup_root, parts[2], "memory.max")
+            for limit, directory in _limits_upward(cgroup_root, parts[2], "memory.max"):
+                limits.append((limit, directory, "memory.current", "inactive_file"))
         elif "memory" in parts[1].split(","):
-            limits += _limits_upward(os.path.join(cgroup_root, "memory"), parts[2], "memory.limit_in_bytes")
-    return min(limits) // (1024 * 1024) if limits else None
+            for limit, directory in _limits_upward(os.path.join(cgroup_root, "memory"), parts[2], "memory.limit_in_bytes"):
+                limits.append((limit, directory, "memory.usage_in_bytes", "total_inactive_file"))
+    return limits
+
+
+def cgroup_limit_mib(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[int]:
+    """Returns the smallest memory limit of the cgroup of this process and of its parents, or None."""
+    limits = _cgroup_limits(proc_root, cgroup_root)
+    return min(limits)[0] // (1024 * 1024) if limits else None
+
+
+def cgroup_available_mib(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[int]:
+    """Returns the smallest memory limit of the cgroup of this process and of its parents, less the use
+    at the level of that limit, or None when the limit or the use cannot be read."""
+    limits = _cgroup_limits(proc_root, cgroup_root)
+    if not limits:
+        return None
+    limit, directory, use_name, inactive_name = min(limits)
+    try:
+        with open(os.path.join(directory, use_name)) as handle:
+            use = int(handle.read().strip())
+        with open(os.path.join(directory, "memory.stat")) as handle:
+            stat_text = handle.read()
+    except (OSError, ValueError):
+        return None
+    # The kernel takes back the inactive file cache when the cgroup reaches its limit, so that cache is not use.
+    for line in stat_text.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] == inactive_name and parts[1].isdigit():
+            return max(0, limit - max(0, use - int(parts[1]))) // (1024 * 1024)
+    return None
 
 
 def total_memory_mib(
@@ -345,17 +377,19 @@ def parse_vm_stat(text: str) -> Optional[int]:
     return pages * page // (1024 * 1024)
 
 
-def available_memory_mib() -> Optional[int]:
+def available_memory_mib(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[int]:
+    """Returns the free memory of the machine, or the free memory of the cgroup of this process when that is smaller."""
     try:
-        with open("/proc/meminfo") as handle:
-            return parse_meminfo(handle.read())
+        with open(os.path.join(proc_root, "meminfo")) as handle:
+            meminfo = handle.read()
     except OSError:
-        pass
-    try:
-        done = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    return parse_vm_stat(done.stdout)
+        try:
+            done = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return parse_vm_stat(done.stdout)
+    found = [value for value in (parse_meminfo(meminfo), cgroup_available_mib(proc_root, cgroup_root)) if value is not None]
+    return min(found) if found else None
 
 
 def wait_for_memory(

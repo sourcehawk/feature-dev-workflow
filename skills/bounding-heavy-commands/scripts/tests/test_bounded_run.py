@@ -4,6 +4,7 @@ import errno
 import os
 import re
 import select
+import shutil
 import signal
 import subprocess
 import sys
@@ -546,6 +547,96 @@ class MemoryReadTest(unittest.TestCase):
 
     def test_vm_stat_without_a_page_size_gives_nothing(self):
         self.assertIsNone(bounded_run.parse_vm_stat("Pages free: 10.\n"))
+
+
+class CgroupFreeMemoryTest(unittest.TestCase):
+    """Gives available_memory_mib a /proc with 16 GiB free and a cgroup filesystem in a temporary directory."""
+
+    def setUp(self):
+        self.base = tempfile.TemporaryDirectory()
+        self.addCleanup(self.base.cleanup)
+        self.proc = os.path.join(self.base.name, "proc")
+        self.cgroups = os.path.join(self.base.name, "cgroups")
+        os.makedirs(os.path.join(self.proc, "self"))
+        os.makedirs(self.cgroups)
+        Path(self.proc, "meminfo").write_text("MemTotal: 33554432 kB\nMemAvailable: 16777216 kB\n")
+
+    def membership(self, text):
+        Path(self.proc, "self", "cgroup").write_text(text)
+
+    def write(self, relative, name, value):
+        directory = os.path.join(self.cgroups, relative)
+        os.makedirs(directory, exist_ok=True)
+        Path(directory, name).write_text(value + "\n")
+
+    def available(self):
+        return bounded_run.available_memory_mib(proc_root=self.proc, cgroup_root=self.cgroups)
+
+    def test_a_cgroup_that_is_nearly_full_on_a_free_host(self):
+        self.membership("0::/container\n")
+        self.write("container", "memory.max", str(4096 * 1024 ** 2))
+        self.write("container", "memory.current", str(4000 * 1024 ** 2))
+        self.write("container", "memory.stat", "anon 1\ninactive_file %d\nactive_file 5\n" % (100 * 1024 ** 2))
+        self.assertEqual(self.available(), 196)
+
+    def test_a_cgroup_without_a_limit_gives_the_free_memory_of_the_host(self):
+        self.membership("0::/container\n")
+        self.write("container", "memory.max", "max")
+        self.write("container", "memory.current", str(4000 * 1024 ** 2))
+        self.write("container", "memory.stat", "inactive_file 0\n")
+        self.assertEqual(self.available(), 16384)
+
+    def test_a_cgroup_whose_use_cannot_be_read_gives_the_free_memory_of_the_host(self):
+        cases = {
+            "no files of use": {},
+            "no memory.stat": {"memory.current": str(4000 * 1024 ** 2)},
+            "no memory.current": {"memory.stat": "inactive_file 0\n"},
+            "no inactive_file line": {"memory.current": str(4000 * 1024 ** 2), "memory.stat": "anon 1\n"},
+            "not a number": {"memory.current": "many", "memory.stat": "inactive_file 0\n"},
+        }
+        for name, files in cases.items():
+            with self.subTest(name):
+                shutil.rmtree(self.cgroups)
+                self.membership("0::/container\n")
+                self.write("container", "memory.max", str(4096 * 1024 ** 2))
+                for file_name, text in files.items():
+                    self.write("container", file_name, text)
+                self.assertEqual(self.available(), 16384)
+
+    def test_no_cgroup_files_gives_the_free_memory_of_the_host(self):
+        self.assertEqual(self.available(), 16384)
+
+    def test_the_use_is_read_at_the_level_of_the_limit_in_a_parent(self):
+        self.membership("0::/container/unit-1.scope\n")
+        self.write("container/unit-1.scope", "memory.max", "max")
+        self.write("container/unit-1.scope", "memory.current", str(100 * 1024 ** 2))
+        self.write("container/unit-1.scope", "memory.stat", "inactive_file 0\n")
+        self.write("container", "memory.max", str(4096 * 1024 ** 2))
+        self.write("container", "memory.current", str(3072 * 1024 ** 2))
+        self.write("container", "memory.stat", "inactive_file %d\n" % (512 * 1024 ** 2))
+        self.assertEqual(self.available(), 1536)
+
+    def test_cgroup_version_1(self):
+        self.membership("12:cpu,cpuacct:/user.slice\n5:memory:/container\n0::/container\n")
+        self.write("memory/container", "memory.limit_in_bytes", str(2048 * 1024 ** 2))
+        self.write("memory/container", "memory.usage_in_bytes", str(1536 * 1024 ** 2))
+        self.write("memory/container", "memory.stat", "cache 1\ninactive_file 7\ntotal_inactive_file %d\n" % (256 * 1024 ** 2))
+        self.write("memory", "memory.limit_in_bytes", "9223372036854771712")
+        self.assertEqual(self.available(), 768)
+
+    def test_a_use_above_the_limit_gives_zero(self):
+        self.membership("0::/container\n")
+        self.write("container", "memory.max", str(1024 * 1024 ** 2))
+        self.write("container", "memory.current", str(2048 * 1024 ** 2))
+        self.write("container", "memory.stat", "inactive_file 0\n")
+        self.assertEqual(self.available(), 0)
+
+    def test_an_inactive_file_cache_larger_than_the_use_is_no_use(self):
+        self.membership("0::/container\n")
+        self.write("container", "memory.max", str(1024 * 1024 ** 2))
+        self.write("container", "memory.current", str(100 * 1024 ** 2))
+        self.write("container", "memory.stat", "inactive_file %d\n" % (200 * 1024 ** 2))
+        self.assertEqual(self.available(), 1024)
 
 
 class MemoryWaitTest(unittest.TestCase):
