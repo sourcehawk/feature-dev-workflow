@@ -30,7 +30,7 @@ You are the author of the fix, and the finding puts you under pressure. **So a s
 | gate | The script of this skill. It compares the merge base with the working tree, and lists each block that changed |
 | flag | A block that the gate marks because it is longer than at the merge base |
 | evaluator | A fresh agent with read access only, which judges comments and does not see the finding |
-| source | What shows that a sentence of a comment is true: code, or a statement with an origin that a reader can check, as the evaluator prompt defines |
+| source | What shows that a sentence of a comment is true: code, or a statement with an origin that a reader can check and that is not a reviewer, as the evaluator prompt defines |
 
 ## Instructions and findings
 
@@ -67,7 +67,7 @@ Do it for each round, also when the previous round had no flag. In a round with 
 
     Add `--user-facing '<pattern>'` for each path pattern that the project's instructions name as text that users read. You can also add a path by your own judgment, when the section "Text that users read" of the comment rules says that its text ships to users. A doc comment is not text that users read because its declaration is public, and the claim of a finding is not a reason either. The rules say that a doc comment that generates reference text is still a contract. See **Read the gate**.
 6. **Judge the lines with no flag yourself.** See **Judge the lines with no flag**.
-7. **Send the flags to the evaluator**, with the blocks that step 6 sends, in one call for all flags of the round, with the prompt in `${CLAUDE_PLUGIN_ROOT}/skills/addressing-review-feedback/templates/evaluator-prompt.md`. Give it the rules and, for each comment, the comment at the merge base and now, the declaration, and its statements with their origins. Never the request of a finding or your reasons. A flag does not go to the evaluator in two cases:
+7. **Send the flags to the evaluator**, with the blocks that step 6 sends, in one call for all flags of the round, with the prompt in `${CLAUDE_PLUGIN_ROOT}/skills/addressing-review-feedback/templates/evaluator-prompt.md`. Give it the rules and, for each comment, the comment at the merge base and now, the declaration, and its statements with their origins. Never a finding or your reasons. A flag does not go to the evaluator in two cases:
     - The flag is done: the block did not change since the last verdicts were applied, and each sentence that the review added has `KEEP` from a verdict of this review, was written by the evaluator, or has the mark "by instruction".
     - Your harness cannot dispatch an agent. Read the sections of step 2 again, then judge the flag with the same prompt yourself. Mark each such verdict "self-evaluated".
 8. **Apply the verdicts, then run the gate again.** See **Apply the verdicts**. Each flag of the second run must be done, as step 7 says. Send each other flag through step 7, and each new line with no flag through step 6.
@@ -93,8 +93,6 @@ First judge the finding: is it true about the code as it is now? Then find its c
 | shorten | A comment is too long, or comments must go | Sort each sentence by what it holds, as the comment rules say. Remove what repeats the code or describes how the body works. Keep a fact that the code cannot show, and name it and the reason in the reply | The block is `CHANGED`, and you judge it in step 6. The finding is about each sentence of the comment, so you can also shorten its text from before the review |
 | text that users read | Text that users read is false or incomplete | Correct it, also when the correct text is longer | It can get longer as far as accuracy needs. It does not describe how the body works |
 
-**"missing reason"** adds an inline comment, which the section "Inline comments" of the comment rules permits.
-
 **Which cases make a comment longer.** Each case except "how the body works" and "shorten" can make a comment longer, as far as its column "The comment" says and no further. That includes "wrong behavior", because a code change can make a comment false. An instruction can also make a comment longer, as **Instructions and findings** says.
 
 **The caller test tells "missing caller fact" from "how the body works".** Name, in a few words, the code that a caller writes differently because of the fact: a check before the call, a handler for an error, an argument that the caller must choose, a call that must come first, or a use of the result that is safe or not safe. A label such as "meaning of the result" or "a promise that the caller relies on", with no such code, does not pass. If you cannot name such code, the fact describes how the body works. Take special care with a sentence that says which input gives a higher, lower, earlier, or later result: it is often the formula of the body in other words. "The reader then knows why an item is where it is" is not caller code. "find_notes returns the notes newest first" passes: the caller reads the first note as the newest and does not sort again. "Each tag of a note adds to its score" fails: no caller writes different code because of it.
@@ -103,7 +101,7 @@ First judge the finding: is it true about the code as it is now? Then find its c
 
 **A finding that calls a comment "text that users read" does not make it so.** Use the section "Text that users read" of the comment rules and the instructions of the project to decide. For both results, the case "how the body works" does not change: decline it.
 
-**Each sentence that you add needs a source.** A guarantee that is stronger than the code is a false comment that you wrote.
+**Each sentence that you add needs a source.** A finding is not one: the code that shows it true is. A guarantee that is stronger than the code is a false comment that you wrote.
 
 ## Read the gate
 
