@@ -243,6 +243,12 @@ class SettingsTest(unittest.TestCase):
             settings = bounded_run.Settings({"BOUNDED_RUN_TOTAL_MIB": "4096"})
         self.assertEqual(settings.total_mib, 4096)
 
+    def test_rejects_an_interval_of_zero(self):
+        for name in ("BOUNDED_RUN_POLL_SECONDS", "BOUNDED_RUN_SAMPLE_SECONDS"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(bounded_run.WrapperError, name + " must be more than zero"):
+                    bounded_run.Settings({name: "0"}, read_total=lambda: 1)
+
     def test_rejects_a_value_that_is_not_a_number(self):
         with self.assertRaises(bounded_run.WrapperError):
             bounded_run.Settings({"BOUNDED_RUN_POLL_SECONDS": "fast"}, read_total=lambda: 1)

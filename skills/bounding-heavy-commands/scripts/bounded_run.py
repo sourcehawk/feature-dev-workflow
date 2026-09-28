@@ -214,6 +214,11 @@ class Settings:
         self.no_cap = bool(environ.get("BOUNDED_RUN_NO_CAP"))
         if self.slot_mib <= 0:
             raise WrapperError("BOUNDED_RUN_SLOT_MIB must be more than zero")
+        # A loop that sleeps for zero seconds never ends its wait and takes a full processor.
+        if self.poll_seconds <= 0:
+            raise WrapperError("BOUNDED_RUN_POLL_SECONDS must be more than zero")
+        if self.sample_seconds <= 0:
+            raise WrapperError("BOUNDED_RUN_SAMPLE_SECONDS must be more than zero")
 
 
 def _number(environ: Mapping[str, str], name: str, fallback: float) -> float:
