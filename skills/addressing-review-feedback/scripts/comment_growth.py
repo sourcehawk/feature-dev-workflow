@@ -264,15 +264,6 @@ def _similarity(old_anchor: str, new_anchor: str) -> float:
     return matcher.ratio()
 
 
-def _postings(new_words: Sequence[List[str]], indexes: List[int]) -> Dict[str, List[int]]:
-    """Maps each word to the blocks among indexes that hold it."""
-    postings: Dict[str, List[int]] = {}
-    for index in indexes:
-        for word in set(new_words[index]):
-            postings.setdefault(word, []).append(index)
-    return postings
-
-
 def _reach(old_words: Sequence[str], postings: Dict[str, List[int]], indexes: List[int], min_kept: float) -> List[int]:
     """The blocks among indexes that can keep min_kept of old_words. With a share to keep, a block with no
     words has none to share and reaches no block."""
@@ -341,7 +332,11 @@ def pair(
             orders.pop(0)
     free = sorted(order for orders in unchanged.values() for order in orders)
 
-    postings = _postings(new_words, open_indexes)
+    # Each word, mapped to the open blocks of new that hold it.
+    postings: Dict[str, List[int]] = {}
+    for index in open_indexes:
+        for word in set(new_words[index]):
+            postings.setdefault(word, []).append(index)
     reach: Dict[int, List[int]] = {}
     for order in free:
         reach[order] = _reach(old_words[order], postings, open_indexes, min_kept)
