@@ -428,6 +428,52 @@ class CompareTest(unittest.TestCase):
             [(gate.CHANGED, 1, 1, 1, False), (gate.GREW, 5, 1, 2, True)],
         )
 
+    def test_identical_copy_of_a_block_that_grew_does_not_hide_the_growth(self):
+        old = (
+            "func load() error {\n\t// Check the error.\n\tif err != nil {\n\t}\n}\n"
+        )
+        new = (
+            "func save() error {\n\t// Check the error.\n\tif err != nil {\n\t}\n}\n"
+            "\n"
+            "func load() error {\n\t// Check the error.\n\t// A missing file is not an error.\n\tif err != nil {\n\t}\n}\n"
+        )
+        findings = gate.compare("f", old, new, gate.SLASH)
+        self.assertEqual(
+            [(f.status, f.line, f.old_length, f.new_length, f.flagged) for f in findings],
+            [(gate.ADDED, 2, 0, 1, False), (gate.GREW, 8, 1, 2, True)],
+        )
+
+    def test_identical_copy_of_a_doc_string_that_grew_does_not_hide_the_growth(self):
+        old = 'class A:\n    def __init__(self):\n        """Set up."""\n        pass\n'
+        new = (
+            'class B:\n    def __init__(self):\n        """Set up."""\n        pass\n\n'
+            'class A:\n    def __init__(self):\n        """Set up.\n\n        Opens the log.\n        """\n        pass\n'
+        )
+        findings = gate.compare("f", old, new, gate.HASH_DOCSTRING)
+        self.assertEqual(
+            [(f.status, f.line, f.old_length, f.new_length, f.flagged) for f in findings],
+            [(gate.ADDED, 3, 0, 1, False), (gate.GREW, 8, 1, 4, True)],
+        )
+
+    def test_unchanged_block_stays_unlisted_when_the_longer_block_that_keeps_its_words_pairs_elsewhere(self):
+        old = (
+            "func f() {\n"
+            "\t// Check the error.\n\tif err != nil {\n\t}\n"
+            "\t// Check the error, then log it.\n\tif err != nil {\n\t}\n"
+            "}\n"
+        )
+        new = (
+            "func f() {\n"
+            "\t// Check the error.\n\tif err != nil {\n\t}\n"
+            "\t// Check the error, then log it.\n\t// The log holds the path.\n\tif err != nil {\n\t}\n"
+            "}\n"
+        )
+        findings = gate.compare("f", old, new, gate.SLASH)
+        self.assertEqual(
+            [(f.status, f.line, f.old_length, f.new_length, f.flagged) for f in findings],
+            [(gate.GREW, 5, 1, 2, True)],
+        )
+
     def test_comment_rewritten_fully_above_the_same_anchor_is_paired(self):
         old = "// run starts the job.\nfunc run() {}\n"
         new = "// Blocks until every worker has stopped.\nfunc run() {}\n"

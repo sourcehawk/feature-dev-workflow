@@ -264,13 +264,19 @@ def _similarity(old_anchor: str, new_anchor: str) -> float:
     return matcher.ratio()
 
 
-def _reach(
-    old_words: Sequence[str], new_words: Sequence[List[str]], postings: Dict[str, List[int]], open_indexes: List[int],
-    min_kept: float,
-) -> List[int]:
-    """The open blocks of new that can keep min_kept of old_words."""
+def _postings(new_words: Sequence[List[str]], indexes: List[int]) -> Dict[str, List[int]]:
+    """Maps each word to the blocks among indexes that hold it."""
+    postings: Dict[str, List[int]] = {}
+    for index in indexes:
+        for word in set(new_words[index]):
+            postings.setdefault(word, []).append(index)
+    return postings
+
+
+def _reach(old_words: Sequence[str], postings: Dict[str, List[int]], indexes: List[int], min_kept: float) -> List[int]:
+    """The blocks among indexes that can keep min_kept of old_words."""
     if min_kept <= 0 or not old_words:
-        return open_indexes
+        return indexes
     # To keep `need` of the words, a block holds a word from each set of
     # len - need + 1 positions, so the rarest such set names every candidate.
     need = math.ceil(min_kept * len(old_words))
@@ -298,29 +304,44 @@ def pair(
     """Maps the index of each changed or added block of new to the index of its block in old (or to None), and
     lists the indexes of the blocks of old that have no partner in new. A pair keeps at least min_kept of the
     old words. Raises TooManyPairs when more than most pairs of blocks would need a score."""
+    old_words = [_words(block) for block in old]
+    new_words = [_words(block) for block in new]
     # The orders of the blocks of old not yet claimed by an unchanged match, by (anchor, text).
     unchanged: Dict[Tuple[str, Tuple[str, ...]], List[int]] = {}
     for order, block in enumerate(old):
         unchanged.setdefault((block.anchor, block.text), []).append(order)
+    fresh = [index for index, block in enumerate(new) if (block.anchor, block.text) not in unchanged]
+    fresh_postings = _postings(new_words, fresh)
+    scored = 0
     open_indexes: List[int] = []
+    # The block of old that each identical copy in new leaves free for a longer block that keeps all its words.
+    copies: Dict[int, int] = {}
     for index, block in enumerate(new):
         orders = unchanged.get((block.anchor, block.text))
-        if orders:
-            orders.pop(0)
-        else:
+        if not orders:
             open_indexes.append(index)
+            continue
+        words = old_words[orders[0]]
+        grown = _reach(words, fresh_postings, fresh, 1.0) if words else []
+        scored += len(grown)
+        if most is not None and scored > most:
+            raise TooManyPairs()
+        if any(
+            new[other].length > block.length
+            and _similarity(block.anchor, new[other].anchor) >= SIMILAR_ANCHOR
+            and _kept(words, new_words[other]) == 1.0
+            for other in grown
+        ):
+            copies[index] = orders[0]
+        else:
+            orders.pop(0)
     free = sorted(order for orders in unchanged.values() for order in orders)
 
-    old_words = [_words(block) for block in old]
-    new_words = [_words(block) for block in new]
-    postings: Dict[str, List[int]] = {}
-    for index in open_indexes:
-        for word in set(new_words[index]):
-            postings.setdefault(word, []).append(index)
+    postings = _postings(new_words, open_indexes)
     reach: Dict[int, List[int]] = {}
     for order in free:
-        reach[order] = _reach(old_words[order], new_words, postings, open_indexes, min_kept)
-    if most is not None and sum(len(indexes) for indexes in reach.values()) > most:
+        reach[order] = _reach(old_words[order], postings, open_indexes, min_kept)
+    if most is not None and scored + sum(len(indexes) for indexes in reach.values()) > most:
         raise TooManyPairs()
     new_sets = {index: set(new_words[index]) for index in open_indexes}
 
@@ -358,6 +379,12 @@ def pair(
     for score, distance, index, order in candidates:
         if pairs[index] is None and new[index].length > old[order].length:
             pairs[index] = order
+    # A copy whose old block no other block took is that block, unchanged.
+    for index, order in sorted(copies.items()):
+        if order in claimed_old:
+            pairs[index] = None
+        else:
+            claimed_old.add(order)
 
     return pairs, tuple(order for order in free if order not in claimed_old)
 
