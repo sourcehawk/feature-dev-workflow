@@ -225,37 +225,39 @@ class Finding:
 
 def pair(old: Sequence[Block], new: Sequence[Block]) -> Dict[int, Optional[Block]]:
     """Maps the index of each changed or added block of new to its block in old, or to None."""
-    free = list(old)
+    # (order, block) for each block of old not yet claimed by an unchanged match.
+    free: List[Tuple[int, Block]] = list(enumerate(old))
     open_indexes: List[int] = []
     for index, block in enumerate(new):
-        same = next((b for b in free if b.anchor == block.anchor and b.text == block.text), None)
+        same = next(((order, b) for order, b in free if b.anchor == block.anchor and b.text == block.text), None)
         if same is None:
             open_indexes.append(index)
         else:
             free.remove(same)
 
-    pairs: Dict[int, Optional[Block]] = {}
+    # Every candidate pairing of one open block of new with one free block of
+    # old, so the best match anywhere in the file is assigned before a
+    # weaker match elsewhere can claim the same block first.
+    candidates: List[Tuple[float, int, int, int]] = []
     for index in open_indexes:
-        match = next((b for b in free if b.anchor and b.anchor == new[index].anchor), None)
-        pairs[index] = match
-        if match is not None:
-            free.remove(match)
+        block = new[index]
+        for order, candidate in free:
+            score = 1.0 if candidate.anchor == block.anchor else difflib.SequenceMatcher(
+                None, candidate.anchor, block.anchor
+            ).ratio()
+            if score >= SIMILAR_ANCHOR:
+                candidates.append((score, abs(order - index), index, order))
+    candidates.sort(key=lambda candidate: (-candidate[0], candidate[1]))
 
-    for index in open_indexes:
-        if pairs[index] is not None or not new[index].anchor:
+    pairs: Dict[int, Optional[Block]] = {index: None for index in open_indexes}
+    claimed_new = set()
+    claimed_old = set()
+    for score, distance, index, order in candidates:
+        if index in claimed_new or order in claimed_old:
             continue
-        best: Optional[Block] = None
-        best_rank: Tuple[float, int] = (0.0, 0)
-        for candidate in free:
-            if not candidate.anchor:
-                continue
-            ratio = difflib.SequenceMatcher(None, candidate.anchor, new[index].anchor).ratio()
-            rank = (ratio, -abs(candidate.line - new[index].line))
-            if ratio >= SIMILAR_ANCHOR and (best is None or rank > best_rank):
-                best, best_rank = candidate, rank
-        if best is not None:
-            pairs[index] = best
-            free.remove(best)
+        pairs[index] = old[order]
+        claimed_new.add(index)
+        claimed_old.add(order)
     return pairs
 
 

@@ -218,6 +218,40 @@ class CompareTest(unittest.TestCase):
         new = "# Tools for the build.\n# Each tool reads the config.\n\nimport os\n"
         self.assertEqual(statuses(old, new, gate.HASH_DOCSTRING), [(gate.GREW, 1, 2, True)])
 
+    def test_module_doc_comment_with_no_anchor_that_grew_is_flagged(self):
+        old = '"""Module doc."""\nimport os\n'
+        new = '"""Module doc.\n\nExplains more.\n"""\nimport os\n'
+        self.assertEqual(statuses(old, new, gate.HASH_DOCSTRING), [(gate.GREW, 1, 4, True)])
+
+    def test_comment_at_the_end_of_the_file_that_grew_is_flagged(self):
+        old = "x = 1\n# trailing note\n"
+        new = "x = 1\n# trailing note\n# with more detail\n"
+        self.assertEqual(statuses(old, new, gate.HASH), [(gate.GREW, 1, 2, True)])
+
+    def test_new_comment_above_a_grown_comment_does_not_hide_the_growth(self):
+        old = "// run starts the job.\nfunc run(job Job) error {\n}\n"
+        new = (
+            "// run starts a job.\n"
+            "func run() {\n"
+            "}\n"
+            "\n"
+            "// run starts the job.\n"
+            "// It waits for limit.\n"
+            "func run(job Job, limit Duration) error {\n"
+            "}\n"
+        )
+        findings = gate.compare("f", old, new, gate.SLASH)
+        self.assertEqual(
+            [(f.status, f.line, f.flagged) for f in findings],
+            [(gate.ADDED, 1, False), (gate.GREW, 5, True)],
+        )
+
+    def test_common_anchor_text_pairs_blocks_in_order(self):
+        old = "func a() {\n    // first\n}\n\nfunc b() {\n    // second\n}\n"
+        new = "func a() {\n    // first\n}\n\nfunc b() {\n    // second\n    // and more\n}\n"
+        findings = gate.compare("f", old, new, gate.SLASH)
+        self.assertEqual([(f.status, f.line, f.flagged) for f in findings], [(gate.GREW, 6, True)])
+
 def sh(cwd, *args):
     subprocess.run(args, cwd=cwd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
