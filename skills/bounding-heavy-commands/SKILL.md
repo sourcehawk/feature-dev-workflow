@@ -70,7 +70,7 @@ Then, before each heavy command, use the first case that applies:
 
 A budget is a measurement, not a preference. Change one only when the wrapper's output shows that the peak moved, and write the new peak and date with it.
 
-A part of a recorded command (one test file, one target) uses the bounded command line of the full command, with its budget and its exclusive resources, and the narrower arguments. It needs no entry of its own and no measurement, because the budget of the full command is sufficient for each part of it.
+A part of a recorded command (one test file, one target) uses the bounded command line of the full command, with its budget and its exclusive resources, and the narrower arguments at the end of the line. It needs no entry of its own and no measurement, because the budget of the full command is sufficient for each part of it.
 
 ## Discovery
 
@@ -79,8 +79,10 @@ A part of a recorded command (one test file, one target) uses the bounded comman
 3. Find how the toolchain limits its own parallelism and memory. Write the command line so that it takes those limits from `BOUNDED_RUN_CPUS` and `BOUNDED_RUN_MEMORY_MIB`. The wrapper sets the two variables for the command only. Your own shell does not have them. Put the command into an inner shell, in single quotes, so that your own shell does not replace the variable with an empty value before the wrapper starts:
 
    ```
-   ... --cpus 4 -- sh -c '<command> <flag for parallel jobs> "$BOUNDED_RUN_CPUS"'
+   ... --cpus 4 -- sh -c '<command> <flag for parallel jobs> "$BOUNDED_RUN_CPUS" "$@"' sh
    ```
+
+   The `"$@"` and the word `sh` at the end hand each argument that comes after them to the command. A narrower argument, such as one test file, goes at the end of the line, after that `sh`. Without the two, the inner shell drops the argument and runs the full command.
 
 4. Run each heavy command that you are about to run once with `--measure`, one at a time. Measure the full command, not a part of it: the peak of one test file is not the budget of the suite. Add `--exclusive <name>` for each resource that step 2 found for it:
 
@@ -122,7 +124,7 @@ A subagent does not see your project memory. It knows the bounded commands only 
 On a machine on which the wrapper can run, every dispatch prompt for a subagent that will run a heavy command MUST include:
 
 1. The bounded command line for each heavy command, copied from the record.
-2. This rule, in these words: "Run the bounded commands as written. You can make two changes: a narrower argument for the command after the `--`, such as one test file, and one more `--exclusive <name>` option after a collision on a port or a lock, which you name in your report. Do not run the plain form of a bounded command or of a part of it. For a heavy command that is not in this prompt, use the same wrapper with no `--memory` option. If the file of the wrapper does not exist, stop and report that. Set no environment variable whose name starts with `BOUNDED_RUN_`. A command can wait in the queue for minutes before it starts, so run it in the background and do not put a short timeout around it. A long wait means that the machine is full; it is not a fault to repair. Say in your report how long you waited."
+2. This rule, in these words: "Run the bounded commands as written. You can make two changes: a narrower argument at the end of the line, such as one test file, and one more `--exclusive <name>` option after a collision on a port or a lock, which you name in your report. Do not run the plain form of a bounded command or of a part of it. For a heavy command that is not in this prompt, use the same wrapper with no `--memory` option. If the file of the wrapper does not exist, stop and report that. Set no environment variable whose name starts with `BOUNDED_RUN_`. A command can wait in the queue for minutes before it starts, so run it in the background and do not put a short timeout around it. A long wait means that the machine is full; it is not a fault to repair. Say in your report how long you waited."
 3. Each command that an instruction exempts from the wrapper, in its plain form, in a list of its own, with the instruction that exempts it. The rule of item 2 does not apply to that list. An instruction of the user that covers one run goes to the one subagent that does that run, and to no other.
 
 Do not dispatch fewer subagents to protect the machine. The queue protects it. Subagents that wait in the queue cost time, not memory. The one exception is a machine on which the wrapper cannot run (see the next section).
