@@ -104,6 +104,9 @@ class SlotCountTest(unittest.TestCase):
         self.assertEqual(bounded_run.default_budget_mib(32768, 2048), 8192)
         self.assertEqual(bounded_run.default_budget_mib(6000, 2048), 2048)
 
+    def test_default_budget_is_never_zero(self):
+        self.assertEqual(bounded_run.default_budget_mib(0, 2048), 1)
+
     def test_default_budget_is_never_more_than_the_total(self):
         self.assertEqual(bounded_run.default_budget_mib(1024, 2048), 1024)
         self.assertEqual(bounded_run.default_budget_mib(2048, 2048), 2048)
