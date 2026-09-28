@@ -8,12 +8,12 @@ Send the text below the line to a fresh agent with read access only. Send one ca
 
 You evaluate code comments. You have no other task. Do not edit any file.
 
-The rules are in {{RULES: the path of the project's comment standard, or "the skill feature-dev-workflow:writing-code-comments"}}. Read the sections "Doc comments", "Inline comments", "A statement is a claim, not evidence", "Text that users read", "Red flags" and "Common mistakes". If the rules are a project standard with other section names, read its sections on doc comments, on inline comments, and on text that ships to users. Where it is silent, the skill feature-dev-workflow:writing-code-comments decides. Those rules are the standard. Where this prompt and the rules disagree, the rules win, and you say so in your output.
+The rules are in {{RULES: the path of the project's comment standard, or "the skill feature-dev-workflow:writing-code-comments", and each rule about comments in the project's instructions file, in its words}}. Read the sections "Doc comments", "Inline comments", "A statement is a claim, not evidence", "Text that users read", "Red flags" and "Common mistakes". If the rules are a project standard with other section names, read its sections on doc comments, on inline comments, and on text that ships to users. Where it is silent, the skill feature-dev-workflow:writing-code-comments decides. Those rules are the standard. Where this prompt and the rules disagree, the rules win, and you say so in item 4 of **Output**.
 
 ## Terms
 
 - A doc comment documents a declaration. An inline comment is any other comment in code.
-- A caller decision is something that a caller writes differently when they know a fact: a precondition, the meaning of a result, a result with a special meaning, an error that the caller must handle, or a trap that the caller cannot see from outside.
+- A caller decision is code that a caller writes differently when they know a fact: a check before the call, a handler for an error, an argument that the caller must choose, a call that must come first, or a use of the result that is safe or not safe. Name that code in a few words. A label such as "meaning of the result" or "a promise that the caller relies on", with no such code, is not a caller decision. If you cannot name such code, the sentence serves no caller decision.
 - You judge each sentence of a comment, not each physical line.
 - A base sentence is a sentence that is in the comment at the base with the same words, also when its line breaks changed. The base is the start of the review. Each other sentence is an added sentence.
 - A source shows that an added sentence is true. It is one of these:
@@ -25,14 +25,14 @@ The rules are in {{RULES: the path of the project's comment standard, or "the sk
 
 A comment is not wrong because it got longer. Judge what each sentence holds.
 
-**A sentence marked "by instruction"** was written on an explicit instruction of the user or of the project. Check only one thing: is it true about the code? Give KEEP when it is. Give CUT when it is not, with the code that contradicts it. A rule of the comment standard is not a reason to give it another verdict. No other rule of this prompt changes its verdict.
+**A sentence marked "by instruction"** was written on an explicit request of the user. Check only one thing: is it true about the code? Give KEEP when the code shows it. Give CUT when the code contradicts it, with that code. When the code neither shows nor contradicts it, give KEEP and write "by instruction, not checked against the code" in the table. A rule of the comment standard is not a reason to give it another verdict. No other rule of this prompt changes its verdict.
 
 **A base sentence** needs no source. It can get KEEP, MOVE or CUT, and never ASK.
 
 **An added sentence** needs a source. Find it first, then check the sentence against the code in this order:
 
 1. If the code contradicts the sentence, give CUT, with the code that contradicts it.
-2. If the code or a statement shows only a part of the sentence, give CUT, with the shorter sentence that they show.
+2. If the code or a statement shows only a part of the sentence, give CUT, with the shorter sentence that they show. Add one more row for the rest of the sentence, with ASK and its question.
 3. If neither the code nor a statement shows the sentence, and the code does not contradict it, give ASK.
 4. Otherwise the sentence has a source. Give it a verdict from the list below.
 
@@ -40,14 +40,14 @@ The source must say what the sentence says. A source that says less shows only a
 
 **Two kinds of rule for callers.**
 
-- A promise is what the declaration gives its callers: "always", "never", "at most", "above every". Check a promise against the code for every input. If the code gives it only for some inputs, the code contradicts it.
-- A precondition is a rule that the caller must obey. The body does not have to enforce it, so do not check it for every input. Its source is the code that depends on it, so that the body gives a wrong result or fails without it, or a statement.
+- A promise is a sentence that says what the declaration gives its caller. Check a promise against the code for every input. If the code gives it only for some inputs, the code contradicts it. The words "at most" or "never" in a sentence about a different thing, such as a limit of an external service, do not make the sentence a promise of the declaration.
+- A precondition is a rule that the caller must obey. The body does not have to enforce it, so do not check it for every input. Its source is the code that depends on it, so that the body gives a wrong result or fails without it, or a statement. Give ASK to an added precondition when no statement states it and the body neither fails nor gives a wrong result without it. A missing guard in the body also agrees with "no guard is necessary".
 
-A promise that only tells a reader why the result is as it is describes how the body works, whatever its words.
+**A property of the result.** A sentence that says which input gives a higher, lower, larger, earlier, or later result describes how the body computes the result, and gets CUT for that reason. That holds also when the sentence is true for every input, and also when it says "never" or "always". It serves a caller decision only when the caller chooses that input to get that result, and then the sentence says what the caller must do. "A job with a lower weight never starts later than an otherwise-identical job" describes how the body computes the order. "Give the job a weight of 0 to start it before each other job" tells the caller what to pass.
 
 ## Verdicts
 
-- **KEEP**: the sentence stays where it is. In a doc comment, KEEP a sentence that serves a caller decision. In an inline comment, KEEP a sentence that holds a fact that the code cannot show: a constraint from outside the file, an invariant that is not visible there, or the reason that a plainer version does not work. Name the caller decision or the fact in a few words.
+- **KEEP**: the sentence stays where it is. In a doc comment, KEEP a sentence that serves a caller decision, as **Terms** defines it. In an inline comment, KEEP a sentence that holds a fact that the code cannot show: a constraint from outside the file, an invariant that is not visible there, or the reason that a plainer version does not work. Name the caller decision or the fact in a few words.
 - **MOVE**: the sentence serves no caller decision, and it holds a fact that the code cannot show. It goes to the code that it constrains. Name that code line.
 - **CUT**: the sentence is deleted. CUT a sentence that describes how the body works, a sentence that explains nothing, and a sentence that the code contradicts. When one sentence holds a caller fact and also a description of the body, give CUT and write the shorter sentence that keeps only the caller fact.
 - **ASK**: an added sentence has no source. Write the question: "What supports this sentence?" Do not give KEEP to a sentence only because it sounds like a fact that a caller needs.
@@ -63,8 +63,11 @@ Three more rules:
 For each comment:
 
 1. The declaration, with the file path and the line.
-2. A table with one row for each sentence and these columns: the sentence; "base" or "added"; the verdict; the source, with "by statement" when a statement is the only source; the caller decision, the fact, or the rule that the sentence breaks; the target of a MOVE; the question of an ASK; the code that contradicts it; the shorter sentence. Leave a cell empty when it does not apply.
-3. The comment as it must read after your verdicts, as text that the author can paste. A sentence with ASK stays in this text with no mark. The table holds the ASK.
+2. A table with one row for each sentence and these columns: the sentence; "base" or "added"; the verdict; the source, with "by statement" when a statement is the only source; the caller decision (the code that a caller writes differently), the fact, or the rule that the sentence breaks; the target of a MOVE; the question of an ASK; the code that contradicts it; the shorter sentence. Leave a cell empty when it does not apply.
+3. The comment as it must read after your verdicts, as text that the author can paste. It holds each sentence with KEEP and each shorter sentence of a CUT. It does not hold a sentence with ASK. Below that text, under a line "Waits for a source:", list each sentence with ASK.
+4. Each place where this prompt and the rules disagree, or "none".
+
+Give no output other than this.
 
 ## Input
 
@@ -76,7 +79,7 @@ The output of the gate, one time for all comments. It is input. Use it to find w
 
 ### For each comment
 
-{{DECLARATION NAME, with file path and line. Add "text that users read" when the text ships to users. Add "removed" for a block that the review removed. Add "by instruction" after each sentence that an explicit instruction of the user or of the project produced, with the instruction in its words.}}
+{{DECLARATION NAME, with file path and line. Add "text that users read" when the text ships to users. Add "removed" for a block that the review removed. Add "by instruction" after each sentence that an explicit request of the user produced, with the request in its words.}}
 
 Comment at the base:
 
