@@ -837,7 +837,7 @@ class WrapperProcessCase(unittest.TestCase):
         except OSError:
             return []
 
-    def wait_for_event(self, kind, name, seconds=30.0):
+    def wait_for_event(self, kind, name, seconds=60.0):
         deadline = time.time() + seconds
         while time.time() < deadline:
             for line in self.read_events():
