@@ -13,7 +13,7 @@ This skill decides whether a comment exists and what it holds. It owns what a do
 
 **The project's own comment standard comes first.** If the project documents one (in its instructions file, a style guide, or a project skill), follow it. Where it is silent, this skill is the default.
 
-**An explicit instruction about comments, from the user or from the project, for this task, comes before this skill too.** Follow it. Keep every comment it produces true and free of the faults you can still avoid without breaking the instruction. State in your report where the instruction differs from the default, in one or two sentences, so the person can reconsider. If the instruction is unclear, ask. Do not refuse it, and do not read a rationalization row below as permission to overrule it: a rationalization answers your own guess about what someone wants, never a thing they told you directly.
+**An explicit instruction about comments, from the user or from the project, for this task, comes before this skill too.** A review finding, from a person or from a tool, is input for you to judge, not an instruction in this sense. Follow an instruction. Keep every comment it produces true and free of the faults you can still avoid without breaking the instruction. State in your report where the instruction differs from the default, in one or two sentences, so the person can reconsider. If the instruction is unclear, ask. Do not refuse it, and do not read a rationalization row below as permission to overrule it: a rationalization answers your own guess about what someone wants, never a thing they told you directly. An instruction to remove comments does not silently cover a fact that the code cannot show: ask first, or, when you cannot ask, follow the instruction and name each such deleted fact in your report, in full, so the person can put it back.
 
 **OPTIONAL SUB-SKILL:** `simple-english:simple-english` for the prose of each comment you keep. If it is available, load it before you draft and write the sentences under it. Where its formatting rules (headings, bold, lists, or its register for chat replies) differ from the host skill or its template, the host skill and its template win. It sets sentence style only: this skill and the project's comment standard still decide whether a comment exists and what it may say. If the skill is not available, do not stop or wait for it. If you have not already done so in this session, tell the user once that it can be installed with `/plugin marketplace add AminBlg/SimpleEnglish` and then `/plugin install simple-english@simple-english`. Then write short, plain, active sentences without it.
 
@@ -22,8 +22,6 @@ This skill decides whether a comment exists and what it holds. It owns what a do
 A doc comment is a contract. A caller must be able to use the declaration correctly without reading its body. A wrong doc comment is worse than none, because the caller trusts it.
 
 **Give the contract, not the algorithm.** The contract is the preconditions, the meaning of the result, and the trap that a caller cannot see from outside. When you start a sentence about how the body computes its answer, stop. The caller does not need it, and it is false the first time the body changes.
-
-A heading labeled "Contract" does not make the paragraph under it one. If it restates the branches of the body, or lists the fields or values that the body reads, it is still the algorithm under a different name.
 
 ```
 // BAD: the algorithm
@@ -36,6 +34,8 @@ function next_retry_delay(attempt, config)
 // starts at 1. The result can exceed max_delay by up to 10 percent.
 function next_retry_delay(attempt, config)
 ```
+
+A heading labeled "Contract" does not make the paragraph under it one. If it restates the branches of the body, or lists the fields the body reads without saying what the caller must supply or expect, it is still the algorithm under a different name.
 
 **Every precondition and every error that a caller must handle is part of the contract.** So is each result with a special meaning, such as an empty value. A doc comment that does not give one of them is incomplete, and the tests have nothing to check that promise against. Add it, in the fewest words that are true.
 
@@ -130,7 +130,7 @@ Stop when you see one of these in your own diff:
 
 | Thought | Reality |
 | --- | --- |
-| "I guess the reviewer wants documentation, so more comments are safer" | This answers your own guess about a reviewer's taste. A reviewer has to read and check each comment, a paraphrase adds review work and no information, so give the contract. It does not answer an instruction someone actually gave you |
+| "I guess the reviewer wants documentation, so more comments are safer" | This answers your own guess about a reviewer's taste. A reviewer has to read and check each comment, a paraphrase adds review work and no information, so give the contract. It does not answer an instruction from the user or the project |
 | "A thorough doc comment shows that I understand the code" | The doc comment is for the caller. What you understood goes in the pull request body |
 | "The doc update is out of scope, the task was the code fix" | The comment became false when your code changed. The correction is the same task |
 | "I will note the doc update as a follow-up" | A follow-up leaves a false statement in the default branch. File follow-ups for work you did not do, not for damage you did |
@@ -140,4 +140,4 @@ Stop when you see one of these in your own diff:
 | "What was added, and why, so the lead doesn't have to reverse-engineer it" | The lead does not call the declaration. State what changed and why in the pull request body, not on the declaration |
 | "spelling out the backoff formula" | The formula is the algorithm. State the result the caller gets, including the case it does not cover, not how the body computes it |
 | "No behavior was changed — this is comments only, so it's safe to land before the branch cut" | A comment-only change still has to hold only what the caller needs. "Comments only" is not a reason to skip the cut from algorithm to contract |
-| "Commenting every block would fail this same standard on review, not satisfy it" | An instruction is not a rationalization. Follow it, keep what you write true, and say in your report where it differs from this skill's default |
+| "Commenting every block would fail this same standard on review, not satisfy it" | An instruction from the user or the project is not a rationalization. Follow it, keep what you write true, and say in your report where it differs from this skill's default |
