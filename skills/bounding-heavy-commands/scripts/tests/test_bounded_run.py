@@ -702,6 +702,7 @@ class WrapperProcessCase(unittest.TestCase):
             "EVENTS": self.events,
         })
         self.processes = []
+        self._stderr_buffers = {}
 
     def tearDown(self):
         for process in self.processes:
@@ -748,19 +749,48 @@ class WrapperProcessCase(unittest.TestCase):
         self.fail("no '%s %s' event after %s seconds; events: %s" % (kind, name, seconds, self.read_events()))
 
     def wait_for_stderr(self, process, substring, seconds=60.0):
-        """Reads lines from the process's error stream until one holds substring, or fails by seconds."""
+        """Reads the process's raw error-stream descriptor until substring appears, or fails by seconds.
+
+        Reads os.read() on the raw descriptor, never process.stderr's own buffered readline()/read():
+        select() only reports the descriptor ready, it says nothing about how many lines are
+        sitting in the pipe. A buffered readline() can pull more than one already-arrived line
+        out of the pipe in a single call and return just the first, leaving the rest sitting in
+        Python's own buffer where select() can no longer see them and this loop would wait for a
+        line it already holds. Keeps what it reads in self._stderr_buffers, keyed by process, so
+        a later call to stderr_of() for the same process resumes from here instead of losing or
+        re-reading any of it.
+        """
         deadline = time.time() + seconds
-        buffer = ""
+        buffer = self._stderr_buffers.setdefault(process, "")
+        fd = process.stderr.fileno()
         while substring not in buffer:
             remaining = deadline - time.time()
             if remaining <= 0:
                 self.fail("no line with %r on the error stream after %s seconds; stderr so far: %s" % (substring, seconds, buffer))
-            ready, _, _ = select.select([process.stderr], [], [], min(remaining, 0.5))
+            ready, _, _ = select.select([fd], [], [], min(remaining, 0.5))
             if ready:
-                line = process.stderr.readline()
-                if line:
-                    buffer += line
+                chunk = os.read(fd, 65536)
+                if not chunk:
+                    self.fail("the error stream closed with no line %r; stderr so far: %s" % (substring, buffer))
+                buffer += chunk.decode(errors="replace")
+                self._stderr_buffers[process] = buffer
         return buffer
+
+    def stderr_of(self, process):
+        """Returns everything the process wrote to its error stream, once it has stopped.
+
+        Combines what wait_for_stderr already took off the raw descriptor (if any) with a final
+        raw read of whatever is left, so the two never compete for the same bytes through two
+        different buffers. Call only after the process has exited, so the final read reaches
+        end-of-file instead of blocking.
+        """
+        buffer = self._stderr_buffers.pop(process, "")
+        fd = process.stderr.fileno()
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                return buffer
+            buffer += chunk.decode(errors="replace")
 
     def peak_concurrency(self):
         running = 0
@@ -1003,11 +1033,11 @@ class WrapperProcessTest(WrapperProcessCase):
         self.wait_for_event("start", "holder")
         waiting = self.worker("waiting", "4G", hold="0")
 
-        buffer = self.wait_for_stderr(waiting, "waiting for")
+        self.wait_for_stderr(waiting, "waiting for")
 
         waiting.send_signal(signal.SIGINT)
         self.assertEqual(waiting.wait(timeout=60), 130)
-        buffer += waiting.stderr.read()
+        buffer = self.stderr_of(waiting)
         self.assertNotIn("Traceback", buffer)
         for line in buffer.splitlines():
             self.assertTrue(line.startswith("bounded-run: "), buffer)
