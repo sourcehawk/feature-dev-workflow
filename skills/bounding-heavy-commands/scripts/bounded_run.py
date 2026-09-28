@@ -86,8 +86,12 @@ def physical_memory_mib() -> int:
     try:
         return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") // (1024 * 1024)
     except (ValueError, OSError):
+        pass
+    try:
         done = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=10)
         return int(done.stdout.strip()) // (1024 * 1024)
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        raise WrapperError("cannot read the memory of the machine: %s" % error)
 
 
 def _limits_upward(root: str, path: str, name: str) -> List[int]:

@@ -105,6 +105,21 @@ class SlotCountTest(unittest.TestCase):
     def test_total_memory_of_this_machine_is_positive(self):
         self.assertGreater(bounded_run.total_memory_mib(), 0)
 
+    def test_a_physical_memory_that_cannot_be_read_is_reported(self):
+        failures = (
+            FileNotFoundError(errno.ENOENT, "No such file or directory"),
+            subprocess.TimeoutExpired("sysctl", 10),
+            subprocess.CompletedProcess(["sysctl"], 1, stdout=""),
+        )
+        for failure in failures:
+            with self.subTest(failure=failure):
+                run = mock.Mock(side_effect=failure) if isinstance(failure, Exception) else mock.Mock(return_value=failure)
+                with mock.patch.object(bounded_run.os, "sysconf", side_effect=ValueError("unknown")), \
+                        mock.patch.object(bounded_run.subprocess, "run", run):
+                    with self.assertRaises(bounded_run.WrapperError) as caught:
+                        bounded_run.physical_memory_mib()
+                self.assertIn("cannot read the memory of the machine", str(caught.exception))
+
 
 class CgroupLimitTest(unittest.TestCase):
     """Gives total_memory_mib a /proc and a cgroup filesystem in a temporary directory, and 16 GiB of physical memory."""
