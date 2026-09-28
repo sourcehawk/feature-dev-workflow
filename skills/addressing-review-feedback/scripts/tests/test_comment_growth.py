@@ -547,6 +547,17 @@ class RunTest(unittest.TestCase):
         self.repo.write("new.go", GROWN + body)
         self.assertEqual(self.summary(gate.run(self.repo.path, base)), [("new.go", gate.GREW, True)])
 
+    def test_removed_comment_of_a_renamed_file_is_listed_at_the_old_path(self):
+        body = "".join("func step%d() {}\n" % n for n in range(20))
+        self.repo.write("old.go", OLD + body)
+        base = self.repo.commit("add old")
+        sh(self.repo.path, "git", "mv", "old.go", "new.go")
+        self.repo.write("new.go", "func run() {}\n" + body)
+        self.assertEqual(
+            [(f.path, f.line, f.status) for f in gate.run(self.repo.path, base).findings],
+            [("old.go", 1, gate.REMOVED)],
+        )
+
     def test_deleted_file_lists_its_removed_comments(self):
         self.repo.write("a.go", OLD)
         base = self.repo.commit("add a")
@@ -718,7 +729,7 @@ class MainTest(unittest.TestCase):
         self.repo.write("a.go", "func run() {}\n")
         status, out, _ = self.call(self.base)
         self.assertEqual(status, 0)
-        self.assertIn("REMOVED", out)
+        self.assertIn("     a.go (old line 1)  REMOVED  1 -> 0 lines  | func run() {}", out)
         self.assertIn("0 flagged, 1 listed, 1 removed, 0 not checked", out)
 
     def test_user_facing_option_removes_the_flag(self):

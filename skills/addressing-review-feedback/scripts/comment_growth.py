@@ -295,7 +295,7 @@ def pair(old: Sequence[Block], new: Sequence[Block]) -> Tuple[Dict[int, Optional
 
 
 def _findings(
-    path: str, new: Sequence[Block], pairs: Dict[int, Optional[Block]], removed: Sequence[Block]
+    path: str, base_path: str, new: Sequence[Block], pairs: Dict[int, Optional[Block]], removed: Sequence[Block]
 ) -> List[Finding]:
     findings = []
     for index, base in sorted(pairs.items()):
@@ -307,7 +307,7 @@ def _findings(
         else:
             findings.append(Finding(path, block.line, CHANGED, base.length, block.length, block.anchor, False))
     for block in removed:
-        findings.append(Finding(path, block.line, REMOVED, block.length, 0, block.anchor, False))
+        findings.append(Finding(base_path, block.line, REMOVED, block.length, 0, block.anchor, False))
     return findings
 
 
@@ -318,7 +318,7 @@ def _pair_blocks(old: Sequence[Block], new: Sequence[Block]) -> Tuple[Dict[int, 
 
 def compare(path: str, old_source: str, new_source: str, family: Family) -> List[Finding]:
     new = scan(new_source, family)
-    return _findings(path, new, *_pair_blocks(scan(old_source, family), new))
+    return _findings(path, path, new, *_pair_blocks(scan(old_source, family), new))
 
 
 class GitError(Exception):
@@ -382,8 +382,8 @@ class Report:
 def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
     top = git(cwd, "rev-parse", "--show-toplevel").strip()
     merge_base = git(top, "merge-base", base, "HEAD").strip()
-    # (path, new blocks, pairs, removed blocks) of each file that was compared.
-    files: List[Tuple[str, List[Block], Dict[int, Optional[Block]], List[Block]]] = []
+    # (change, new blocks, pairs, removed blocks) of each file that was compared.
+    files: List[Tuple[Change, List[Block], Dict[int, Optional[Block]], List[Block]]] = []
     not_checked: List[str] = []
     for change in changed_files(top, merge_base):
         full_path = os.path.join(top, change.path)
@@ -407,7 +407,7 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
             new_source = ""
         old_source = git(top, "show", merge_base + ":" + change.base_path) if change.base_path else ""
         new = scan(new_source, family)
-        files.append((change.path, new, *_pair_blocks(scan(old_source, family), new)))
+        files.append((change, new, *_pair_blocks(scan(old_source, family), new)))
 
     # A block that moved to another file is still free on both sides after
     # the pairing inside each file, so the free blocks pair once more across files.
@@ -431,9 +431,9 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
             files[number][2][index] = gone[moved[position]][1]
 
     findings: List[Finding] = []
-    for path, new, pairs, removed in files:
-        exempt = any(fnmatch.fnmatchcase(path, glob) for glob in user_facing)
-        for finding in _findings(path, new, pairs, removed):
+    for change, new, pairs, removed in files:
+        exempt = any(fnmatch.fnmatchcase(change.path, glob) for glob in user_facing)
+        for finding in _findings(change.path, change.base_path or change.path, new, pairs, removed):
             if exempt:
                 finding = Finding(
                     finding.path, finding.line, finding.status, finding.old_length,
@@ -449,9 +449,11 @@ def render(report: Report) -> str:
         mark = "FLAG" if finding.flagged else "    "
         size = "%d -> %d lines" % (finding.old_length, finding.new_length)
         note = "  (user-facing, not flagged)" if finding.user_facing else ""
+        # A removed block has no line in the working tree; its line is one of the file at the base.
+        where = "%s (old line %d)" if finding.status == REMOVED else "%s:%d"
         lines.append(
-            "%s %s:%d  %s  %s  | %s%s"
-            % (mark, finding.path, finding.line, finding.status, size, finding.anchor or "(no anchor)", note)
+            "%s %s  %s  %s  | %s%s"
+            % (mark, where % (finding.path, finding.line), finding.status, size, finding.anchor or "(no anchor)", note)
         )
     for path in report.not_checked:
         lines.append("     %s  NOT CHECKED  unknown file type, read its diff" % path)
