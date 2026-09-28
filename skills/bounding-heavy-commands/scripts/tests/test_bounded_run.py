@@ -88,6 +88,16 @@ class SlotCountTest(unittest.TestCase):
     def test_gives_one_slot_on_a_small_machine(self):
         self.assertEqual(bounded_run.slot_count(2048, 2048, 2048), 1)
 
+    def test_the_queue_holds_its_slots_when_the_reserve_leaves_one_or_more(self):
+        self.assertEqual(bounded_run.queue_mib(32768, 2048, 8192), 24576)
+
+    def test_the_queue_keeps_the_reserve_on_a_machine_with_less_than_one_slot_after_it(self):
+        self.assertEqual(bounded_run.queue_mib(3072, 2048, 2048), 1024)
+
+    def test_the_queue_has_the_memory_of_the_machine_when_the_reserve_leaves_nothing(self):
+        self.assertEqual(bounded_run.queue_mib(1024, 2048, 2048), 1024)
+        self.assertEqual(bounded_run.queue_mib(4096, 2048, 4096), 2048)
+
     def test_default_reserve_is_a_quarter_with_a_minimum(self):
         self.assertEqual(bounded_run.default_reserve_mib(32768), 8192)
         self.assertEqual(bounded_run.default_reserve_mib(4096), 2048)
@@ -1592,6 +1602,19 @@ class WrapperProcessTest(WrapperProcessCase):
         self.assertEqual(process.returncode, 0, errors)
         self.assertIn("WARNING: the budget of 2048 MiB is more than the 1024 MiB of the queue; the budget is 1024 MiB", errors)
         self.assertRegex(errors, r"bounded-run: budget 1024 MiB, peak ")
+
+    def test_a_budget_on_a_machine_with_less_than_one_slot_after_the_reserve_keeps_the_reserve(self):
+        process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", "pass"], BOUNDED_RUN_TOTAL_MIB="3072", BOUNDED_RUN_RESERVE_MIB="")
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(process.returncode, 0, errors)
+        self.assertIn("WARNING: the budget of 2048 MiB is more than the 1024 MiB of the queue; the budget is 1024 MiB", errors)
+        self.assertNotIn("reserve", errors)
+
+    def test_a_reserve_that_leaves_nothing_gives_a_warning(self):
+        process = self.wrapper(["--memory", "1G"], [sys.executable, "-c", "pass"], BOUNDED_RUN_TOTAL_MIB="1024", BOUNDED_RUN_RESERVE_MIB="")
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(process.returncode, 0, errors)
+        self.assertIn("WARNING: the reserve of 2048 MiB leaves no memory of the 1024 MiB of the machine; the queue does not keep the reserve", errors)
 
     def test_without_a_cap_the_output_says_so(self):
         process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", "pass"])

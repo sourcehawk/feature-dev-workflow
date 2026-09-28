@@ -184,6 +184,16 @@ def slot_count(total_mib: int, slot_mib: int, reserve_mib: int) -> int:
     return max(1, (total_mib - reserve_mib) // slot_mib)
 
 
+def queue_mib(total_mib: int, slot_mib: int, reserve_mib: int) -> int:
+    """Returns the most memory that the commands of the queue hold together."""
+    after_reserve = total_mib - reserve_mib
+    if after_reserve >= slot_mib:
+        return slot_count(total_mib, slot_mib, reserve_mib) * slot_mib
+    if after_reserve > 0:
+        return after_reserve
+    return max(1, min(total_mib, slot_mib))
+
+
 def slots_needed(budget_mib: int, slot_mib: int, count: int) -> int:
     return min(count, max(1, math.ceil(budget_mib / slot_mib)))
 
@@ -748,10 +758,12 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
 
     count = slot_count(settings.total_mib, settings.slot_mib, settings.reserve_mib)
     needed = slots_needed(budget, settings.slot_mib, count)
-    queue_mib = max(1, min(settings.total_mib, count * settings.slot_mib))
-    if budget > queue_mib:
-        log("WARNING: the budget of %d MiB is more than the %d MiB of the queue; the budget is %d MiB" % (budget, queue_mib, queue_mib))
-        budget = queue_mib
+    if settings.reserve_mib >= settings.total_mib:
+        log("WARNING: the reserve of %d MiB leaves no memory of the %d MiB of the machine; the queue does not keep the reserve" % (settings.reserve_mib, settings.total_mib))
+    most = queue_mib(settings.total_mib, settings.slot_mib, settings.reserve_mib)
+    if budget > most:
+        log("WARNING: the budget of %d MiB is more than the %d MiB of the queue; the budget is %d MiB" % (budget, most, most))
+        budget = most
     uid = os.getuid()
     directory = lock_directory(environ, uid)
     ensure_lock_directory(directory, uid)
