@@ -95,7 +95,7 @@ A doc comment, an inline comment, and a page of documentation are claims that so
 
 ## Text that users read
 
-Some text in the code ships to users: a description in a public schema, an error message, the reference text of a public interface. For that text, accuracy comes first. When it is false, correct it, even when the correct text is longer. The rules above that cut a comment apply to comments that restate code. A doc comment that generates reference text is still a contract; this exception lets it grow only as far as accuracy needs, and it never makes the algorithm part of it.
+Some text in the code ships to users: a description in a public schema, an error message, the reference text of a public interface. For that text, accuracy comes first. When it is false, correct it, even when the correct text is longer. The rules in this skill that shorten or delete a comment do not apply to it. Those rules are for a comment that repeats what the code already says. A doc comment that generates reference text is still a contract. It can grow as far as accuracy needs, and it never describes how the body works.
 
 ## Red flags
 
@@ -117,14 +117,14 @@ Stop when you see one of these in your own diff:
 | --- | --- |
 | The comment restates the name | Delete the comment |
 | The comment restates the line under it | Delete it. If the line needs prose, rename or split the code |
-| The doc comment explains how the body computes the answer | Cut to the contract: preconditions, result, what the caller must not assume |
+| The doc comment explains how the body computes the answer | Shorten it to the contract: preconditions, result, what the caller must not assume |
 | The doc comment repeats a fact that is at the line it constrains | Delete the copy in the doc comment |
 | A paragraph was added because a review found a missing case | Ship the fix. Write the comment only if the next reader would be caught by the same case. If the finding shows that the comment is false about the code as it is, correct it or cut it to what is true, in the fewest words. If the finding names a precondition, an error, or a special result that the contract lacks, add that fact in the fewest words that are true |
 | The doc comment is longer than the body | Name the caller decision that each paragraph serves. Delete the rest |
 | The doc comment does not give an error or a precondition that the caller must handle | Add it, in the fewest words that are true |
 | A fix ships with a comment that it just made false | Correct the statement in the same change |
 | A cleanup deleted a constraint from outside the file | Put it back, in one or two lines beside the code that it constrains |
-| Text that users read was cut short and is now incomplete | Correct it for accuracy. The cut rule does not apply to it |
+| Text that users read was shortened and is now incomplete | Correct it for accuracy. The rules that shorten a comment do not apply to it |
 
 ## Rationalizations
 
@@ -139,5 +139,5 @@ Stop when you see one of these in your own diff:
 | "It is a test or a helper, the rules are looser" | Comments in tests and helpers follow the same rules |
 | "I explain what was added and why, so the reader doesn't have to reverse-engineer it" | The reader of the declaration is its caller. State what changed and why in the pull request body, not on the declaration |
 | "I spell out the formula so the reader does not have to reverse-engineer it" | The formula is the algorithm. State the result the caller gets, including that it can exceed a limit, not how the body computes it |
-| "No behavior changed, so a comments-only change is safe to land without more scrutiny" | A comment-only change still has to hold only what the caller needs. "Comments only" is not a reason to skip the cut from algorithm to contract |
+| "No behavior changed, so a comments-only change is safe to land without more scrutiny" | A comment-only change still has to hold only what the caller needs. "Comments only" is not a reason to skip removing the algorithm and keeping only the contract |
 | "Commenting every block would fail this same standard on review, not satisfy it" | An instruction from the user or the project is not a rationalization. Follow it, keep what you write true, and say in your report where it differs from this skill's default |
