@@ -465,6 +465,22 @@ class CompareTest(unittest.TestCase):
             [(gate.ADDED, 2, 0, 1, False), (gate.GREW, 8, 1, 2, True)],
         )
 
+    def test_block_left_free_by_an_identical_copy_pairs_only_with_the_block_that_freed_it(self):
+        old = (
+            "// Close the file.\nfunc (f *File) Close() error {\n}\n\n"
+            "// Close the file quickly.\nfunc (f *File) CloseFast() error {\n}\n"
+        )
+        new = (
+            "// Close the file.\nfunc (f *File) Close() error {\n}\n\n"
+            "// Close the file quickly,\n// and flush it.\nfunc (f *File) CloseFast() error {\n}\n\n"
+            "// CloseAll closes each file\n// in the list.\nfunc (f *File) CloseAll() error {\n}\n"
+        )
+        findings = gate.compare("f", old, new, gate.SLASH)
+        self.assertEqual(
+            [(f.status, f.line, f.old_length, f.new_length, f.flagged) for f in findings],
+            [(gate.GREW, 5, 1, 2, True), (gate.ADDED, 10, 0, 2, False)],
+        )
+
     def test_identical_copy_of_a_doc_string_that_grew_does_not_hide_the_growth(self):
         old = 'class A:\n    def __init__(self):\n        """Set up."""\n        pass\n'
         new = (

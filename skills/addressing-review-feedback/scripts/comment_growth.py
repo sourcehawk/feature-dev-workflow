@@ -320,6 +320,8 @@ def pair(
     open_indexes: List[int] = []
     # The block of old that each identical copy in new leaves free for a longer block that keeps all its words.
     copies: Dict[int, int] = {}
+    # The longer blocks each block of old was left free for; only they can pair with it.
+    freed_for: Dict[int, set] = {}
     for index, block in enumerate(new):
         orders = unchanged.get((block.anchor, block.text))
         if not orders:
@@ -330,13 +332,16 @@ def pair(
         scored += len(grown)
         if most is not None and scored > most:
             raise TooManyPairs()
-        if any(
-            new[other].length > block.length
+        longer = {
+            other
+            for other in grown
+            if new[other].length > block.length
             and _similarity(block.anchor, new[other].anchor) >= SIMILAR_ANCHOR
             and _kept(words, new_words[other]) == 1.0
-            for other in grown
-        ):
+        }
+        if longer:
             copies[index] = orders[0]
+            freed_for.setdefault(orders[0], set()).update(longer)
         else:
             orders.pop(0)
     free = sorted(order for orders in unchanged.values() for order in orders)
@@ -345,6 +350,8 @@ def pair(
     reach: Dict[int, List[int]] = {}
     for order in free:
         reach[order] = _reach(old_words[order], postings, open_indexes, min_kept)
+        if order in freed_for:
+            reach[order] = [index for index in reach[order] if index in freed_for[order]]
     if most is not None and scored + sum(len(indexes) for indexes in reach.values()) > most:
         raise TooManyPairs()
     new_sets = {index: set(new_words[index]) for index in open_indexes}
