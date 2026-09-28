@@ -257,16 +257,24 @@ def _try_lock(path: str) -> Optional[int]:
         return None
     except OSError as error:
         os.close(descriptor)
-        error_text = error.strerror if error.strerror else str(error)
-        raise WrapperError("cannot lock %s: %s. The lock directory must be on a filesystem that supports file locks." % (path, error_text))
+        raise _lock_error(path, error)
     return descriptor
 
 
+def _lock_error(path: str, error: OSError) -> WrapperError:
+    error_text = error.strerror if error.strerror else str(error)
+    return WrapperError("cannot lock %s: %s. The lock directory must be on a filesystem that supports file locks." % (path, error_text))
+
+
 def try_reserve(directory: str, count: int, needed: int, exclusive_files: Sequence[str]) -> Optional[Reservation]:
-    turn = _open_lock_file(os.path.join(directory, "reserve.lock"))
+    turn_path = os.path.join(directory, "reserve.lock")
+    turn = _open_lock_file(turn_path)
     held: List[int] = []
     try:
-        fcntl.flock(turn, fcntl.LOCK_EX)
+        try:
+            fcntl.flock(turn, fcntl.LOCK_EX)
+        except OSError as error:
+            raise _lock_error(turn_path, error)
         names = list(exclusive_files) + ["slot-%03d.lock" % index for index in range(count)]
         slots = 0
         for position, name in enumerate(names):

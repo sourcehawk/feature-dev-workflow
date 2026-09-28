@@ -361,6 +361,14 @@ class ReserveTest(unittest.TestCase):
             self.assertIn("cannot lock", str(cm.exception))
             self.assertIn("No locks available", str(cm.exception))
 
+    def test_a_lock_error_of_the_turn_file_is_reported(self):
+        with mock.patch.object(bounded_run.fcntl, "flock", side_effect=OSError(errno.ENOLCK, "No locks available")):
+            with self.assertRaises(bounded_run.WrapperError) as caught:
+                bounded_run.try_reserve(self.directory, 1, 1, [])
+        self.assertIn("cannot lock", str(caught.exception))
+        self.assertIn("reserve.lock", str(caught.exception))
+        self.assertIn("No locks available", str(caught.exception))
+
     def test_a_lock_error_leaves_no_slot_held(self):
         # Prove that when try_reserve fails mid-way, all locks it took are released.
         # Wrap os.open to track fd -> path mapping, then use it in a flock stub.
