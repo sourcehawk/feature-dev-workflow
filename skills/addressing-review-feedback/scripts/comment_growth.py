@@ -374,13 +374,16 @@ def pair(
             taker[order] = index
     # A block left without a partner may still be the one that grew, when a
     # sibling that copies the old words took its old block. It shares that
-    # block when its anchor is closer to the old anchor than the sibling's, so
-    # the growth is flagged rather than missed, and a new block beside a
-    # comment changed in place is not.
+    # block when its anchor is closer to the old anchor than the sibling's, or
+    # as close while it keeps as many of the old words, so the growth is
+    # flagged rather than missed, and a new block beside a comment changed in
+    # place is not.
     for score, distance, index, order in candidates:
         if one_file and pairs[index] is None and new[index].length > old[order].length:
             anchor = old[order].anchor
-            if _similarity(anchor, new[index].anchor) > _similarity(anchor, new[taker[order]].anchor):
+            mine = _similarity(anchor, new[index].anchor)
+            theirs = _similarity(anchor, new[taker[order]].anchor)
+            if mine > theirs or (mine == theirs and _kept(old_words[order], new_words[index]) >= _kept(old_words[order], new_words[taker[order]])):
                 pairs[index] = order
     # A copy whose old block no other block took is that block, unchanged.
     for index, order in sorted(copies.items()):

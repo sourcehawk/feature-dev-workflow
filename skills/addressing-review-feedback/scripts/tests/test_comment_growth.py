@@ -558,14 +558,32 @@ class CompareTest(unittest.TestCase):
 
     def test_common_anchor_text_pairs_blocks_in_order(self):
         # Each grown block keeps every word of both old blocks above the same
-        # anchor, so every pairing scores the same and position decides.
+        # anchor, so every pairing scores the same and position decides. The
+        # third copy has no old block of its own and shares the nearer one.
         old = "func f() {\n\t// keep\n\tk()\n\t// retry\n\tcall()\n\t// retry\n\t// hard\n\tcall()\n}\n"
         grown = "\t// retry\n\t// hard\n\t// now\n\tcall()\n"
         new = "func f() {\n" + grown * 3 + "\t// keep\n\tk()\n}\n"
         findings = gate.compare("f", old, new, gate.SLASH)
         self.assertEqual(
             [(f.status, f.line, f.old_length, f.new_length) for f in findings],
-            [(gate.ADDED, 2, 0, 3), (gate.GREW, 6, 1, 3), (gate.GREW, 10, 2, 3)],
+            [(gate.GREW, 2, 1, 3), (gate.GREW, 6, 1, 3), (gate.GREW, 10, 2, 3)],
+        )
+
+    def test_growth_is_flagged_when_a_sibling_above_an_equal_anchor_keeps_the_old_words(self):
+        def function(name, comment):
+            lines = "".join("\t// %s\n" % line for line in comment)
+            return "func %s() error {\n\terr := io()\n%s\tif err != nil {\n\t\treturn nil\n\t}\n\treturn nil\n}\n" % (name, lines)
+
+        old = function("load", ["The file may be missing on first start."])
+        new = (
+            function("save", ["The file may be missing on first start or save."])
+            + "\n"
+            + function("load", ["The file may be missing on first start.", "A missing file means an empty store."])
+        )
+        findings = gate.compare("f", old, new, gate.SLASH)
+        self.assertEqual(
+            [(f.status, f.old_length, f.new_length, f.flagged) for f in findings],
+            [(gate.CHANGED, 1, 1, False), (gate.GREW, 1, 2, True)],
         )
 
     def test_inline_comment_deleted_while_its_code_line_stays(self):
