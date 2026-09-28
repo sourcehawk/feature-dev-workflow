@@ -599,15 +599,17 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
         tracker.start()
         trackers.append(tracker)
 
+    reported: Optional[int] = None
     reservation = reserve(directory, count, needed, exclusive_files, settings.poll_seconds)
     try:
         wait_for_memory(budget, settings.memory_wait_seconds, settings.poll_seconds)
         code, maxrss = run_command(command, child_environ, start_tracker)
         tracked = trackers[0].finish() if trackers else None
     finally:
+        if capped:
+            reported = read_peak_file(peak_file)
         reservation.release()
 
-    reported = read_peak_file(peak_file) if capped else None
     exact = reported is not None
     peak = max(reported or tracked or 0, rusage_peak_mib(maxrss))
     log("budget %d MiB, peak %d MiB (%s), exit %d" % (budget, peak, "cgroup" if exact else "sampled, approximate", code))

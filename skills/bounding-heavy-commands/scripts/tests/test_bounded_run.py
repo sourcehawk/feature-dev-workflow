@@ -631,6 +631,56 @@ class RunCommandTest(unittest.TestCase):
         self.assertFalse(alive, "the command still runs")
 
 
+class BoundedCleanupTest(unittest.TestCase):
+    """Calls bounded() in this process, with run_command and cap_usable replaced by stubs.
+
+    No real command, no real cgroup, and no real subprocess run outside the stubs.
+    """
+
+    def setUp(self):
+        patcher = mock.patch.object(bounded_run, "log")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.base = tempfile.TemporaryDirectory()
+        self.addCleanup(self.base.cleanup)
+        self.directory = os.path.join(self.base.name, "locks")
+        self.environ = dict(os.environ)
+        self.environ.pop("BOUNDED_RUN_ACTIVE", None)
+        self.environ.pop("BOUNDED_RUN_NO_CAP", None)
+        self.environ.update({
+            "BOUNDED_RUN_LOCK_DIR": self.directory,
+            "BOUNDED_RUN_TOTAL_MIB": "4096",
+            "BOUNDED_RUN_RESERVE_MIB": "0",
+            "BOUNDED_RUN_SLOT_MIB": "2048",
+            "BOUNDED_RUN_POLL_SECONDS": "0.05",
+            "BOUNDED_RUN_MEMORY_WAIT_SECONDS": "0",
+            "BOUNDED_RUN_SAMPLE_SECONDS": "0.1",
+        })
+
+    def test_the_peak_file_is_removed_when_the_run_fails_after_the_start(self):
+        def fake_run_command(command, environ, on_start=None):
+            index = command.index("--inside-cap")
+            with open(command[index + 1], "w") as handle:
+                handle.write("123\n")
+            raise RuntimeError("boom")
+
+        options = bounded_run.Options()
+        options.memory = "2G"
+        options.command = [sys.executable, "-c", "pass"]
+
+        with mock.patch.object(bounded_run, "cap_usable", return_value=True), \
+                mock.patch.object(bounded_run, "run_command", fake_run_command):
+            with self.assertRaises(RuntimeError):
+                bounded_run.bounded(options, self.environ)
+
+        names = os.listdir(self.directory)
+        self.assertEqual([name for name in names if name.startswith("peak-")], [])
+
+        reservation = bounded_run.try_reserve(self.directory, 2, 2, [])
+        self.assertIsNotNone(reservation, "the slots are still held")
+        reservation.release()
+
+
 class WrapperProcessCase(unittest.TestCase):
     """Runs the script as a process, with two slots of 2 GiB and no hard cap."""
 
