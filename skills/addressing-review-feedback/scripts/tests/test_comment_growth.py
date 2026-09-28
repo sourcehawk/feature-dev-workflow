@@ -500,6 +500,21 @@ class RunTest(unittest.TestCase):
         report = gate.run(self.repo.path, base)
         self.assertEqual(self.summary(report), [("a.go", gate.GREW, True)])
 
+    def test_cmakelists_txt_is_checked_as_a_hash_family_file(self):
+        self.repo.write("CMakeLists.txt", "# Configures the build.\nadd_executable(app main.c)\n")
+        base = self.repo.commit("add CMakeLists")
+        self.repo.write("CMakeLists.txt", "# Configures the build.\n# Uses C11.\nadd_executable(app main.c)\n")
+        report = gate.run(self.repo.path, base)
+        self.assertEqual(self.summary(report), [("CMakeLists.txt", gate.GREW, True)])
+
+    def test_user_facing_matching_never_calls_fnmatch_fnmatch(self):
+        self.repo.write("a.go", OLD)
+        base = self.repo.commit("add a")
+        self.repo.write("a.go", GROWN)
+        with mock.patch("comment_growth.fnmatch.fnmatch", side_effect=AssertionError("must use fnmatchcase")):
+            report = gate.run(self.repo.path, base, ["*.go"])
+        self.assertEqual([(f.path, f.flagged) for f in report.findings], [("a.go", False)])
+
 class MainTest(unittest.TestCase):
     def setUp(self):
         self.repo = Repository(self)
@@ -574,6 +589,26 @@ class MainTest(unittest.TestCase):
             os.chdir(directory)
             status, _, _ = self.call("HEAD")
         self.assertEqual(status, 2)
+
+    def test_missing_git_program_exits_two_with_one_message(self):
+        previous = os.environ.get("PATH")
+        self.addCleanup(
+            lambda: os.environ.pop("PATH", None) if previous is None else os.environ.update(PATH=previous)
+        )
+        os.environ["PATH"] = ""
+        status, _, err = self.call(self.base)
+        self.assertEqual(status, 2)
+        self.assertEqual(len(err.rstrip("\n").splitlines()), 1)
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root can read an unreadable file")
+    def test_unreadable_file_exits_two_with_one_message(self):
+        self.repo.write("a.go", GROWN)
+        path = os.path.join(self.repo.path, "a.go")
+        os.chmod(path, 0)
+        self.addCleanup(os.chmod, path, 0o644)
+        status, _, err = self.call(self.base)
+        self.assertEqual(status, 2)
+        self.assertEqual(len(err.rstrip("\n").splitlines()), 1)
 
 if __name__ == "__main__":
     unittest.main()

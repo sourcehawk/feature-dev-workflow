@@ -293,7 +293,10 @@ def git(cwd: str, *args: str) -> str:
     env = dict(os.environ)
     for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
         env.pop(name, None)
-    result = subprocess.run(["git", *args], cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        result = subprocess.run(["git", *args], cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except OSError as error:
+        raise GitError("cannot run git: %s" % error)
     if result.returncode != 0:
         message = result.stderr.decode("utf-8", errors="replace").strip()
         raise GitError(message or "git " + " ".join(args) + " failed")
@@ -344,23 +347,27 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
     findings: List[Finding] = []
     not_checked: List[str] = []
     for change in changed_files(top, merge_base):
-        if is_skipped(change.path):
-            continue
         full_path = os.path.join(top, change.path)
         exists = os.path.isfile(full_path)
         if not exists and change.base_path is None:
             continue
+        # The file name (CMakeLists.txt, say) can claim a family the
+        # extension would otherwise skip, so it is checked first.
         family = family_for(change.path)
         if family is None:
-            not_checked.append(change.path)
+            if not is_skipped(change.path):
+                not_checked.append(change.path)
             continue
         if exists:
-            with open(full_path, encoding="utf-8", errors="replace") as handle:
-                new_source = handle.read()
+            try:
+                with open(full_path, encoding="utf-8", errors="replace") as handle:
+                    new_source = handle.read()
+            except OSError as error:
+                raise GitError("cannot read %s: %s" % (change.path, error))
         else:
             new_source = ""
         old_source = git(top, "show", merge_base + ":" + change.base_path) if change.base_path else ""
-        exempt = any(fnmatch.fnmatch(change.path, glob) for glob in user_facing)
+        exempt = any(fnmatch.fnmatchcase(change.path, glob) for glob in user_facing)
         for finding in compare(change.path, old_source, new_source, family):
             if exempt:
                 finding = Finding(
