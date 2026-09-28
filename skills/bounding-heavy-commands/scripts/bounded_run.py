@@ -496,17 +496,18 @@ def inside_cap(
             return EXIT_WRAPPER
         _, status = os.waitpid(process.pid, 0)
         process.returncode = exit_code_of(status)
+        # After the kernel kills a process of the scope for memory, systemd can stop the scope with SIGTERM.
+        directory = cgroup_directory(os.getpid(), unit, proc_root, cgroup_root)
+        peak = cgroup_peak_mib(directory, names=("memory.peak",)) if directory is not None else None
+        if peak is not None:
+            try:
+                with open(peak_file, "w") as handle:
+                    handle.write("%d\n" % peak)
+            except OSError:
+                pass
     finally:
         for signum, handler in previous.items():
             signal.signal(signum, handler)
-    directory = cgroup_directory(os.getpid(), unit, proc_root, cgroup_root)
-    peak = cgroup_peak_mib(directory, names=("memory.peak",)) if directory is not None else None
-    if peak is not None:
-        try:
-            with open(peak_file, "w") as handle:
-                handle.write("%d\n" % peak)
-        except OSError:
-            pass
     return process.returncode
 
 

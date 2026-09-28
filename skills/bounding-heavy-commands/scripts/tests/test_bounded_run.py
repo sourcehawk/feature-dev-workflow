@@ -604,6 +604,30 @@ class InsideCapTest(unittest.TestCase):
         self.inside([sys.executable, "-c", "pass"])
         self.assertIs(signal.getsignal(signal.SIGTERM), before)
 
+    def test_a_stop_signal_while_the_peak_is_read_does_not_end_the_process(self):
+        # A signal with its default action ends the process that runs the test, so a child process runs inside_cap.
+        script = (
+            "import os, signal, sys\n"
+            "sys.path.insert(0, sys.argv[1])\n"
+            "import bounded_run\n"
+            "proc, cgroups, peak_file = sys.argv[2:5]\n"
+            "os.makedirs(os.path.join(proc, str(os.getpid())))\n"
+            "with open(os.path.join(proc, str(os.getpid()), 'cgroup'), 'w') as handle:\n"
+            "    handle.write('0::/user.slice/unit-1.scope\\n')\n"
+            "def read_peak(directory, names=()):\n"
+            "    os.kill(os.getpid(), signal.SIGTERM)\n"
+            "    return 300\n"
+            "bounded_run.cgroup_peak_mib = read_peak\n"
+            "sys.exit(bounded_run.inside_cap(peak_file, 'unit-1', [sys.executable, '-c', 'import sys; sys.exit(6)'], proc_root=proc, cgroup_root=cgroups))\n"
+        )
+        child_proc = os.path.join(self.base.name, "child-proc")
+        done = subprocess.run(
+            [sys.executable, "-c", script, str(SCRIPTS), child_proc, self.cgroups, self.peak_file],
+            capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(done.returncode, 6, done.stderr)
+        self.assertEqual(bounded_run.read_peak_file(self.peak_file), 300)
+
     def test_a_peak_file_with_other_text_gives_nothing(self):
         Path(self.peak_file).write_text("not a number\n")
         self.assertIsNone(bounded_run.read_peak_file(self.peak_file))
