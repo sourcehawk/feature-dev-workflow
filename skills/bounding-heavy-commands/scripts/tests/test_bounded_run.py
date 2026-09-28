@@ -512,12 +512,18 @@ class MeasurementTest(unittest.TestCase):
         self.assertEqual(tracker.finish(), 900)
 
     def test_the_tracker_survives_a_reader_that_fails(self):
+        calls = []
+
         def read():
+            calls.append(1)
             raise OSError("gone")
 
         tracker = bounded_run.PeakTracker(read, 0.01)
         tracker.start()
-        time.sleep(0.05)
+        deadline = time.time() + 5
+        while not calls and time.time() < deadline:
+            time.sleep(0.01)
+        self.assertGreaterEqual(len(calls), 1, "the reader never ran")
         self.assertIsNone(tracker.finish())
 
 
@@ -832,7 +838,7 @@ class WrapperProcessTest(WrapperProcessCase):
         output, errors = process.communicate(timeout=60)
         self.assertEqual(process.returncode, 125)
         self.assertIn("cannot start", errors)
-        follower = self.worker("after", "4G", hold="0")
+        follower = self.worker("after", "4G", hold="0")  # ends at once; the test waits for it to end
         self.assertEqual(follower.wait(timeout=60), 0)
 
     def test_the_command_gets_the_budget_and_the_marker(self):
@@ -903,22 +909,36 @@ class WrapperProcessTest(WrapperProcessCase):
     def test_a_second_stop_signal_kills_a_command_that_ignores_the_first(self):
         script = (
             "import os, signal, sys, time\n"
-            "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
-            "descriptor = os.open(os.environ['EVENTS'], os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)\n"
-            "os.write(descriptor, ('start stubborn %d\\n' % os.getpid()).encode())\n"
-            "os.close(descriptor)\n"
-            "time.sleep(300)\n"
+            "def event(kind):\n"
+            "    descriptor = os.open(os.environ['EVENTS'], os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)\n"
+            "    os.write(descriptor, ('%s stubborn %d\\n' % (kind, os.getpid())).encode())\n"
+            "    os.close(descriptor)\n"
+            "def ignore(signum, frame):\n"
+            "    event('signaled')\n"
+            "signal.signal(signal.SIGTERM, ignore)\n"
+            "event('start')\n"
+            "time.sleep(300)\n"  # runs until the second signal kills it; never meant to end on its own
         )
         process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", script])
-        self.wait_for_event("start", "stubborn")
+        line = self.wait_for_event("start", "stubborn")
         process.send_signal(signal.SIGTERM)
-        time.sleep(0.3)
+        self.wait_for_event("signaled", "stubborn", seconds=60.0)
         self.assertIsNone(process.poll())
         process.send_signal(signal.SIGTERM)
         self.assertEqual(process.wait(timeout=60), 143)
+        child = int(line.split()[2])
+        deadline = time.time() + 5
+        alive = True
+        while alive and time.time() < deadline:
+            try:
+                os.kill(child, 0)
+                time.sleep(0.05)
+            except ProcessLookupError:
+                alive = False
+        self.assertFalse(alive, "the command still runs")
 
     def test_commands_never_run_together_beyond_the_slots(self):
-        workers = [self.worker("w%d" % index, "2G", hold="0.3") for index in range(6)]
+        workers = [self.worker("w%d" % index, "2G", hold="0.3") for index in range(6)]  # brief; the test waits for each to end
         for process in workers:
             self.assertEqual(process.wait(timeout=60), 0)
         events = self.read_events()
@@ -927,18 +947,18 @@ class WrapperProcessTest(WrapperProcessCase):
         self.assertLessEqual(self.peak_concurrency(), 2)
 
     def test_a_command_that_needs_all_slots_runs_alone(self):
-        workers = [self.worker("w%d" % index, "4G", hold="0.2") for index in range(3)]
+        workers = [self.worker("w%d" % index, "4G", hold="0.2") for index in range(3)]  # brief; the test waits for each to end
         for process in workers:
             self.assertEqual(process.wait(timeout=60), 0)
         self.assertEqual(self.peak_concurrency(), 1)
 
     def test_a_waiting_command_holds_no_slot(self):
         release = os.path.join(self.base.name, "release")
-        long_holder = self.worker("holder", "2G", hold="60", release=release)
+        long_holder = self.worker("holder", "2G", hold="300", release=release)  # runs until the release file below ends it early
         self.wait_for_event("start", "holder")
-        large = self.worker("large", "4G", hold="0")
+        large = self.worker("large", "4G", hold="0")  # ends at once once it gets its slots; the test waits for it to end
         self.wait_for_stderr(large, "waiting for")
-        small = self.worker("small", "2G", hold="0")
+        small = self.worker("small", "2G", hold="0")  # ends at once; the test waits for it to end
         self.assertEqual(small.wait(timeout=60), 0)
         names = [line.split()[1] for line in self.read_events() if line.startswith("end ")]
         self.assertEqual(names, ["small"])
@@ -949,12 +969,12 @@ class WrapperProcessTest(WrapperProcessCase):
         self.assertLess(order.index(["end", "holder"]), order.index(["start", "large"]))
 
     def test_a_hard_kill_of_the_wrapper_frees_the_slots_at_once(self):
-        holder = self.worker("holder", "4G", hold="120")
+        holder = self.worker("holder", "4G", hold="300")  # runs until the kill below ends it
         self.wait_for_event("start", "holder")
         holder.kill()
         holder.wait(timeout=60)
         started = time.time()
-        follower = self.worker("follower", "4G", hold="0")
+        follower = self.worker("follower", "4G", hold="0")  # ends at once; the test waits for it to end
         self.assertEqual(follower.wait(timeout=60), 0)
         self.assertLess(time.time() - started, 30.0)
 
@@ -981,13 +1001,13 @@ class WrapperProcessTest(WrapperProcessCase):
         self.assertEqual(output, "locks 4 inherited 0\n", errors)
 
     def test_commands_with_the_same_exclusive_name_take_turns(self):
-        workers = [self.worker("w%d" % index, "2G", hold="0.3", options=["--exclusive", "port-8080"]) for index in range(3)]
+        workers = [self.worker("w%d" % index, "2G", hold="0.3", options=["--exclusive", "port-8080"]) for index in range(3)]  # brief; the test waits for each to end
         for process in workers:
             self.assertEqual(process.wait(timeout=60), 0)
         self.assertEqual(self.peak_concurrency(), 1)
 
     def test_a_budget_larger_than_the_queue_runs_with_a_warning(self):
-        first = self.worker("first", "64G", hold="0.3")
+        first = self.worker("first", "64G", hold="0.3")  # brief; the test waits for each to end
         second = self.worker("second", "64G", hold="0.3")
         output, errors = first.communicate(timeout=60)
         self.assertEqual(first.returncode, 0, errors)
@@ -1031,7 +1051,7 @@ class WrapperProcessTest(WrapperProcessCase):
     def test_an_interrupt_in_the_queue_gives_130_and_no_traceback(self):
         holder = self.worker("holder", "4G", hold="300")
         self.wait_for_event("start", "holder")
-        waiting = self.worker("waiting", "4G", hold="0")
+        waiting = self.worker("waiting", "4G", hold="0")  # never reached; interrupted while still queued
 
         self.wait_for_stderr(waiting, "waiting for")
 
