@@ -321,3 +321,85 @@ def cap_usable(
     except (OSError, subprocess.TimeoutExpired):
         return False
     return done.returncode == 0
+
+
+def cgroup_directory(pid: int, unit: str, proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[str]:
+    try:
+        with open(os.path.join(proc_root, str(pid), "cgroup")) as handle:
+            text = handle.read()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith("0::") and line.strip().endswith("/%s.scope" % unit):
+            return cgroup_root + line.strip()[3:]
+    return None
+
+
+def cgroup_peak_mib(directory: str, names: Sequence[str] = ("memory.peak", "memory.current")) -> Optional[int]:
+    for name in names:
+        try:
+            with open(os.path.join(directory, name)) as handle:
+                return math.ceil(int(handle.read().strip()) / (1024 * 1024))
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def parse_group_rss_mib(text: str, group: int) -> Optional[int]:
+    total = 0
+    found = False
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] == str(group) and parts[1].isdigit():
+            total += int(parts[1])
+            found = True
+    if not found:
+        return None
+    return math.ceil(total / 1024)
+
+
+def group_rss_mib(group: int) -> Optional[int]:
+    try:
+        done = subprocess.run(["ps", "-A", "-o", "pgid=", "-o", "rss="], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return parse_group_rss_mib(done.stdout, group)
+
+
+def rusage_peak_mib(maxrss: int, platform: str = sys.platform) -> int:
+    if platform == "darwin":
+        return math.ceil(maxrss / (1024 * 1024))
+    return math.ceil(maxrss / 1024)
+
+
+def suggested_budget_mib(peak_mib: int, approximate: bool) -> int:
+    margin = MARGIN_APPROXIMATE if approximate else MARGIN_EXACT
+    return max(1, math.ceil(peak_mib * (1 + margin) / BUDGET_STEP_MIB)) * BUDGET_STEP_MIB
+
+
+class PeakTracker(threading.Thread):
+    def __init__(self, read_sample: Callable[[], Optional[int]], interval: float) -> None:
+        super().__init__(daemon=True)
+        self.read_sample = read_sample
+        self.interval = interval
+        self.peak: Optional[int] = None
+        self.done = threading.Event()
+
+    def run(self) -> None:
+        while True:
+            self.sample()
+            if self.done.wait(self.interval):
+                return
+
+    def sample(self) -> None:
+        try:
+            value = self.read_sample()
+        except Exception:
+            value = None
+        if value is not None and (self.peak is None or value > self.peak):
+            self.peak = value
+
+    def finish(self) -> Optional[int]:
+        self.done.set()
+        self.join(timeout=15)
+        return self.peak

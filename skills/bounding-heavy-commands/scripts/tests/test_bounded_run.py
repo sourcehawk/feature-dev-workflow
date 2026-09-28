@@ -443,5 +443,82 @@ class CapTest(unittest.TestCase):
         self.assertEqual(calls, [])
 
 
+class MeasurementTest(unittest.TestCase):
+    def test_finds_the_cgroup_of_the_unit(self):
+        with tempfile.TemporaryDirectory() as proc:
+            os.mkdir(os.path.join(proc, "42"))
+            Path(proc, "42", "cgroup").write_text("0::/user.slice/user-1.slice/app.slice/unit-1.scope\n")
+            self.assertEqual(
+                bounded_run.cgroup_directory(42, "unit-1", proc_root=proc, cgroup_root="/cg"),
+                "/cg/user.slice/user-1.slice/app.slice/unit-1.scope",
+            )
+
+    def test_ignores_the_cgroup_before_the_scope_exists(self):
+        with tempfile.TemporaryDirectory() as proc:
+            os.mkdir(os.path.join(proc, "42"))
+            Path(proc, "42", "cgroup").write_text("0::/user.slice/user-1.slice/session-2.scope\n")
+            self.assertIsNone(bounded_run.cgroup_directory(42, "unit-1", proc_root=proc))
+
+    def test_a_process_that_is_gone_has_no_cgroup(self):
+        with tempfile.TemporaryDirectory() as proc:
+            self.assertIsNone(bounded_run.cgroup_directory(42, "unit-1", proc_root=proc))
+
+    def test_reads_the_peak_of_the_cgroup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "memory.peak").write_text("%d\n" % (300 * 1024 * 1024))
+            Path(directory, "memory.current").write_text("%d\n" % (100 * 1024 * 1024))
+            self.assertEqual(bounded_run.cgroup_peak_mib(directory), 300)
+
+    def test_reads_the_current_value_when_the_peak_file_is_absent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "memory.current").write_text("%d\n" % (100 * 1024 * 1024))
+            self.assertEqual(bounded_run.cgroup_peak_mib(directory), 100)
+
+    def test_reads_only_the_files_that_the_caller_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "memory.current").write_text("%d\n" % (100 * 1024 * 1024))
+            self.assertIsNone(bounded_run.cgroup_peak_mib(directory, names=("memory.peak",)))
+
+    def test_a_cgroup_without_files_gives_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertIsNone(bounded_run.cgroup_peak_mib(directory))
+
+    def test_adds_the_memory_of_the_process_group(self):
+        text = "  100  2048\n  100  1024\n  200  9999\n    1   512\n"
+        self.assertEqual(bounded_run.parse_group_rss_mib(text, 100), 3)
+
+    def test_a_group_with_no_process_gives_nothing(self):
+        self.assertIsNone(bounded_run.parse_group_rss_mib("  200  9999\n", 100))
+
+    def test_reads_the_memory_of_a_real_process_group(self):
+        self.assertGreater(bounded_run.group_rss_mib(os.getpgrp()), 0)
+
+    def test_the_peak_of_the_system_has_a_different_unit_on_each_system(self):
+        self.assertEqual(bounded_run.rusage_peak_mib(2048 * 1024, platform="linux"), 2048)
+        self.assertEqual(bounded_run.rusage_peak_mib(2048 * 1024 * 1024, platform="darwin"), 2048)
+
+    def test_the_suggested_budget_has_a_margin(self):
+        self.assertEqual(bounded_run.suggested_budget_mib(4000, approximate=False), 5120)
+        self.assertEqual(bounded_run.suggested_budget_mib(4000, approximate=True), 6144)
+
+    def test_the_tracker_keeps_the_largest_sample(self):
+        samples = [100, None, 900, 300]
+        tracker = bounded_run.PeakTracker(lambda: samples.pop(0) if samples else 300, 0.01)
+        tracker.start()
+        deadline = time.time() + 5
+        while samples and time.time() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(tracker.finish(), 900)
+
+    def test_the_tracker_survives_a_reader_that_fails(self):
+        def read():
+            raise OSError("gone")
+
+        tracker = bounded_run.PeakTracker(read, 0.01)
+        tracker.start()
+        time.sleep(0.05)
+        self.assertIsNone(tracker.finish())
+
+
 if __name__ == "__main__":
     unittest.main()
