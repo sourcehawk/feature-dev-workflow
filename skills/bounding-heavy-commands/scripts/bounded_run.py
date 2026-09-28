@@ -68,3 +68,54 @@ def parse_size_mib(text: str) -> int:
     if value <= 0:
         raise WrapperError("the size '%s' must be more than zero" % text)
     return value
+
+
+def total_memory_mib() -> int:
+    try:
+        return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") // (1024 * 1024)
+    except (ValueError, OSError):
+        done = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=10)
+        return int(done.stdout.strip()) // (1024 * 1024)
+
+
+def default_reserve_mib(total_mib: int) -> int:
+    return max(MINIMUM_RESERVE_MIB, total_mib // 4)
+
+
+def slot_count(total_mib: int, slot_mib: int, reserve_mib: int) -> int:
+    return max(1, (total_mib - reserve_mib) // slot_mib)
+
+
+def slots_needed(budget_mib: int, slot_mib: int, count: int) -> int:
+    return min(count, max(1, math.ceil(budget_mib / slot_mib)))
+
+
+def default_budget_mib(total_mib: int, slot_mib: int) -> int:
+    return max(1, math.ceil(total_mib / 4 / slot_mib)) * slot_mib
+
+
+class Settings:
+    def __init__(self, environ: Mapping[str, str], read_total: Callable[[], int] = total_memory_mib) -> None:
+        self.slot_mib = int(_number(environ, "BOUNDED_RUN_SLOT_MIB", SLOT_MIB))
+        total = environ.get("BOUNDED_RUN_TOTAL_MIB")
+        self.total_mib = int(_number(environ, "BOUNDED_RUN_TOTAL_MIB", 0)) if total else read_total()
+        self.reserve_mib = int(_number(environ, "BOUNDED_RUN_RESERVE_MIB", default_reserve_mib(self.total_mib)))
+        self.poll_seconds = _number(environ, "BOUNDED_RUN_POLL_SECONDS", POLL_SECONDS)
+        self.memory_wait_seconds = _number(environ, "BOUNDED_RUN_MEMORY_WAIT_SECONDS", MEMORY_WAIT_SECONDS)
+        self.sample_seconds = _number(environ, "BOUNDED_RUN_SAMPLE_SECONDS", SAMPLE_SECONDS)
+        self.no_cap = bool(environ.get("BOUNDED_RUN_NO_CAP"))
+        if self.slot_mib <= 0:
+            raise WrapperError("BOUNDED_RUN_SLOT_MIB must be more than zero")
+
+
+def _number(environ: Mapping[str, str], name: str, fallback: float) -> float:
+    text = environ.get(name)
+    if text is None or text == "":
+        return fallback
+    try:
+        value = float(text)
+    except ValueError:
+        raise WrapperError("cannot read %s='%s'; use a number" % (name, text))
+    if value < 0:
+        raise WrapperError("%s must not be less than zero" % name)
+    return value
