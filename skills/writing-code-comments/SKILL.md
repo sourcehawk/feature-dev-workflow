@@ -55,7 +55,7 @@ A heading labeled "Contract" does not make the paragraph under it one. If it res
 // tenant_name returns the name in lower case, as the store keys use it.
 ```
 
-**What needs a doc comment.** A declaration that code outside its own module can use gets one. A declaration for internal use gets one only when its behavior would surprise a reader.
+**What needs a doc comment.** A declaration that code outside its own module can use gets one when its contract holds a fact that its name and its signature do not show: a precondition, the meaning of a result, an error, a trap. A declaration for internal use gets one only when its behavior would surprise a reader. Where the project requires a doc comment on each public declaration, follow the project, and write a fact of the contract, not the name again.
 
 ## Inline comments
 
