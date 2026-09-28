@@ -104,7 +104,7 @@ Stop when you see one of these in your own diff:
 - A comment and the line under it say the same thing.
 - You wrote a comment to explain a name that you could have changed.
 - The comment describes the change, not the code that is there.
-- You edit a comment to answer a review finding, and no code line changes in the same hunk, unless the finding names a precondition, an error, or a special result that the contract lacks.
+- You edit a comment to answer a review finding, and no code line changes in the same hunk, unless the finding shows that the comment is false about the code as it is, or names a precondition, an error, or a special result that the contract lacks.
 - A doc comment got a paragraph about how the body works.
 - A doc comment is longer than the body that it documents.
 - The same fact is in the doc comment and at the line it constrains.
@@ -119,7 +119,7 @@ Stop when you see one of these in your own diff:
 | The comment restates the line under it | Delete it. If the line needs prose, rename or split the code |
 | The doc comment explains how the body computes the answer | Cut to the contract: preconditions, result, what the caller must not assume |
 | The doc comment repeats a fact that is at the line it constrains | Delete the copy in the doc comment |
-| A paragraph was added because a review found a missing case | Ship the fix. Write the comment only if the next reader would be caught by the same case. If the finding names a precondition, an error, or a special result that the contract lacks, add that fact in the fewest words that are true |
+| A paragraph was added because a review found a missing case | Ship the fix. Write the comment only if the next reader would be caught by the same case. If the finding shows that the comment is false about the code as it is, correct it or cut it to what is true, in the fewest words. If the finding names a precondition, an error, or a special result that the contract lacks, add that fact in the fewest words that are true |
 | The doc comment is longer than the body | Name the caller decision that each paragraph serves. Delete the rest |
 | The doc comment does not give an error or a precondition that the caller must handle | Add it, in the fewest words that are true |
 | A fix ships with a comment that it just made false | Correct the statement in the same change |
