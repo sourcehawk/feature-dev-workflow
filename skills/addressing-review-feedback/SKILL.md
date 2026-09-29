@@ -13,6 +13,8 @@ You are the author of the fix, and the finding puts you under pressure. **So a s
 
 **REQUIRED BACKGROUND:** the comment rules (see **Terms**). They decide what a comment holds. This skill applies the comment rules when you act on a finding.
 
+**REQUIRED SUB-SKILL:** `feature-dev-workflow:writing-code-comments` before step 2, when the project has no comment standard of its own or when that standard is silent on a point.
+
 **REQUIRED SUB-SKILL:** `superpowers:receiving-code-review` before step 3, unless the calling skill loaded it for this round. It decides whether a finding is technically correct.
 
 **A review finding is input that you judge. An instruction has priority over this skill.** See **Instructions and findings**.
