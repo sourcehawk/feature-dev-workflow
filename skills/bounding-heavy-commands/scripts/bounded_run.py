@@ -785,6 +785,7 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
         budget = parse_size_mib(options.memory)
     else:
         budget = default_budget_mib(settings.total_mib, settings.slot_mib)
+    wait_budget = budget
     command = list(options.command)
     if shutil.which(command[0], path=environ.get("PATH")) is None:
         raise WrapperError("cannot start '%s': the command does not exist" % command[0])
@@ -794,9 +795,13 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
     if settings.reserve_mib >= settings.total_mib:
         log("WARNING: the reserve of %d MiB leaves no memory of the %d MiB of the machine; the queue does not keep the reserve" % (settings.reserve_mib, settings.total_mib))
     most = queue_mib(settings.total_mib, settings.slot_mib, settings.reserve_mib)
+    if options.measure and options.memory is None:
+        # The peak of this command is not known yet, so no other command runs beside it.
+        budget, needed = most, count
     if budget > most:
         log("WARNING: the budget of %d MiB is more than the %d MiB of the queue; the budget is %d MiB" % (budget, most, most))
         budget = most
+    wait_budget = min(wait_budget, budget)
     uid = os.getuid()
     directory = lock_directory(environ, uid)
     ensure_lock_directory(directory, uid)
@@ -842,7 +847,7 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
     reported: Optional[int] = None
     reservation = reserve(directory, count, needed, exclusive_files, settings.poll_seconds)
     try:
-        wait_for_memory(budget, settings.memory_wait_seconds, settings.poll_seconds)
+        wait_for_memory(wait_budget, settings.memory_wait_seconds, settings.poll_seconds)
         code, maxrss = run_command(command, child_environ, start_tracker)
         tracked = trackers[0].finish() if trackers else None
     finally:

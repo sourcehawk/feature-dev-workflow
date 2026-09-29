@@ -1734,6 +1734,48 @@ class WrapperProcessTest(WrapperProcessCase):
         output, errors = process.communicate(timeout=60)
         self.assertIn("no hard cap is available here", errors)
 
+    def test_a_first_measurement_runs_alone_in_the_queue(self):
+        command = [sys.executable, "-c", WORKER, "measured"]
+        first = self.wrapper(["--measure"], command, HOLD="1.0")
+        self.wait_for_event("start", "measured")
+        second = self.worker("second", "2G", hold="0.1")
+        self.assertEqual(first.wait(timeout=60), 0)
+        self.assertEqual(second.wait(timeout=60), 0)
+        self.assertEqual(self.peak_concurrency(), 1)
+        self.assertIn("bounded-run: budget 4096 MiB, peak ", self.stderr_of(first))
+
+    def test_a_first_measurement_waits_for_the_commands_that_run(self):
+        first = self.worker("first", "2G", hold="1.0")
+        self.wait_for_event("start", "first")
+        second = self.wrapper(["--measure"], [sys.executable, "-c", WORKER, "measured"], HOLD="0.1")
+        self.assertEqual(first.wait(timeout=60), 0)
+        self.assertEqual(second.wait(timeout=60), 0)
+        self.assertEqual(self.peak_concurrency(), 1)
+
+    def test_a_measurement_with_a_budget_takes_the_slots_of_the_budget(self):
+        first = self.wrapper(["--measure", "--memory", "2G"], [sys.executable, "-c", WORKER, "measured"], HOLD="1.0")
+        self.wait_for_event("start", "measured")
+        second = self.worker("second", "2G", hold="0.1")
+        self.wait_for_event("start", "second")
+        self.assertEqual(first.wait(timeout=60), 0)
+        self.assertEqual(second.wait(timeout=60), 0)
+        self.assertEqual(self.peak_concurrency(), 2)
+
+    def test_a_first_measurement_waits_for_the_memory_of_the_default_budget_only(self):
+        reads = []
+
+        def wait(budget, limit, poll):
+            reads.append(budget)
+            return True
+
+        options = bounded_run.Options()
+        options.measure = True
+        options.command = [sys.executable, "-c", "pass"]
+        environ = dict(self.environ, BOUNDED_RUN_TOTAL_MIB="34816", BOUNDED_RUN_RESERVE_MIB="2048")
+        with mock.patch.object(bounded_run, "wait_for_memory", wait), mock.patch.object(bounded_run, "log"):
+            self.assertEqual(bounded_run.bounded(options, environ), 0)
+        self.assertEqual(reads, [bounded_run.default_budget_mib(34816, 2048)])
+
     def test_measure_mode_reports_a_peak_and_a_budget(self):
         script = "import time\ndata = bytearray(150 * 1024 * 1024)\nfor index in range(0, len(data), 4096):\n    data[index] = 1\ntime.sleep(1.0)\n"
         process = self.wrapper(["--measure"], [sys.executable, "-c", script])
