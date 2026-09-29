@@ -88,7 +88,7 @@ First judge the finding: is it true about the code as it is now? Then find its c
 | Case | The finding says | What you do | The comment |
 | --- | --- | --- | --- |
 | wrong behavior | The code does the wrong thing, or does not handle a case | Change the code, with a test that fails without the change | If the change makes a comment false, correct that comment in the same change |
-| false comment | A comment is false about the code as it is now | Correct the comment. No code change is necessary | Remove only the part that is false. Write what is true in its place, in the fewest words that are true |
+| false comment | A comment is false about the code as it is now | Correct the comment. No code change is necessary. One exception: a promise in text from before the review that the code does not keep. Change neither, as **Apply the verdicts** says | When you correct it, remove only the part that is false. Write what is true in its place, in the fewest words that are true |
 | missing caller fact | A doc comment does not give a caller fact | Add the fact to the doc comment, in the fewest words that are true. No code change is necessary | It gets longer by that fact. The evaluator keeps a caller fact that has a source. This growth is correct |
 | how the body works | A comment must describe how the body works: its steps, its branches, its formula, its constants | Decline in the thread, and say that the code is the account of how it works | No change |
 | missing reason | The code does not say why it is as it is | If the reason is a fact that the code cannot show, put it in one short comment beside the line that it constrains. Put a comparison of options in the pull request body | At most one short comment at the line. The doc comment does not change |
