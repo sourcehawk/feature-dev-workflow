@@ -30,7 +30,7 @@ flowchart TD
     Done -->|yes| VerifyM[Verify the integrated branch<br/>green end to end]
     VerifyM --> PR2[Open the integration PR<br/>feature → main · Closes the epic]
 
-    PR1 --> Ship([External review → merge<br/>plan + state torn down in the same diff])
+    PR1 --> Ship([External review → act on the feedback,<br/>comments checked for growth → merge<br/>plan + state torn down in the same diff])
     PR2 --> Ship
 ```
 
@@ -50,6 +50,7 @@ Invoke `feature-dev-workflow:planning-a-feature` at conception. It and the `**RE
 | Verify-before-done | `superpowers:verification-before-completion` |
 | Open / flip pull requests | `feature-dev-workflow:opening-a-pull-request` |
 | Loop a PR through automated (Copilot) review until clean (opt-in) | `feature-dev-workflow:copilot-review-loop` |
+| Act on review feedback without growing comments into a second account of the code (every round of a review) | `feature-dev-workflow:addressing-review-feedback` |
 
 `superpowers:*` skills come from the [superpowers](https://github.com/obra/superpowers) plugin (a prerequisite, see below).
 

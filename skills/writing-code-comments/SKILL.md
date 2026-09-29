@@ -106,7 +106,7 @@ When you see one of these in your own diff, stop and correct it before you conti
 - A comment and the line under it say the same thing.
 - You wrote a comment to explain a name that you could have changed.
 - The comment describes the change, not the code that is there.
-- You edit a comment to answer a review finding, and no code line changes in the same hunk, unless the finding shows that the comment is false about the code as it is, or names a precondition, an error, or a special result that the contract lacks.
+- You edit a comment to answer a review finding, and no code line changes in the same hunk, unless the finding shows that the comment is false about the code as it is, names a fact of the contract that the doc comment lacks, or names a fact that the code cannot show, which goes in one short comment beside the line that it constrains.
 - A doc comment got a paragraph about how the body works.
 - A doc comment is longer than the body that it documents, and it does not generate text that users read.
 - The same fact is in the doc comment and at the line it constrains.

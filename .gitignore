@@ -2,3 +2,4 @@
 .vscode
 docs
 .claude/worktrees/
+__pycache__/
