@@ -115,7 +115,7 @@ The gate compares the merge base with the working tree. The merge base is the re
 | `ADDED` | The block is new | No | Step 6 |
 | `CHANGED` | The block changed and did not get longer | No | Step 6 |
 | `REMOVED` | The block is gone. The line gives the path and `(old line N)`, a line of the file at the merge base | No | Step 6 |
-| `NOT CHECKED` | The gate does not know the comment syntax of the file | No | Step 6 |
+| `NOT CHECKED` | The gate does not know the comment syntax of the file, or the file has too many changed comments to compare. The line gives the reason | No | Step 6 |
 
 A block that moved to another file has the note `(moved from <path>, old line N)`, and the gate compares it with its old text. A block in a path that you gave with `--user-facing` keeps its kind and has the note `(user-facing, not flagged)`. It is never a flag. Step 6 says how you judge it.
 
