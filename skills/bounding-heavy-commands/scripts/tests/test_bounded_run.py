@@ -599,6 +599,18 @@ class ExclusiveNameTest(unittest.TestCase):
             with self.assertRaisesRegex(bounded_run.WrapperError, "cannot find the repository of"):
                 bounded_run.repository_id(directory)
 
+    def test_a_git_fault_other_than_no_repository_gives_an_error(self):
+        done = subprocess.CompletedProcess(["git"], 128, "", "fatal: detected dubious ownership in repository at '/x'\n")
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(bounded_run.subprocess, "run", return_value=done):
+            with self.assertRaisesRegex(bounded_run.WrapperError, "cannot find the repository of .*dubious ownership"):
+                bounded_run.repository_id(directory)
+
+    def test_git_answers_in_the_language_that_the_wrapper_reads(self):
+        done = subprocess.CompletedProcess(["git"], 128, "", "fatal: not a git repository (or any of the parent directories): .git\n")
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(bounded_run.subprocess, "run", return_value=done) as run:
+            bounded_run.repository_id(directory)
+        self.assertEqual(run.call_args.kwargs["env"]["LC_ALL"], "C")
+
     def test_a_machine_with_no_git_uses_the_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             with mock.patch.object(bounded_run.subprocess, "run", side_effect=FileNotFoundError("git")):

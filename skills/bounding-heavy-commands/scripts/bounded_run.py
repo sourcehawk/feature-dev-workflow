@@ -284,9 +284,14 @@ def repository_id(directory: str) -> str:
         done = subprocess.run(
             ["git", "rev-parse", "--git-common-dir"],
             cwd=directory, capture_output=True, text=True, timeout=10,
+            env=dict(os.environ, LC_ALL="C", LANGUAGE="C"),
         )
         if done.returncode == 0 and done.stdout.strip():
             root = os.path.realpath(os.path.join(directory, done.stdout.strip()))
+        elif "not a git repository" not in done.stderr:
+            # A fault of git in a worktree must not give that worktree a lock of its own.
+            lines = done.stderr.strip().splitlines()
+            raise WrapperError("cannot find the repository of %s: %s" % (directory, lines[0] if lines else "git gave no answer"))
     except FileNotFoundError:
         # A machine with no git has no worktrees, so the directory names the repository.
         pass
