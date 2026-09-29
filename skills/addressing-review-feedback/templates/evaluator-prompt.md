@@ -31,10 +31,12 @@ A comment is not wrong because it got longer. Judge what each sentence holds.
 
 **An added sentence** needs a source. Find it first, then check the sentence against the code in this order:
 
-1. If the code contradicts the sentence, give CUT, with the code that contradicts it. A sentence that names a behavior that the body does not have is contradicted too. If the code shows one part of the sentence and contradicts the rest, also write the shorter sentence for the part that the code shows. Each shorter sentence gets a row and a verdict of its own, as any other sentence.
+1. If the code contradicts the sentence, give CUT, with the code that contradicts it. A sentence that names a behavior that the body does not have is contradicted too. If the code shows one part of the sentence and contradicts the rest, also write the shorter sentence for the part that the code shows.
 2. If the code or a statement shows only a part of the sentence, give CUT, with the shorter sentence that they show. Add one more row for the rest of the sentence, with ASK and its question.
 3. If neither the code nor a statement shows the sentence, and the code does not contradict it, give ASK.
 4. Otherwise the sentence has a source. Give it a verdict from the list below.
+
+Each shorter sentence that you write in step 1 or step 2 gets a row and a verdict of its own, as any other sentence.
 
 The source must say what the sentence says. A source that says less shows only a part of the sentence. A source that says something different does not show it.
 
