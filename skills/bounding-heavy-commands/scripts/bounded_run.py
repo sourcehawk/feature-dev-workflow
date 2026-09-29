@@ -701,8 +701,13 @@ def inside_cap(
     The cgroup exists for as long as this process is in it. Thus the peak is readable after the
     command stops, which is not possible from outside the cgroup.
     """
+    early: List[int] = []
+    started: List[int] = []
+
     def keep_running(signum: int, frame: object) -> None:
-        pass
+        # The wrapper sends a signal to the process group, so the command gets its own copy once it runs.
+        if not started:
+            early.append(signum)
 
     previous = {signum: signal.signal(signum, keep_running) for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)}
     try:
@@ -711,6 +716,12 @@ def inside_cap(
         except OSError as error:
             log("cannot start '%s': %s" % (command[0], error))
             return EXIT_WRAPPER
+        started.append(process.pid)
+        if early:
+            try:
+                os.kill(process.pid, early[0] if len(early) == 1 else signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
         _, status = os.waitpid(process.pid, 0)
         process.returncode = exit_code_of(status)
         # After the kernel kills a process of the scope for memory, systemd can stop the scope with SIGTERM.

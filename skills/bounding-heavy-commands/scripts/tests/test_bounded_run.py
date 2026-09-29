@@ -1000,6 +1000,30 @@ class InsideCapTest(unittest.TestCase):
         self.assertEqual(bounded_run.read_peak_file(self.peak_file), 300)
         self.assertFalse(os.path.exists(self.peak_file))
 
+    def signal_at_start(self, signals):
+        real = subprocess.Popen
+
+        def start_then_signal(*args, **kwargs):
+            for signum in signals:
+                os.kill(os.getpid(), signum)
+            return real(*args, **kwargs)
+
+        return mock.patch.object(bounded_run.subprocess, "Popen", start_then_signal)
+
+    def test_a_stop_signal_before_the_command_runs_stops_the_command(self):
+        started = time.monotonic()
+        with self.signal_at_start([signal.SIGQUIT]):
+            code = self.inside([sys.executable, "-c", "import time; time.sleep(20)"])
+        self.assertEqual(code, 128 + signal.SIGQUIT)
+        self.assertLess(time.monotonic() - started, 10)
+
+    def test_two_stop_signals_before_the_command_runs_kill_the_command(self):
+        started = time.monotonic()
+        with self.signal_at_start([signal.SIGTERM, signal.SIGTERM]):
+            code = self.inside([sys.executable, "-c", "import time; time.sleep(20)"])
+        self.assertEqual(code, 128 + signal.SIGKILL)
+        self.assertLess(time.monotonic() - started, 10)
+
     def test_writes_nothing_without_the_peak_file_of_the_kernel(self):
         Path(self.cgroup, "memory.current").write_text("%d\n" % (100 * 1024 * 1024))
         self.assertEqual(self.inside([sys.executable, "-c", "pass"]), 0)
