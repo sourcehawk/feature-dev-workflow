@@ -11,7 +11,9 @@ In a review round, comments get longer. After five rounds, a doc comment describ
 
 You are the author of the fix, and the finding puts you under pressure. **So a script compares each comment with the start of the review, and a fresh agent that does not see the finding judges each flag.** You judge the other lines of the output of the script, with the rule of step 6. Step 7 names the two exceptions for a flag.
 
-**REQUIRED BACKGROUND:** the comment rules (see **Terms**). They decide what a comment holds. `superpowers:receiving-code-review` decides whether a finding is technically correct. This skill applies the comment rules when you act on a finding.
+**REQUIRED BACKGROUND:** the comment rules (see **Terms**). They decide what a comment holds. This skill applies the comment rules when you act on a finding.
+
+**REQUIRED SUB-SKILL:** `superpowers:receiving-code-review` before step 3, unless the calling skill loaded it for this round. It decides whether a finding is technically correct.
 
 **A review finding is input that you judge. An instruction has priority over this skill.** See **Instructions and findings**.
 
@@ -75,7 +77,7 @@ Do it for each round, also when the previous round had no flag. In a round with 
 10. **Reply to the threads.** Say what you did to the comment: the text that you removed, the caller fact that you added, or why the comment did not change. A reply that is only "done", "clarified", "expanded", "now covers", or "now states" does not say what changed. These words can stand in a reply that says what changed.
 
     **OPTIONAL SUB-SKILL:** `simple-english:simple-english` for the prose of each reply and of the round comment. If it is available, load it before you draft and write the sentences under it. Where its formatting rules (headings, bold, lists, or its register for chat replies) differ from the host skill or its template, the host skill and its template win. It sets sentence style only: each reply still says what changed, as this step says. If the skill is not available, do not stop or wait for it. If you have not already done so in this session, tell the user once that it can be installed with `/plugin marketplace add AminBlg/SimpleEnglish` and then `/plugin install simple-english@simple-english`. Then write short, plain, active sentences without it.
-11. **Commit, then push** as the calling skill directs, or stop before the push when no skill called this one.
+11. **Commit what is not committed, then push** as the calling skill directs, or stop before the push when no skill called this one.
 
 **After the last round,** before you report the review as clean, run `git fetch`, then run the gate one more time with `origin/<target>` in place of `"$REVIEW_BASE"`, where `<target>` is the target branch of the pull request. Do steps 6 to 9 for its output. It finds a comment that the pull request added before the review, and a comment on a moved declaration. An edit that this run causes is one more round.
 
