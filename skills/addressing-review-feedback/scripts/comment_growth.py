@@ -428,6 +428,9 @@ def _findings(
     for index, base in sorted(pairs.items()):
         block = new[index]
         origin = moved_from.get(index)
+        if origin is None and base is not None and base_path and base_path != path:
+            # The file has a new name: the old text of the block is at the old path.
+            origin = (base_path, base.line)
         if base is None:
             findings.append(Finding(path, block.line, ADDED, 0, block.length, block.anchor, False))
         elif block.length > base.length:
