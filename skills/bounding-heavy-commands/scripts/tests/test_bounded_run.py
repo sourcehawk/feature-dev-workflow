@@ -405,11 +405,8 @@ class ReserveTest(unittest.TestCase):
     def test_a_lock_error_that_is_not_a_busy_lock_is_reported(self):
         with mock.patch.object(bounded_run.fcntl, "flock") as mock_flock:
             def flock_side_effect(fd, flags):
-                # Call the real flock for the turn lock, raise ENOLCK for slot files
                 if flags & bounded_run.fcntl.LOCK_EX and not (flags & bounded_run.fcntl.LOCK_NB):
-                    # This is the turn lock (blocking), allow it
                     return None
-                # This is a slot lock (non-blocking), fail with ENOLCK
                 raise OSError(errno.ENOLCK, "No locks available")
 
             mock_flock.side_effect = flock_side_effect
@@ -427,8 +424,6 @@ class ReserveTest(unittest.TestCase):
         self.assertIn("No locks available", str(caught.exception))
 
     def test_a_lock_error_leaves_no_slot_held(self):
-        # Prove that when try_reserve fails mid-way, all locks it took are released.
-        # Wrap os.open to track fd -> path mapping, then use it in a flock stub.
         fd_to_path = {}
         real_os_open = os.open
 
@@ -437,7 +432,6 @@ class ReserveTest(unittest.TestCase):
             fd_to_path[fd] = path
             return fd
 
-        # flock will count calls and fail on the second slot file.
         flock_calls_per_file = {}
         real_flock = bounded_run.fcntl.flock
 
@@ -447,25 +441,20 @@ class ReserveTest(unittest.TestCase):
                 flock_calls_per_file[path] = 0
             flock_calls_per_file[path] += 1
 
-            # Allow the turn lock and first slot to succeed.
             if "reserve.lock" in path or "slot-000.lock" in path:
                 return real_flock(fd, flags)
 
-            # Fail on the second slot with ENOLCK.
             if "slot-001.lock" in path:
                 raise OSError(errno.ENOLCK, "No locks available")
 
-            # Any other file succeeds.
             return real_flock(fd, flags)
 
         with mock.patch.object(os, "open", tracked_open):
             with mock.patch.object(bounded_run.fcntl, "flock", counting_flock):
-                # Call try_reserve for 2 slots; it should fail after locking slot-000.
                 with self.assertRaises(bounded_run.WrapperError):
                     bounded_run.try_reserve(self.directory, 2, 2, [])
 
-        # Now call try_reserve again with real functions (no patches).
-        # If the first slot was not released, this will fail to get 2 slots.
+        # A slot that the failed call still held makes this call fail.
         second_try = bounded_run.try_reserve(self.directory, 2, 2, [])
         self.assertIsNotNone(second_try)
         self.addCleanup(second_try.release)
@@ -496,14 +485,12 @@ class ReserveTest(unittest.TestCase):
         second.release()
 
     def test_the_turn_lock_is_free_while_the_wrapper_waits(self):
-        # Hold all slots so reserve has to wait
         blocker = bounded_run.try_reserve(self.directory, 1, 1, [])
         self.addCleanup(blocker.release)
 
         turn_lock_acquired = []
 
         def sleep_and_check(seconds):
-            # Try to acquire the turn lock while reserve is waiting
             turn_path = os.path.join(self.directory, "reserve.lock")
             turn_fd = os.open(turn_path, os.O_RDWR | os.O_CREAT, 0o600)
             try:
@@ -514,7 +501,6 @@ class ReserveTest(unittest.TestCase):
                 turn_lock_acquired.append(False)
             finally:
                 os.close(turn_fd)
-            # Release the blocker so reserve can succeed
             blocker.release()
 
         reservation = bounded_run.reserve(self.directory, 1, 1, [], 0.2, sleep=sleep_and_check)
@@ -1014,6 +1000,30 @@ class InsideCapTest(unittest.TestCase):
         self.assertEqual(bounded_run.read_peak_file(self.peak_file), 300)
         self.assertFalse(os.path.exists(self.peak_file))
 
+    def signal_at_start(self, signals):
+        real = subprocess.Popen
+
+        def start_then_signal(*args, **kwargs):
+            for signum in signals:
+                os.kill(os.getpid(), signum)
+            return real(*args, **kwargs)
+
+        return mock.patch.object(bounded_run.subprocess, "Popen", start_then_signal)
+
+    def test_a_stop_signal_before_the_command_runs_stops_the_command(self):
+        started = time.monotonic()
+        with self.signal_at_start([signal.SIGQUIT]):
+            code = self.inside([sys.executable, "-c", "import time; time.sleep(20)"])
+        self.assertEqual(code, 128 + signal.SIGQUIT)
+        self.assertLess(time.monotonic() - started, 10)
+
+    def test_two_stop_signals_before_the_command_runs_kill_the_command(self):
+        started = time.monotonic()
+        with self.signal_at_start([signal.SIGTERM, signal.SIGTERM]):
+            code = self.inside([sys.executable, "-c", "import time; time.sleep(20)"])
+        self.assertEqual(code, 128 + signal.SIGKILL)
+        self.assertLess(time.monotonic() - started, 10)
+
     def test_writes_nothing_without_the_peak_file_of_the_kernel(self):
         Path(self.cgroup, "memory.current").write_text("%d\n" % (100 * 1024 * 1024))
         self.assertEqual(self.inside([sys.executable, "-c", "pass"]), 0)
@@ -1487,7 +1497,7 @@ class WrapperProcessTest(WrapperProcessCase):
         self.assertNotIn("Traceback", errors)
 
     def test_a_stop_signal_stops_the_command(self):
-        for signum, code in ((signal.SIGTERM, 143), (signal.SIGINT, 130)):
+        for signum, code in ((signal.SIGTERM, 143), (signal.SIGINT, 130), (signal.SIGQUIT, 131)):
             with self.subTest(signal=signum):
                 name = "stopped-%d" % code
                 process = self.worker(name, "2G", hold="300")
@@ -1733,6 +1743,48 @@ class WrapperProcessTest(WrapperProcessCase):
         process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", "pass"])
         output, errors = process.communicate(timeout=60)
         self.assertIn("no hard cap is available here", errors)
+
+    def test_a_first_measurement_runs_alone_in_the_queue(self):
+        command = [sys.executable, "-c", WORKER, "measured"]
+        first = self.wrapper(["--measure"], command, HOLD="1.0")
+        self.wait_for_event("start", "measured")
+        second = self.worker("second", "2G", hold="0.1")
+        self.assertEqual(first.wait(timeout=60), 0)
+        self.assertEqual(second.wait(timeout=60), 0)
+        self.assertEqual(self.peak_concurrency(), 1)
+        self.assertIn("bounded-run: budget 4096 MiB, peak ", self.stderr_of(first))
+
+    def test_a_first_measurement_waits_for_the_commands_that_run(self):
+        first = self.worker("first", "2G", hold="1.0")
+        self.wait_for_event("start", "first")
+        second = self.wrapper(["--measure"], [sys.executable, "-c", WORKER, "measured"], HOLD="0.1")
+        self.assertEqual(first.wait(timeout=60), 0)
+        self.assertEqual(second.wait(timeout=60), 0)
+        self.assertEqual(self.peak_concurrency(), 1)
+
+    def test_a_measurement_with_a_budget_takes_the_slots_of_the_budget(self):
+        first = self.wrapper(["--measure", "--memory", "2G"], [sys.executable, "-c", WORKER, "measured"], HOLD="1.0")
+        self.wait_for_event("start", "measured")
+        second = self.worker("second", "2G", hold="0.1")
+        self.wait_for_event("start", "second")
+        self.assertEqual(first.wait(timeout=60), 0)
+        self.assertEqual(second.wait(timeout=60), 0)
+        self.assertEqual(self.peak_concurrency(), 2)
+
+    def test_a_first_measurement_waits_for_the_memory_of_the_default_budget_only(self):
+        reads = []
+
+        def wait(budget, limit, poll):
+            reads.append(budget)
+            return True
+
+        options = bounded_run.Options()
+        options.measure = True
+        options.command = [sys.executable, "-c", "pass"]
+        environ = dict(self.environ, BOUNDED_RUN_TOTAL_MIB="34816", BOUNDED_RUN_RESERVE_MIB="2048")
+        with mock.patch.object(bounded_run, "wait_for_memory", wait), mock.patch.object(bounded_run, "log"):
+            self.assertEqual(bounded_run.bounded(options, environ), 0)
+        self.assertEqual(reads, [bounded_run.default_budget_mib(34816, 2048)])
 
     def test_measure_mode_reports_a_peak_and_a_budget(self):
         script = "import time\ndata = bytearray(150 * 1024 * 1024)\nfor index in range(0, len(data), 4096):\n    data[index] = 1\ntime.sleep(1.0)\n"

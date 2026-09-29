@@ -655,7 +655,7 @@ def run_command(
             except (ProcessLookupError, PermissionError):
                 pass
 
-    previous = {signum: signal.signal(signum, forward) for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    previous = {signum: signal.signal(signum, forward) for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)}
     try:
         try:
             process = subprocess.Popen(list(command), env=dict(environ), start_new_session=True, preexec_fn=parent_death_signal())
@@ -701,16 +701,27 @@ def inside_cap(
     The cgroup exists for as long as this process is in it. Thus the peak is readable after the
     command stops, which is not possible from outside the cgroup.
     """
-    def keep_running(signum: int, frame: object) -> None:
-        pass
+    early: List[int] = []
+    started: List[int] = []
 
-    previous = {signum: signal.signal(signum, keep_running) for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    def keep_running(signum: int, frame: object) -> None:
+        # The wrapper sends a signal to the process group, so the command gets its own copy once it runs.
+        if not started:
+            early.append(signum)
+
+    previous = {signum: signal.signal(signum, keep_running) for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)}
     try:
         try:
             process = subprocess.Popen(list(command), preexec_fn=parent_death_signal())
         except OSError as error:
             log("cannot start '%s': %s" % (command[0], error))
             return EXIT_WRAPPER
+        started.append(process.pid)
+        if early:
+            try:
+                os.kill(process.pid, early[0] if len(early) == 1 else signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
         _, status = os.waitpid(process.pid, 0)
         process.returncode = exit_code_of(status)
         # After the kernel kills a process of the scope for memory, systemd can stop the scope with SIGTERM.
@@ -785,6 +796,7 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
         budget = parse_size_mib(options.memory)
     else:
         budget = default_budget_mib(settings.total_mib, settings.slot_mib)
+    wait_budget = budget
     command = list(options.command)
     if shutil.which(command[0], path=environ.get("PATH")) is None:
         raise WrapperError("cannot start '%s': the command does not exist" % command[0])
@@ -794,9 +806,13 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
     if settings.reserve_mib >= settings.total_mib:
         log("WARNING: the reserve of %d MiB leaves no memory of the %d MiB of the machine; the queue does not keep the reserve" % (settings.reserve_mib, settings.total_mib))
     most = queue_mib(settings.total_mib, settings.slot_mib, settings.reserve_mib)
+    if options.measure and options.memory is None:
+        # The peak of this command is not known yet, so no other command runs beside it.
+        budget, needed = most, count
     if budget > most:
         log("WARNING: the budget of %d MiB is more than the %d MiB of the queue; the budget is %d MiB" % (budget, most, most))
         budget = most
+    wait_budget = min(wait_budget, budget)
     uid = os.getuid()
     directory = lock_directory(environ, uid)
     ensure_lock_directory(directory, uid)
@@ -842,7 +858,7 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
     reported: Optional[int] = None
     reservation = reserve(directory, count, needed, exclusive_files, settings.poll_seconds)
     try:
-        wait_for_memory(budget, settings.memory_wait_seconds, settings.poll_seconds)
+        wait_for_memory(wait_budget, settings.memory_wait_seconds, settings.poll_seconds)
         code, maxrss = run_command(command, child_environ, start_tracker)
         tracked = trackers[0].finish() if trackers else None
     finally:
