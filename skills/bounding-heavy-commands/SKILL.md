@@ -36,10 +36,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/bounding-heavy-commands/scripts/bounded_ru
 
 | Option | Meaning |
 | --- | --- |
-| `--memory <budget>` | Memory the command may use, such as `6G` or `4096M`. Taken from the record. Without it the wrapper uses its default budget, a quarter of the machine's memory. |
+| `--memory <budget>` | Memory the command may use, such as `6G` or `4096M`. Taken from the record. Without it the wrapper uses its default budget, a quarter of the machine's memory, or the whole queue for a measurement. |
 | `--cpus <n>` | Processor limit, as a whole number. Taken from the record. |
 | `--exclusive <name>` | A resource that only one command may hold at a time, such as a fixed port. You choose the name. The wrapper keeps the names of each repository apart, and all worktrees of one repository share them. Repeat the option for each resource. |
-| `--measure` | Also print a suggested budget. Discovery uses it. |
+| `--measure` | Also print a suggested budget. Discovery uses it. With no `--memory`, the command runs alone in the queue. |
 
 The wrapper does four things in sequence. It waits for its turn in the queue. It waits until the memory of its budget is free. It runs the command. It prints the budget and the measured peak on the error stream. Each line that the wrapper prints starts with `bounded-run:`. Its exit code is the command's exit code. Exit code 125, with a `bounded-run:` line that names a fault and with no line for the budget and the peak, means that the wrapper itself failed (see §When the wrapper cannot run).
 
@@ -90,10 +90,10 @@ A part of a recorded command (one test file, one target) uses the bounded comman
    python3 "${CLAUDE_PLUGIN_ROOT}/skills/bounding-heavy-commands/scripts/bounded_run.py" --measure -- <command>
    ```
 
-5. Record the suggested budget that the wrapper prints. It is the peak plus a margin, and the margin is larger where the measurement is approximate. The measurement runs under the default budget. If the hard cap stopped the command during the measurement, run it again with `--memory` at two times the default budget that the wrapper printed.
+5. Record the suggested budget that the wrapper prints, but only from a run in which the command did its full work. It is the peak plus a margin, and the margin is larger where the measurement is approximate. A run that stopped early gives a peak that is too small: a suite that stops at its first failure, a command that failed at its start, a run that a signal or the hard cap stopped. Do not record the budget of such a run, and save no record for the command yet. Run the command with `--measure` again each time that you run it, until one run does its full work. A measurement with no `--memory` takes the whole queue, because the peak of the command is not known: it waits until no other bounded command runs, and no other starts while it runs. When it waits, tell the user that a first measurement waits for the other bounded commands to end. If the hard cap stopped a measurement with `--memory`, measure again with two times that budget. If it stopped a measurement with no `--memory`, the command needs more memory than the queue has: tell the user, with the budget that the wrapper printed.
 6. Save the record.
 
-The measured run is a real run of the command. Its result counts, so do not run the command a second time to get the result.
+The measured run is a real run of the command. Its result counts, also when the run stopped early, so do not run the command a second time to get the result.
 
 ## Rules for the wait
 
@@ -127,7 +127,7 @@ On a machine on which the wrapper can run, every dispatch prompt for a subagent 
 2. This rule, in these words: "Run the bounded commands as written. You can make two changes: a narrower argument at the end of the line, such as one test file, and one more `--exclusive <name>` option after a collision on a port or a lock, which you name in your report. Do not run the plain form of a bounded command or of a part of it. For a heavy command that is not in this prompt, use the same wrapper with no `--memory` option. If the file of the wrapper does not exist, stop and report that. Set no environment variable whose name starts with `BOUNDED_RUN_`. A command can wait in the queue for minutes before it starts, so run it in the background and do not put a short timeout around it. A long wait means that the machine is full; it is not a fault to repair. Say in your report how long you waited."
 3. Each command that an instruction exempts from the wrapper, in its plain form, in a list of its own, with the instruction that exempts it. The rule of item 2 does not apply to that list. An instruction of the user that covers one run goes to the one subagent that does that run, and to no other.
 
-Do not dispatch fewer subagents to protect the machine. The queue protects it. Subagents that wait in the queue cost time, not memory. The one exception is a machine on which the wrapper cannot run (see the next section).
+Do not dispatch fewer subagents to protect the machine. The queue protects it. Subagents that wait in the queue cost time, not memory. On a machine on which the wrapper cannot run, the next section says how to dispatch.
 
 ## When the wrapper cannot run
 
@@ -137,7 +137,7 @@ When `python3` reports that it cannot open the file of the wrapper, the path in 
 
 When the wrapper ends with exit code 125, read its `bounded-run:` message. A fault of your call (an option, a name, a command that does not exist) is yours to correct. A fault of the machine (the wrapper cannot make or lock its files) means that the wrapper cannot run here: tell the user once per session, with the message.
 
-When Python is missing or too old, and when the fault is a fault of the machine, continue under these fallback rules. Run one heavy command at a time, never two in parallel, and set the toolchain's parallelism to half the machine's processors or fewer. Your subagents count as your session: no queue protects the machine now, so dispatch them so that only one of them runs a heavy command at a time. Their prompts carry the plain commands and these fallback rules, in place of the three items of §Dispatching subagents. The fallback protects the machine from your session only, not from the other sessions. Tell the user that in your report.
+When Python is missing or too old, and when the fault is a fault of the machine, continue under these fallback rules. Run one heavy command at a time, never two in parallel, and set the toolchain's parallelism to half the machine's processors or fewer. Your subagents count as your session: no queue protects the machine now, and no lock makes them take turns. So dispatch one after the other the subagents that run a heavy command, and start the next one only after the one before it gave its report. Subagents that run no heavy command can run together. Their prompts carry the plain commands and these fallback rules, in place of the three items of §Dispatching subagents. The fallback protects the machine from your session only, not from the other sessions. Tell the user that in your report.
 
 ## Red flags
 
