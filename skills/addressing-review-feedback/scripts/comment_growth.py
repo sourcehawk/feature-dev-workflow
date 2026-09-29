@@ -92,6 +92,16 @@ def family_for(path: str) -> Optional[Family]:
     return EXTENSIONS.get(os.path.splitext(name)[1].lower())
 
 
+def _under_a_link(top: str, path: str) -> bool:
+    """True when a directory of the path is a symbolic link. Git has no file below such a link."""
+    directory = os.path.dirname(path)
+    while directory:
+        if os.path.islink(os.path.join(top, directory)):
+            return True
+        directory = os.path.dirname(directory)
+    return False
+
+
 def is_skipped(path: str) -> bool:
     return os.path.splitext(path)[1].lower() in SKIPPED
 
@@ -505,7 +515,7 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
         # Git keeps the target of a symbolic link as the text of the file. The
         # link is not followed: its target can be outside the repository.
         is_link = os.path.islink(full_path)
-        exists = is_link or os.path.isfile(full_path)
+        exists = not _under_a_link(top, change.path) and (is_link or os.path.isfile(full_path))
         if not exists and change.base_path is None:
             continue
         # The file name (CMakeLists.txt, say) can claim a family the

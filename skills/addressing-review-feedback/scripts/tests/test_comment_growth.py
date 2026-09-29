@@ -822,6 +822,21 @@ class RunTest(unittest.TestCase):
         os.symlink(os.path.join(outside.name, "missing.go"), os.path.join(self.repo.path, "dangling.go"))
         self.assertEqual(self.summary(gate.run(self.repo.path, base)), [])
 
+    def test_directory_that_became_a_symbolic_link_is_not_followed(self):
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        with open(os.path.join(outside.name, "file.go"), "w") as handle:
+            handle.write(GROWN)
+        self.repo.write("pkg/file.go", OLD)
+        base = self.repo.commit("add pkg")
+        os.remove(os.path.join(self.repo.path, "pkg", "file.go"))
+        os.rmdir(os.path.join(self.repo.path, "pkg"))
+        os.symlink(outside.name, os.path.join(self.repo.path, "pkg"))
+        self.assertEqual(
+            [(f.path, f.status, f.flagged) for f in gate.run(self.repo.path, base).findings if f.path.startswith("pkg/")],
+            [("pkg/file.go", gate.REMOVED, False)],
+        )
+
     def test_renamed_file_is_compared_with_its_base_path(self):
         body = "".join("func step%d() {}\n" % n for n in range(20))
         self.repo.write("old.go", OLD + body)
