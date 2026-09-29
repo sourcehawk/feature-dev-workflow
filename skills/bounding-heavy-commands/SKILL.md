@@ -28,6 +28,8 @@ Skip for commands that only read (listing files, searching, version-control quer
 
 A command that does not end, such as a server or a watch mode, holds its memory in the queue until it stops. Start it through the wrapper, and stop it when your work with it is done.
 
+A server that a heavy command talks to is a part of that command: a development server, a database, or a container that a test suite sends its requests to. The work of the suite grows the server, and the budget of the suite does not count a server outside it. When the test runner can start the server itself, let it: give the run a port that no running server uses, so that the server starts inside the bounded command and its budget covers it. When the server must run on its own, start it through the wrapper. Do not run a heavy command against a server that runs outside the queue, also when it already listens on the port: an agent or a person started it without the wrapper, and the queue cannot count it. Do not stop that server either, because it belongs to someone else. Use a port of your own.
+
 ## The wrapper
 
 ```
@@ -158,6 +160,7 @@ When Python is missing or too old, and when the fault is a fault of the machine,
 | "The port was in use, I'll back off once and retry" | Two commands wanted one resource. Record it as `--exclusive` and run through the wrapper. |
 | "My command timed out, the tests must hang" | It was waiting in the queue. Run it in the background with no short timeout. |
 | "The subagent will find the test command on its own" | It will find the plain one. Put the bounded command lines in its prompt. |
+| "The server is already running on the port, the tests can reuse it" | The queue does not count a server that runs outside it, and the tests make it grow. Give the run a port of its own, so that the runner starts the server inside the bounded command. |
 | "Four subagents is too many for this machine, I'll dispatch two" | The queue limits the commands. Fewer subagents only makes the work slower. |
 | "Project memory is off, so there is no record to keep" | Discover in this session and keep the result in context. The rule does not depend on the memory. |
 | "The wrapper cannot run here, so none of this applies" | The fallback applies: one heavy command at a time, toolchain parallelism at half or less, and say so. |
