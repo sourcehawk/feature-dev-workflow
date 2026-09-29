@@ -660,7 +660,7 @@ def run_command(
         try:
             if received:
                 try:
-                    os.killpg(process.pid, received[0])
+                    os.killpg(process.pid, received[0] if len(received) == 1 else signal.SIGKILL)
                 except (ProcessLookupError, PermissionError):
                     pass
             if on_start is not None:

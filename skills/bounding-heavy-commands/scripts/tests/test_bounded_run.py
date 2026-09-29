@@ -1086,6 +1086,31 @@ class RunCommandTest(unittest.TestCase):
         self.assertFalse(alive, "the command still runs")
 
 
+class SignalAtStartTest(unittest.TestCase):
+    def test_two_stop_signals_before_the_command_runs_end_a_command_that_ignores_the_first(self):
+        real = subprocess.Popen
+
+        base = tempfile.TemporaryDirectory()
+        self.addCleanup(base.cleanup)
+        ready = os.path.join(base.name, "ready")
+
+        def start_then_signal(*args, **kwargs):
+            process = real(*args, **kwargs)
+            limit = time.monotonic() + 30
+            while not os.path.exists(ready) and time.monotonic() < limit:
+                time.sleep(0.02)
+            os.kill(os.getpid(), signal.SIGTERM)
+            os.kill(os.getpid(), signal.SIGTERM)
+            return process
+
+        script = "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); open(%r, 'w').close(); time.sleep(20)" % ready
+        started = time.monotonic()
+        with mock.patch.object(bounded_run.subprocess, "Popen", start_then_signal):
+            code, _ = bounded_run.run_command([sys.executable, "-c", script], os.environ)
+        self.assertEqual(code, 128 + signal.SIGTERM)
+        self.assertLess(time.monotonic() - started, 10)
+
+
 class LeftProcessTest(unittest.TestCase):
     def setUp(self):
         patcher = mock.patch.object(bounded_run, "log")
