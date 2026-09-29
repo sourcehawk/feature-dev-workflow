@@ -20,7 +20,7 @@ Tuning values, with their defaults:
 
   BOUNDED_RUN_SLOT_MIB             size of one memory slot (default 2048)
   BOUNDED_RUN_RESERVE_MIB          memory that the queue never gives out
-  BOUNDED_RUN_MEMORY_WAIT_SECONDS  time limit of the wait for free memory (default 300)
+  BOUNDED_RUN_MEMORY_WAIT_SECONDS  time between two lines of the wait for free memory (default 300)
 
 Values for the tests of this script, and for its maintainers:
 
@@ -57,6 +57,7 @@ EXIT_WRAPPER = 125
 ACTIVE_VARIABLE = "BOUNDED_RUN_ACTIVE"
 SLOT_MIB = 2048
 MINIMUM_RESERVE_MIB = 2048
+MINIMUM_HEADROOM_MIB = 1024
 POLL_SECONDS = 2.0
 MEMORY_WAIT_SECONDS = 300.0
 SAMPLE_SECONDS = 1.0
@@ -185,6 +186,11 @@ def total_memory_mib(
 
 def default_reserve_mib(total_mib: int) -> int:
     return max(MINIMUM_RESERVE_MIB, total_mib // 4)
+
+
+def headroom_mib(total_mib: int) -> int:
+    """Returns the memory that the wait for free memory keeps free for the programs outside the queue."""
+    return max(MINIMUM_HEADROOM_MIB, total_mib // 10)
 
 
 def slot_count(total_mib: int, slot_mib: int, reserve_mib: int) -> int:
@@ -454,23 +460,32 @@ def available_memory_mib(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/c
 
 
 def wait_for_memory(
-    budget_mib: int, limit_seconds: float, poll_seconds: float,
+    budget_mib: int, interval_seconds: float, poll_seconds: float, headroom_mib: int = 0,
     read_available: Callable[[], Optional[int]] = available_memory_mib,
+    read_outstanding: Callable[[], Optional[int]] = lambda: None,
     sleep: Callable[[float], None] = time.sleep,
-) -> bool:
+) -> None:
+    """Returns when the free memory, less the unused budgets of running commands and the headroom, holds the budget.
+
+    There is no time limit, so the call can block for as long as the machine is full. Returns at once when
+    the free memory cannot be read. read_outstanding gives None where the unused budgets cannot be counted.
+    """
     waited = 0.0
+    next_line = 0.0
     while True:
         available = read_available()
         if available is None:
             log("cannot read the free memory; starting")
-            return True
-        if available >= budget_mib:
-            log("%d MiB free, budget %d MiB; starting" % (available, budget_mib))
-            return True
-        if waited >= limit_seconds:
-            log("WARNING: only %d MiB free after %ds, budget %d MiB; starting" % (available, waited, budget_mib))
-            return False
-        log("%d MiB free, budget %d MiB; waiting (%d of %ds)" % (available, budget_mib, waited, limit_seconds))
+            return
+        outstanding = read_outstanding()
+        counted = "unused running budgets not counted here" if outstanding is None else "%d MiB of running budgets unused" % outstanding
+        state = "%d MiB free, %s, %d MiB headroom, budget %d MiB" % (available, counted, headroom_mib, budget_mib)
+        if available - (outstanding or 0) - headroom_mib >= budget_mib:
+            log(state + "; starting")
+            return
+        if waited >= next_line:
+            log(state + ("; waiting" if waited == 0 else "; still waiting after %ds" % waited))
+            next_line = waited + interval_seconds
         sleep(poll_seconds)
         waited += poll_seconds
 
@@ -488,30 +503,85 @@ def cap_prefix(budget_mib: int, cpus: Optional[int], unit: str, oom_policy: bool
     return prefix + ["--"]
 
 
-def cap_usable(
+def probe_cap(
     prefix: Sequence[str], platform: str = sys.platform,
     which: Callable[[str], Optional[str]] = shutil.which,
     run: Callable[..., "subprocess.CompletedProcess"] = subprocess.run,
-) -> bool:
+) -> Optional[str]:
+    """Runs a short command under the prefix. Returns None when the prefix does not work here, else the
+    text of /proc/self/cgroup inside the probe scope, which can be empty."""
     if not platform.startswith("linux") or which("systemd-run") is None:
-        return False
+        return None
     try:
-        done = run(list(prefix) + ["true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+        done = run(list(prefix) + ["cat", "/proc/self/cgroup"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=15)
     except (OSError, subprocess.TimeoutExpired):
-        return False
-    return done.returncode == 0
+        return None
+    if done.returncode != 0:
+        return None
+    return done.stdout or ""
 
 
 def choose_cap_prefix(
     budget_mib: int, cpus: Optional[int], unit: str,
-    usable: Callable[[Sequence[str]], bool],
-) -> Optional[List[str]]:
-    """Returns the prefix of the hard cap for the unit, or None when no cap is usable here."""
+    probe: Callable[[Sequence[str]], Optional[str]],
+) -> Optional[Tuple[List[str], str]]:
+    """Returns the prefix of the hard cap for the unit and the output of its probe, or None when no cap is usable here."""
     # A scope unit accepts OOMPolicy= from systemd 253; an older systemd rejects the whole prefix.
     for oom_policy in (True, False):
-        if usable(cap_prefix(budget_mib, cpus, unit + "-probe", oom_policy)):
-            return cap_prefix(budget_mib, cpus, unit, oom_policy)
+        found = probe(cap_prefix(budget_mib, cpus, unit + "-probe", oom_policy))
+        if found is not None:
+            return cap_prefix(budget_mib, cpus, unit, oom_policy), found
     return None
+
+
+def _unified_path(cgroup_text: str) -> Optional[str]:
+    for line in cgroup_text.splitlines():
+        if line.startswith("0::"):
+            return line.strip()[3:]
+    return None
+
+
+def scope_parent_directory(probe_output: str, cgroup_root: str = "/sys/fs/cgroup") -> Optional[str]:
+    """Returns the directory that holds the scope of the probe, or None without a cgroup version 2 line."""
+    path = _unified_path(probe_output)
+    return None if path is None else os.path.dirname(cgroup_root + path)
+
+
+def own_scope_name(proc_root: str = "/proc") -> Optional[str]:
+    """Returns the name of the cgroup of this process, or None when it cannot be read."""
+    try:
+        with open(os.path.join(proc_root, "self", "cgroup")) as handle:
+            path = _unified_path(handle.read())
+    except OSError:
+        return None
+    return None if path is None else os.path.basename(path)
+
+
+def unused_budget_mib(parent: str, skip: Sequence[str]) -> int:
+    """Returns the part of their budgets that the bounded commands whose scopes are in parent do not use yet.
+
+    Probe scopes, the scopes named in skip, and scopes with no memory limit add nothing.
+    """
+    try:
+        names = os.listdir(parent)
+    except OSError:
+        return 0
+    unused = 0
+    for name in names:
+        if not name.startswith(PREFIX + "-") or not name.endswith(".scope") or name.endswith("-probe.scope") or name in skip:
+            continue
+        try:
+            with open(os.path.join(parent, name, "memory.max")) as handle:
+                limit = handle.read().strip()
+            with open(os.path.join(parent, name, "memory.current")) as handle:
+                current = int(handle.read().strip())
+            if limit == "max":
+                continue
+            unused += max(0, int(limit) - current)
+        except (OSError, ValueError):
+            # A scope ends between the listing and the read.
+            continue
+    return unused // (1024 * 1024)
 
 
 def cgroup_directory(pid: int, unit: str, proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[str]:
@@ -825,8 +895,17 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
     exclusive_files = [exclusive_file_name(repository, name) for name in options.exclusive]
 
     unit = "%s-%d-%06x" % (PREFIX, os.getpid(), random.randrange(16 ** 6))
-    prefix = None if settings.no_cap else choose_cap_prefix(budget, options.cpus, unit, cap_usable)
+    choice = None if settings.no_cap else choose_cap_prefix(budget, options.cpus, unit, probe_cap)
+    prefix = choice[0] if choice is not None else None
     capped = prefix is not None
+    # Every scope of the user that systemd-run makes with no slice option goes to the slice of the probe.
+    scopes = scope_parent_directory(choice[1]) if choice is not None else None
+    # A wrapper that runs inside a bounded scope does its work in the budget of that scope.
+    skip = [name for name in (unit + ".scope", own_scope_name()) if name is not None]
+
+    def read_outstanding() -> Optional[int]:
+        return None if scopes is None else unused_budget_mib(scopes, skip)
+
     peak_file = os.path.join(directory, "peak-%s" % unit)
     if prefix is not None:
         inside = [sys.executable, os.path.abspath(__file__), "--inside-cap", peak_file, unit, "--"]
@@ -858,7 +937,10 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
     reported: Optional[int] = None
     reservation = reserve(directory, count, needed, exclusive_files, settings.poll_seconds)
     try:
-        wait_for_memory(wait_budget, settings.memory_wait_seconds, settings.poll_seconds)
+        wait_for_memory(
+            wait_budget, settings.memory_wait_seconds, settings.poll_seconds,
+            headroom_mib=headroom_mib(settings.total_mib), read_outstanding=read_outstanding,
+        )
         code, maxrss = run_command(command, child_environ, start_tracker)
         tracked = trackers[0].finish() if trackers else None
     finally:

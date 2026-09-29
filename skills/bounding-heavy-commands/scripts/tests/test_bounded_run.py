@@ -748,32 +748,158 @@ class MemoryWaitTest(unittest.TestCase):
         self.log = patcher.start()
         self.addCleanup(patcher.stop)
 
-    def wait(self, values, limit):
+    def wait(self, values, limit, outstanding=None, headroom=0):
         readings = list(values)
         sleeps = []
-        result = bounded_run.wait_for_memory(
-            4096, limit, 5.0, read_available=lambda: readings.pop(0), sleep=sleeps.append,
+        bounded_run.wait_for_memory(
+            4096, limit, 5.0, headroom_mib=headroom, read_available=lambda: readings.pop(0),
+            read_outstanding=lambda: outstanding, sleep=sleeps.append,
         )
-        return result, sleeps
+        return sleeps
+
+    def lines(self):
+        return [call[0][0] for call in self.log.call_args_list]
 
     def test_starts_at_once_when_the_memory_is_free(self):
-        self.assertEqual(self.wait([8000], 300), (True, []))
+        self.assertEqual(self.wait([8000], 300), [])
 
     def test_waits_until_the_memory_is_free(self):
-        self.assertEqual(self.wait([1000, 2000, 5000], 300), (True, [5.0, 5.0]))
+        self.assertEqual(self.wait([1000, 2000, 5000], 300), [5.0, 5.0])
 
-    def test_starts_after_the_time_limit(self):
-        self.assertEqual(self.wait([1000, 1000, 1000], 10), (False, [5.0, 5.0]))
+    def test_does_not_start_after_the_time_limit_while_the_memory_is_not_free(self):
+        self.assertEqual(self.wait([1000] * 7 + [5000], 10), [5.0] * 7)
+        lines = self.lines()
+        self.assertTrue(lines[-1].endswith("; starting"), lines)
+        self.assertFalse(any(line.endswith("; starting") for line in lines[:-1]), lines)
 
-    def test_a_limit_of_zero_does_not_wait(self):
-        self.assertEqual(self.wait([1000], 0), (False, []))
+    def test_a_limit_of_zero_does_not_start_while_the_memory_is_not_free(self):
+        self.assertEqual(self.wait([1000, 1000, 5000], 0), [5.0, 5.0])
 
-    def test_a_start_after_the_time_limit_is_a_warning(self):
-        self.wait([1000], 0)
-        self.assertTrue(self.log.call_args[0][0].startswith("WARNING: "))
+    def test_the_time_limit_is_the_time_between_two_lines_of_the_wait(self):
+        self.wait([1000] * 7 + [5000], 10)
+        waiting = [line for line in self.lines() if "waiting" in line]
+        self.assertEqual(len(waiting), 4, waiting)
+        self.assertIn("still waiting", waiting[1])
 
     def test_starts_when_the_memory_is_not_readable(self):
-        self.assertEqual(self.wait([None], 300), (True, []))
+        self.assertEqual(self.wait([None], 300), [])
+        self.assertEqual(self.lines(), ["cannot read the free memory; starting"])
+
+    def test_the_headroom_is_not_given_out(self):
+        self.assertEqual(self.wait([5000, 5200], 300, headroom=1024), [5.0])
+
+    def test_a_line_of_the_wait_names_each_part_of_the_count(self):
+        self.wait([4000, 8000], 300, outstanding=1500, headroom=1024)
+        self.assertEqual(
+            self.lines()[0],
+            "4000 MiB free, 1500 MiB of running budgets unused, 1024 MiB headroom, budget 4096 MiB; waiting",
+        )
+
+    def test_a_line_of_the_wait_says_when_the_unused_budgets_are_not_counted(self):
+        self.wait([8000], 300, outstanding=None, headroom=1024)
+        self.assertEqual(
+            self.lines()[0],
+            "8000 MiB free, unused running budgets not counted here, 1024 MiB headroom, budget 4096 MiB; starting",
+        )
+
+
+class HeadroomTest(unittest.TestCase):
+    def test_a_tenth_of_the_memory(self):
+        self.assertEqual(bounded_run.headroom_mib(27703), 2770)
+
+    def test_never_less_than_the_minimum(self):
+        self.assertEqual(bounded_run.headroom_mib(4096), 1024)
+
+
+class UnusedBudgetTest(unittest.TestCase):
+    """Gives unused_budget_mib a slice of the cgroup filesystem in a temporary directory."""
+
+    def setUp(self):
+        self.base = tempfile.TemporaryDirectory()
+        self.addCleanup(self.base.cleanup)
+        self.slice = os.path.join(self.base.name, "app.slice")
+        os.makedirs(self.slice)
+
+    def scope(self, name, limit, current):
+        directory = os.path.join(self.slice, name)
+        os.makedirs(directory)
+        if limit is not None:
+            Path(directory, "memory.max").write_text(limit + "\n")
+        if current is not None:
+            Path(directory, "memory.current").write_text(current + "\n")
+
+    def unused(self, skip=()):
+        return bounded_run.unused_budget_mib(self.slice, skip)
+
+    def test_adds_the_unused_part_of_each_budget(self):
+        self.scope("bounded-run-10-aaaaaa.scope", str(6144 * 1024 ** 2), str(1024 * 1024 ** 2))
+        self.scope("bounded-run-11-bbbbbb.scope", str(2048 * 1024 ** 2), str(512 * 1024 ** 2))
+        self.assertEqual(self.unused(), 5120 + 1536)
+
+    def test_a_scope_above_its_budget_adds_nothing(self):
+        self.scope("bounded-run-10-aaaaaa.scope", str(1024 * 1024 ** 2), str(2048 * 1024 ** 2))
+        self.assertEqual(self.unused(), 0)
+
+    def test_skips_the_probe_scopes(self):
+        self.scope("bounded-run-10-aaaaaa-probe.scope", str(6144 * 1024 ** 2), "0")
+        self.assertEqual(self.unused(), 0)
+
+    def test_skips_the_scopes_that_the_caller_names(self):
+        self.scope("bounded-run-10-aaaaaa.scope", str(6144 * 1024 ** 2), "0")
+        self.scope("bounded-run-11-bbbbbb.scope", str(2048 * 1024 ** 2), "0")
+        self.assertEqual(self.unused(skip=["bounded-run-10-aaaaaa.scope"]), 2048)
+
+    def test_skips_a_scope_with_no_budget(self):
+        self.scope("bounded-run-10-aaaaaa.scope", "max", "0")
+        self.assertEqual(self.unused(), 0)
+
+    def test_skips_units_of_other_programs(self):
+        self.scope("editor-1.scope", str(6144 * 1024 ** 2), "0")
+        self.scope("bounded-run-10-aaaaaa.service", str(6144 * 1024 ** 2), "0")
+        self.assertEqual(self.unused(), 0)
+
+    def test_skips_a_scope_that_ends_while_it_is_read(self):
+        self.scope("bounded-run-10-aaaaaa.scope", str(6144 * 1024 ** 2), None)
+        self.scope("bounded-run-11-bbbbbb.scope", None, None)
+        self.assertEqual(self.unused(), 0)
+
+    def test_no_slice_gives_nothing(self):
+        self.assertEqual(bounded_run.unused_budget_mib(os.path.join(self.base.name, "gone"), ()), 0)
+
+    def test_the_slice_is_the_parent_of_the_probe_scope(self):
+        self.assertEqual(
+            bounded_run.scope_parent_directory("0::/user.slice/user@1000.service/app.slice/unit-1-probe.scope\n", "/cg"),
+            "/cg/user.slice/user@1000.service/app.slice",
+        )
+
+    def test_the_scope_of_this_process(self):
+        with tempfile.TemporaryDirectory() as proc:
+            os.mkdir(os.path.join(proc, "self"))
+            Path(proc, "self", "cgroup").write_text("0::/user.slice/app.slice/bounded-run-2-111111.scope\n")
+            self.assertEqual(bounded_run.own_scope_name(proc_root=proc), "bounded-run-2-111111.scope")
+
+    def test_no_scope_of_this_process_without_its_cgroup(self):
+        with tempfile.TemporaryDirectory() as proc:
+            self.assertIsNone(bounded_run.own_scope_name(proc_root=proc))
+
+    def test_no_slice_without_a_cgroup_version_2_line(self):
+        self.assertIsNone(bounded_run.scope_parent_directory("", "/cg"))
+        self.assertIsNone(bounded_run.scope_parent_directory("4:memory:/user.slice/unit-1-probe.scope\n", "/cg"))
+
+    def test_a_running_command_that_uses_little_of_a_large_budget_holds_back_the_next(self):
+        self.scope("bounded-run-10-aaaaaa.scope", str(6144 * 1024 ** 2), str(1024 * 1024 ** 2))
+        sleeps = []
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            shutil.rmtree(os.path.join(self.slice, "bounded-run-10-aaaaaa.scope"))
+
+        with mock.patch.object(bounded_run, "log"):
+            bounded_run.wait_for_memory(
+                4096, 300, 5.0, headroom_mib=1024, read_available=lambda: 8000,
+                read_outstanding=lambda: self.unused(), sleep=sleep,
+            )
+        self.assertEqual(sleeps, [5.0])
 
 
 class CapTest(unittest.TestCase):
@@ -795,28 +921,28 @@ class CapTest(unittest.TestCase):
     def choose(self, answers):
         probes = []
 
-        def usable(prefix):
+        def probe(prefix):
             probes.append(list(prefix))
             return answers[len(probes) - 1]
 
-        return bounded_run.choose_cap_prefix(1024, 2, "unit-1", usable), probes
+        return bounded_run.choose_cap_prefix(1024, 2, "unit-1", probe), probes
 
     def test_uses_the_oom_policy_when_the_first_probe_passes(self):
-        prefix, probes = self.choose([True])
-        self.assertEqual(prefix, bounded_run.cap_prefix(1024, 2, "unit-1"))
+        choice, probes = self.choose(["0::/app.slice/unit-1-probe.scope\n"])
+        self.assertEqual(choice, (bounded_run.cap_prefix(1024, 2, "unit-1"), "0::/app.slice/unit-1-probe.scope\n"))
         self.assertEqual(len(probes), 1)
         self.assertIn("OOMPolicy=continue", probes[0])
         self.assertNotIn("unit-1", probes[0])
 
     def test_uses_the_prefix_without_the_oom_policy_when_only_the_second_probe_passes(self):
-        prefix, probes = self.choose([False, True])
-        self.assertEqual(prefix, bounded_run.cap_prefix(1024, 2, "unit-1", oom_policy=False))
+        choice, probes = self.choose([None, ""])
+        self.assertEqual(choice, (bounded_run.cap_prefix(1024, 2, "unit-1", oom_policy=False), ""))
         self.assertEqual(len(probes), 2)
         self.assertNotIn("OOMPolicy=continue", probes[1])
 
     def test_no_cap_when_both_probes_fail(self):
-        prefix, probes = self.choose([False, False])
-        self.assertIsNone(prefix)
+        choice, probes = self.choose([None, None])
+        self.assertIsNone(choice)
         self.assertEqual(len(probes), 2)
 
     def test_no_command_runs_on_a_different_system(self):
@@ -826,47 +952,50 @@ class CapTest(unittest.TestCase):
             calls.append(command)
             return subprocess.CompletedProcess(command, 0)
 
-        def usable(prefix):
-            return bounded_run.cap_usable(prefix, platform="darwin", which=lambda name: "/usr/bin/systemd-run", run=run)
+        def probe(prefix):
+            return bounded_run.probe_cap(prefix, platform="darwin", which=lambda name: "/usr/bin/systemd-run", run=run)
 
-        self.assertIsNone(bounded_run.choose_cap_prefix(1024, 2, "unit-1", usable))
+        self.assertIsNone(bounded_run.choose_cap_prefix(1024, 2, "unit-1", probe))
         self.assertEqual(calls, [])
 
-    def probe(self, platform, tool, code=0, error=None):
+    def probe(self, platform, tool, code=0, error=None, output=None):
         calls = []
 
         def run(command, **keywords):
             calls.append(command)
             if error is not None:
                 raise error
-            return subprocess.CompletedProcess(command, code)
+            return subprocess.CompletedProcess(command, code, stdout=output)
 
-        usable = bounded_run.cap_usable(
+        found = bounded_run.probe_cap(
             bounded_run.cap_prefix(1024, 2, "unit-1"), platform=platform, which=lambda name: tool, run=run,
         )
-        return usable, calls
+        return found, calls
 
-    def test_usable_when_the_probe_succeeds(self):
-        usable, calls = self.probe("linux", "/usr/bin/systemd-run")
-        self.assertTrue(usable)
-        self.assertEqual(calls[0][-1], "true")
+    def test_the_probe_gives_the_cgroup_of_its_scope(self):
+        found, calls = self.probe("linux", "/usr/bin/systemd-run", output="0::/app.slice/unit-1.scope\n")
+        self.assertEqual(found, "0::/app.slice/unit-1.scope\n")
+        self.assertEqual(calls[0][-2:], ["cat", "/proc/self/cgroup"])
         self.assertIn("CPUQuota=200%", calls[0])
 
+    def test_a_probe_with_no_output_is_usable(self):
+        self.assertEqual(self.probe("linux", "/usr/bin/systemd-run")[0], "")
+
     def test_not_usable_when_the_probe_fails(self):
-        self.assertFalse(self.probe("linux", "/usr/bin/systemd-run", code=1)[0])
+        self.assertIsNone(self.probe("linux", "/usr/bin/systemd-run", code=1)[0])
 
     def test_not_usable_when_the_probe_does_not_return(self):
         error = subprocess.TimeoutExpired("systemd-run", 15)
-        self.assertFalse(self.probe("linux", "/usr/bin/systemd-run", error=error)[0])
+        self.assertIsNone(self.probe("linux", "/usr/bin/systemd-run", error=error)[0])
 
     def test_not_usable_without_the_tool(self):
-        usable, calls = self.probe("linux", None)
-        self.assertFalse(usable)
+        found, calls = self.probe("linux", None)
+        self.assertIsNone(found)
         self.assertEqual(calls, [])
 
     def test_not_usable_on_a_different_system(self):
-        usable, calls = self.probe("darwin", "/usr/bin/systemd-run")
-        self.assertFalse(usable)
+        found, calls = self.probe("darwin", "/usr/bin/systemd-run")
+        self.assertIsNone(found)
         self.assertEqual(calls, [])
 
 
@@ -1220,7 +1349,7 @@ class ParentDeathSignalTest(unittest.TestCase):
 
 
 class BoundedCleanupTest(unittest.TestCase):
-    """Calls bounded() in this process, with run_command and cap_usable replaced by stubs.
+    """Calls bounded() in this process, with run_command and probe_cap replaced by stubs.
 
     No real command, no real cgroup, and no real subprocess run outside the stubs.
     """
@@ -1256,7 +1385,7 @@ class BoundedCleanupTest(unittest.TestCase):
         options.memory = "2G"
         options.command = [sys.executable, "-c", "pass"]
 
-        with mock.patch.object(bounded_run, "cap_usable", return_value=True), \
+        with mock.patch.object(bounded_run, "probe_cap", return_value=""), \
                 mock.patch.object(bounded_run, "run_command", fake_run_command):
             with self.assertRaises(RuntimeError):
                 bounded_run.bounded(options, self.environ)
@@ -1280,13 +1409,50 @@ class BoundedCleanupTest(unittest.TestCase):
         options.memory = "64G"
         options.command = [sys.executable, "-c", "pass"]
 
-        with mock.patch.object(bounded_run, "cap_usable", return_value=True), \
-                mock.patch.object(bounded_run, "wait_for_memory", side_effect=lambda budget, *rest: waits.append(budget)), \
+        with mock.patch.object(bounded_run, "probe_cap", return_value=""), \
+                mock.patch.object(bounded_run, "wait_for_memory", side_effect=lambda budget, *rest, **keywords: waits.append(budget)), \
                 mock.patch.object(bounded_run, "run_command", fake_run_command):
             self.assertEqual(bounded_run.bounded(options, self.environ), 0)
 
         self.assertEqual(waits, [4096])
         self.assertIn("MemoryMax=4096M", commands[0])
+
+    def wait_arguments(self, probe_output):
+        waits = []
+        options = bounded_run.Options()
+        options.memory = "1G"
+        options.command = [sys.executable, "-c", "pass"]
+        with mock.patch.object(bounded_run, "probe_cap", return_value=probe_output), \
+                mock.patch.object(bounded_run, "own_scope_name", return_value="bounded-run-2-111111.scope"), \
+                mock.patch.object(bounded_run, "wait_for_memory", side_effect=lambda *arguments, **keywords: waits.append(keywords)), \
+                mock.patch.object(bounded_run, "run_command", return_value=(0, 0)):
+            self.assertEqual(bounded_run.bounded(options, self.environ), 0)
+        return waits[0]
+
+    def test_the_wait_keeps_a_headroom_of_the_memory_of_the_machine(self):
+        self.assertEqual(self.wait_arguments(None)["headroom_mib"], bounded_run.headroom_mib(4096))
+
+    def test_the_wait_counts_the_unused_budgets_beside_the_scope_of_the_probe(self):
+        calls = []
+
+        def unused(parent, skip):
+            calls.append((parent, list(skip)))
+            return 777
+
+        output = "0::/user.slice/app.slice/bounded-run-1-000000-probe.scope\n"
+        keywords = self.wait_arguments(output)
+        with mock.patch.object(bounded_run, "unused_budget_mib", unused):
+            self.assertEqual(keywords["read_outstanding"](), 777)
+        parent, skip = calls[0]
+        self.assertEqual(parent, "/sys/fs/cgroup/user.slice/app.slice")
+        self.assertIn("bounded-run-2-111111.scope", skip)
+        self.assertTrue(any(re.match(r"^bounded-run-%d-[0-9a-f]{6}\.scope$" % os.getpid(), name) for name in skip), skip)
+
+    def test_the_wait_counts_no_unused_budget_without_a_cap(self):
+        self.assertIsNone(self.wait_arguments(None)["read_outstanding"]())
+
+    def test_the_wait_counts_no_unused_budget_without_a_cgroup_version_2(self):
+        self.assertIsNone(self.wait_arguments("")["read_outstanding"]())
 
 
 class WrapperProcessCase(unittest.TestCase):
@@ -1774,9 +1940,8 @@ class WrapperProcessTest(WrapperProcessCase):
     def test_a_first_measurement_waits_for_the_memory_of_the_default_budget_only(self):
         reads = []
 
-        def wait(budget, limit, poll):
+        def wait(budget, limit, poll, **rest):
             reads.append(budget)
-            return True
 
         options = bounded_run.Options()
         options.measure = True
@@ -1819,7 +1984,7 @@ class WrapperProcessTest(WrapperProcessCase):
 
 
 @unittest.skipUnless(
-    bounded_run.choose_cap_prefix(256, 1, "bounded-run-test-%d" % os.getpid(), bounded_run.cap_usable) is not None,
+    bounded_run.choose_cap_prefix(256, 1, "bounded-run-test-%d" % os.getpid(), bounded_run.probe_cap) is not None,
     "no hard cap on this machine",
 )
 class HardCapTest(WrapperProcessCase):
