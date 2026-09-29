@@ -655,7 +655,7 @@ def run_command(
             except (ProcessLookupError, PermissionError):
                 pass
 
-    previous = {signum: signal.signal(signum, forward) for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    previous = {signum: signal.signal(signum, forward) for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)}
     try:
         try:
             process = subprocess.Popen(list(command), env=dict(environ), start_new_session=True, preexec_fn=parent_death_signal())
@@ -704,7 +704,7 @@ def inside_cap(
     def keep_running(signum: int, frame: object) -> None:
         pass
 
-    previous = {signum: signal.signal(signum, keep_running) for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    previous = {signum: signal.signal(signum, keep_running) for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)}
     try:
         try:
             process = subprocess.Popen(list(command), preexec_fn=parent_death_signal())

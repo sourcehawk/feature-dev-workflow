@@ -1487,7 +1487,7 @@ class WrapperProcessTest(WrapperProcessCase):
         self.assertNotIn("Traceback", errors)
 
     def test_a_stop_signal_stops_the_command(self):
-        for signum, code in ((signal.SIGTERM, 143), (signal.SIGINT, 130)):
+        for signum, code in ((signal.SIGTERM, 143), (signal.SIGINT, 130), (signal.SIGQUIT, 131)):
             with self.subTest(signal=signum):
                 name = "stopped-%d" % code
                 process = self.worker(name, "2G", hold="300")
