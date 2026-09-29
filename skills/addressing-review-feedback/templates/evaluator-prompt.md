@@ -56,7 +56,7 @@ The source must say what the sentence says. A source that says less shows only a
 
 Three more rules:
 
-- A comment marked "text that users read" ships to users. A sentence of it that is true stays, also when the comment is long: do not give it CUT because it explains little, and when a fact is in two places, the rules keep the copy in this text. The steps for an added sentence, and CUT for a description of how the body works, still apply to it.
+- A comment marked "text that users read" ships to users. A sentence of it that is true stays, also when the comment is long: do not give it CUT because it explains little, and when a fact is in two places, the rules keep the copy in this text. The steps for an added sentence still apply to it. In a doc comment, CUT for a description of how the body works still applies too, as the rules say in the section "Text that users read".
 - When the same fact is in the doc comment and at the line that it constrains, one copy stays. The rules say which one, in the section "Doc comments". Give CUT to the other copy, with the reason "second copy".
 - For a comment marked "removed", you get the comment at the base and the code now. A removed comment gets no table and no verdicts. Your answer is the fact that it held and that the code cannot show, with its place: the code line that it constrains, or "back into the doc comment" for a caller fact of a removed doc comment. If it held no such fact, answer "no such fact".
 
