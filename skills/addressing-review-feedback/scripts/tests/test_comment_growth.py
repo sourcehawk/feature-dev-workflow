@@ -857,6 +857,12 @@ class RunTest(unittest.TestCase):
             [(f.path, f.status, f.flagged) for f in gate.run(self.repo.path, base).findings if f.path.startswith("pkg/")],
             [("pkg/file.go", gate.REMOVED, False)],
         )
+        os.remove(os.path.join(outside.name, "file.go"))
+        os.symlink("// a comment in the text of a link\nfunc run() {}", os.path.join(outside.name, "file.go"))
+        self.assertEqual(
+            [(f.path, f.status, f.flagged) for f in gate.run(self.repo.path, base).findings if f.path.startswith("pkg/")],
+            [("pkg/file.go", gate.REMOVED, False)],
+        )
 
     def test_comment_of_a_file_renamed_to_a_type_with_no_comments_is_removed(self):
         body = "".join("func step%d() {}\n" % n for n in range(20))
