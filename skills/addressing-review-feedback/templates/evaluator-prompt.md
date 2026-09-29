@@ -75,7 +75,7 @@ For each comment:
     - the question of an ASK
     - the code that contradicts it
     - the shorter sentence
-3. The comment as it must read after your verdicts, as text that the author can paste. It holds each sentence with KEEP, and a shorter sentence only when its own verdict is KEEP. It does not hold a sentence with ASK. Below that text, under a line "Waits for a source:", list each sentence with ASK.
+3. The comment as it must read after your verdicts, as text that the author can paste. It holds each base sentence, also one with MOVE or CUT: your verdict for a base sentence is a proposal, and the author decides it. It holds each added sentence with KEEP, and a shorter sentence only when its own verdict is KEEP. It does not hold a sentence with ASK. Below that text, under a line "Waits for a source:", list each sentence with ASK. Under a line "Proposals for base sentences:", list each base sentence with MOVE or CUT, with its verdict.
 4. Each place where this prompt and the rules disagree, or "none".
 
 For a comment marked "removed", give item 1 and the answer that the rule for a removed comment asks for, in place of items 2 and 3.
