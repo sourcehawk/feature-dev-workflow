@@ -227,6 +227,34 @@ class ScanDocStringPositionTest(unittest.TestCase):
             [gate.Block(2, ("# Drop the quotes.",), "strip(x)")],
         )
 
+class BlockFormTest(unittest.TestCase):
+    def grown(self, path, old, new):
+        family = gate.family_for(path)
+        return [(f.status, f.old_length, f.new_length, f.flagged) for f in gate.compare(path, old, new, family)]
+
+    def test_block_comment_between_angle_and_hash_grows(self):
+        old = "<#\nStarts the job.\n#>\nfunction Start-Job {}\n"
+        new = "<#\nStarts the job.\nIt also stops it.\n#>\nfunction Start-Job {}\n"
+        self.assertEqual(self.grown("job.ps1", old, new), [(gate.GREW, 3, 4, True)])
+
+    def test_block_comment_between_begin_and_end_grows(self):
+        old = "=begin\nStarts the job.\n=end\ndef start\nend\n"
+        new = "=begin\nStarts the job.\nIt also stops it.\n=end\ndef start\nend\n"
+        self.assertEqual(self.grown("job.rb", old, new), [(gate.GREW, 3, 4, True)])
+
+    def test_block_comment_between_hash_and_equals_grows(self):
+        old = "#=\nStarts the job.\n=#\nfunction start() end\n"
+        new = "#=\nStarts the job.\nIt also stops it.\n=#\nfunction start() end\n"
+        self.assertEqual(self.grown("job.jl", old, new), [(gate.GREW, 3, 4, True)])
+
+    def test_line_comments_of_these_file_types_still_count(self):
+        for path in ("job.ps1", "job.rb", "job.jl"):
+            with self.subTest(path=path):
+                old = "# Starts the job.\nstart()\n"
+                new = "# Starts the job.\n# It also stops it.\nstart()\n"
+                self.assertEqual(self.grown(path, old, new), [(gate.GREW, 1, 2, True)])
+
+
 def statuses(old, new, family=gate.SLASH):
     return [(f.status, f.old_length, f.new_length, f.flagged) for f in gate.compare("f", old, new, family)]
 

@@ -43,6 +43,9 @@ class Family:
 
 SLASH = Family("slash", ("//",), (("/*", "*/"),), AFTER)
 HASH = Family("hash", ("#",), (), AFTER)
+HASH_ANGLE = Family("hash-angle", ("#",), (("<#", "#>"),), AFTER)
+HASH_BEGIN = Family("hash-begin", ("#",), (("=begin", "=end"),), AFTER)
+HASH_EQUALS = Family("hash-equals", ("#",), (("#=", "=#"),), AFTER)
 HASH_DOCSTRING = Family("hash-docstring", ("#",), (('"""', '"""'), ("'''", "'''")), BEFORE, doc_position_only=True, quotes="'\"")
 DASH = Family("dash", ("--",), (("--[[", "]]"), ("{-", "-}"), ("/*", "*/")), AFTER)
 MARKUP = Family("markup", (), (("<!--", "-->"),), AFTER)
@@ -52,7 +55,10 @@ PERCENT = Family("percent", ("%",), (), AFTER)
 EXTENSIONS: Dict[str, Family] = {}
 for _family, _extensions in (
     (SLASH, ".c .h .cc .cpp .cxx .hpp .cs .java .js .jsx .mjs .cjs .ts .tsx .go .rs .swift .kt .kts .scala .dart .php .m .mm .proto .groovy .gradle .zig .css .scss .less .v .sv"),
-    (HASH, ".sh .bash .zsh .fish .rb .pl .pm .yaml .yml .toml .tf .tfvars .hcl .r .ex .exs .nix .mk .cmake .ps1 .conf .cfg .properties .jl .tcl .awk"),
+    (HASH, ".sh .bash .zsh .fish .pl .pm .yaml .yml .toml .tf .tfvars .hcl .r .ex .exs .nix .mk .cmake .conf .cfg .properties .tcl .awk"),
+    (HASH_ANGLE, ".ps1 .psm1"),
+    (HASH_BEGIN, ".rb"),
+    (HASH_EQUALS, ".jl"),
     (HASH_DOCSTRING, ".py .pyi"),
     (DASH, ".sql .lua .hs .elm .adb .ads .vhd .vhdl"),
     (MARKUP, ".html .htm .xml .xsl .vue .svelte"),
@@ -67,8 +73,8 @@ FILENAMES: Dict[str, Family] = {
     "GNUmakefile": HASH,
     "Dockerfile": HASH,
     "Containerfile": HASH,
-    "Rakefile": HASH,
-    "Gemfile": HASH,
+    "Rakefile": HASH_BEGIN,
+    "Gemfile": HASH_BEGIN,
     "Justfile": HASH,
     "CMakeLists.txt": HASH,
 }
