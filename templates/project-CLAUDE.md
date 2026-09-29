@@ -30,7 +30,7 @@ flowchart TD
     Done -->|yes| VerifyM[Verify the integrated branch<br/>green end to end]
     VerifyM --> PR2[Open the integration PR<br/>feature → main · Closes the epic]
 
-    PR1 --> Ship([External review → merge<br/>plan + state torn down in the same diff])
+    PR1 --> Ship([External review → act on the feedback,<br/>comments checked for growth → merge<br/>plan + state torn down in the same diff])
     PR2 --> Ship
 ```
 
