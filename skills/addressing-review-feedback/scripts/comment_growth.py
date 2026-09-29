@@ -496,7 +496,10 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
     not_checked: List[str] = []
     for change in changed_files(top, merge_base):
         full_path = os.path.join(top, change.path)
-        exists = os.path.isfile(full_path)
+        # Git keeps the target of a symbolic link as the text of the file. The
+        # link is not followed: its target can be outside the repository.
+        is_link = os.path.islink(full_path)
+        exists = is_link or os.path.isfile(full_path)
         if not exists and change.base_path is None:
             continue
         # The file name (CMakeLists.txt, say) can claim a family the
@@ -506,7 +509,12 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
             if not is_skipped(change.path):
                 not_checked.append(change.path)
             continue
-        if exists:
+        if is_link:
+            try:
+                new_source = os.readlink(full_path)
+            except OSError as error:
+                raise GitError("cannot read %s: %s" % (change.path, error))
+        elif exists:
             try:
                 with open(full_path, encoding="utf-8", errors="replace") as handle:
                     new_source = handle.read()

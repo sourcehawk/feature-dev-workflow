@@ -782,6 +782,18 @@ class RunTest(unittest.TestCase):
         self.repo.write("new.go", OLD)
         self.assertEqual(self.summary(gate.run(self.repo.path, "HEAD")), [("new.go", gate.ADDED, False)])
 
+    def test_symbolic_link_is_not_followed_out_of_the_repository(self):
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        target = os.path.join(outside.name, "secret.go")
+        with open(target, "w") as handle:
+            handle.write(GROWN)
+        self.repo.write("keep.go", "func keep() {}\n")
+        base = self.repo.commit("add keep")
+        os.symlink(target, os.path.join(self.repo.path, "probe.go"))
+        os.symlink(os.path.join(outside.name, "missing.go"), os.path.join(self.repo.path, "dangling.go"))
+        self.assertEqual(self.summary(gate.run(self.repo.path, base)), [])
+
     def test_renamed_file_is_compared_with_its_base_path(self):
         body = "".join("func step%d() {}\n" % n for n in range(20))
         self.repo.write("old.go", OLD + body)
