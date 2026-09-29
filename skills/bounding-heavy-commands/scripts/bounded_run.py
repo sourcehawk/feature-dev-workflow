@@ -202,7 +202,7 @@ def queue_mib(total_mib: int, slot_mib: int, reserve_mib: int) -> int:
 
 
 def slots_needed(budget_mib: int, slot_mib: int, count: int) -> int:
-    return min(count, max(1, math.ceil(budget_mib / slot_mib)))
+    return min(count, max(1, -(-budget_mib // slot_mib)))
 
 
 def default_budget_mib(total_mib: int, slot_mib: int) -> int:

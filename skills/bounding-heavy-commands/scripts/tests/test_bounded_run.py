@@ -107,6 +107,9 @@ class SlotCountTest(unittest.TestCase):
         self.assertEqual(bounded_run.slots_needed(6145, 2048, 12), 4)
         self.assertEqual(bounded_run.slots_needed(100, 2048, 12), 1)
 
+    def test_a_budget_too_large_for_a_float_takes_all_slots(self):
+        self.assertEqual(bounded_run.slots_needed(10 ** 400, 2048, 12), 12)
+
     def test_a_budget_larger_than_the_queue_takes_all_slots(self):
         self.assertEqual(bounded_run.slots_needed(99999, 2048, 3), 3)
 
@@ -1625,6 +1628,13 @@ class WrapperProcessTest(WrapperProcessCase):
         self.assertRegex(errors, r"bounded-run: budget 4096 MiB, peak ")
         self.assertEqual(second.wait(timeout=60), 0)
         self.assertEqual(self.peak_concurrency(), 1)
+
+    def test_a_budget_too_large_for_a_float_gives_the_budget_of_the_queue(self):
+        process = self.wrapper(["--memory", "1" + "0" * 400 + "G"], [sys.executable, "-c", "pass"])
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(process.returncode, 0, errors)
+        self.assertNotIn("Traceback", errors)
+        self.assertRegex(errors, r"bounded-run: budget 4096 MiB, peak ")
 
     def test_a_budget_larger_than_the_queue_gives_the_command_the_budget_of_the_queue(self):
         script = "import os; print(os.environ['BOUNDED_RUN_MEMORY_MIB'])"
