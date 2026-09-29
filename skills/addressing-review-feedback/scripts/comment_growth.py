@@ -325,6 +325,10 @@ def pair(
     for order, block in enumerate(old):
         unchanged.setdefault((block.anchor, block.text), []).append(order)
     fresh = [index for index, block in enumerate(new) if (block.anchor, block.text) not in unchanged]
+    # Each block of new with an identical block in old is compared with each fresh block below.
+    compared = (len(new) - len(fresh)) * len(fresh) if one_file else 0
+    if most is not None and compared > most:
+        raise TooManyPairs()
     open_indexes: List[int] = []
     # The block of old that each identical copy in new leaves free for a longer block that keeps all its words.
     copies: Dict[int, int] = {}
@@ -363,7 +367,7 @@ def pair(
         reach[order] = _reach(old_words[order], postings, open_indexes, min_kept)
         if order in freed_for:
             reach[order] = [index for index in reach[order] if index in freed_for[order]]
-    if most is not None and sum(len(indexes) for indexes in reach.values()) > most:
+    if most is not None and compared + sum(len(indexes) for indexes in reach.values()) > most:
         raise TooManyPairs()
     new_sets = {index: set(new_words[index]) for index in open_indexes}
 
@@ -529,10 +533,14 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
         # The file name (CMakeLists.txt, say) can claim a family the
         # extension would otherwise skip, so it is checked first.
         family = family_for(change.path)
+        old_family = family_for(change.base_path) if change.base_path else None
         if family is None:
             if not is_skipped(change.path):
                 not_checked.append(change.path)
-            continue
+            if old_family is None or change.base_path == change.path:
+                continue
+            # The file moved to a path with no comments that the gate reads: each old block is gone.
+            family, exists = old_family, False
         if is_link:
             try:
                 new_source = os.readlink(full_path)
@@ -547,7 +555,7 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
         else:
             new_source = ""
         old_source = git(top, "show", merge_base + ":" + change.base_path) if change.base_path else ""
-        old_family = (family_for(change.base_path) if change.base_path else None) or family
+        old_family = old_family or family
         new = scan(new_source, family)
         old = scan(old_source, old_family)
         try:

@@ -595,6 +595,16 @@ class CompareTest(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(statuses(old, new), [(gate.GREW, 1, 2, True)])
 
+    def test_the_limit_counts_the_comparisons_of_unchanged_blocks(self):
+        same = "".join("// remark %d\nfunc same%d() {}\n" % (n, n) for n in range(20))
+        old_edit = "".join("// note %d\nfunc edit%d() {}\n" % (n, n) for n in range(5))
+        new_edit = "".join("// note %d, changed\nfunc edit%d() {}\n" % (n, n) for n in range(5))
+        old = gate.scan(same + old_edit, gate.SLASH)
+        new = gate.scan(same + new_edit, gate.SLASH)
+        gate.pair(old, new, most=20 * 5 + 5 * 5)
+        with self.assertRaises(gate.TooManyPairs):
+            gate.pair(old, new, most=20 * 5 + 5 * 5 - 1)
+
     def test_common_anchor_text_pairs_blocks_in_order(self):
         # Each grown block keeps every word of both old blocks above the same
         # anchor, so every pairing scores the same and position decides. The
@@ -847,6 +857,17 @@ class RunTest(unittest.TestCase):
             [(f.path, f.status, f.flagged) for f in gate.run(self.repo.path, base).findings if f.path.startswith("pkg/")],
             [("pkg/file.go", gate.REMOVED, False)],
         )
+
+    def test_comment_of_a_file_renamed_to_a_type_with_no_comments_is_removed(self):
+        body = "".join("func step%d() {}\n" % n for n in range(20))
+        for target in ("old.md", "old.xyz"):
+            with self.subTest(target=target):
+                repo = Repository(self)
+                repo.write("old.go", OLD + body)
+                base = repo.commit("add old")
+                sh(repo.path, "git", "mv", "old.go", target)
+                report = gate.run(repo.path, base)
+                self.assertEqual([(f.path, f.status) for f in report.findings], [("old.go", gate.REMOVED)])
 
     def test_renamed_file_is_compared_with_its_base_path(self):
         body = "".join("func step%d() {}\n" % n for n in range(20))
