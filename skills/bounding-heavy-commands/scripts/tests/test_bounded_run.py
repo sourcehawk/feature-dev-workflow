@@ -590,6 +590,18 @@ class ExclusiveNameTest(unittest.TestCase):
             subprocess.run(git + ["-C", main, "worktree", "add", "--quiet", "--detach", other], check=True)
             self.assertEqual(bounded_run.repository_id(main), bounded_run.repository_id(other))
 
+    def test_a_git_call_that_takes_too_long_gives_an_error(self):
+        slow = subprocess.TimeoutExpired(["git"], 10)
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(bounded_run.subprocess, "run", side_effect=slow):
+            with self.assertRaisesRegex(bounded_run.WrapperError, "cannot find the repository of"):
+                bounded_run.repository_id(directory)
+
+    def test_a_machine_with_no_git_uses_the_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.object(bounded_run.subprocess, "run", side_effect=FileNotFoundError("git")):
+                without = bounded_run.repository_id(directory)
+            self.assertEqual(without, bounded_run.repository_id(directory))
+
     def test_two_directories_have_different_ids(self):
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
             self.assertNotEqual(bounded_run.repository_id(first), bounded_run.repository_id(second))

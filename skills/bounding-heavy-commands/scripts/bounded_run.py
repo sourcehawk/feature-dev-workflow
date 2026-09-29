@@ -287,8 +287,12 @@ def repository_id(directory: str) -> str:
         )
         if done.returncode == 0 and done.stdout.strip():
             root = os.path.realpath(os.path.join(directory, done.stdout.strip()))
-    except (OSError, subprocess.TimeoutExpired):
+    except FileNotFoundError:
+        # A machine with no git has no worktrees, so the directory names the repository.
         pass
+    except (OSError, subprocess.TimeoutExpired) as error:
+        # The directory in place of the repository gives each worktree a lock of its own.
+        raise WrapperError("cannot find the repository of %s: %s" % (directory, error))
     return hashlib.sha256(root.encode("utf-8")).hexdigest()[:12]
 
 
