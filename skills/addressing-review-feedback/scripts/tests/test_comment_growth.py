@@ -584,6 +584,17 @@ class CompareTest(unittest.TestCase):
         new = "// Blocks until every worker has stopped.\nfunc run() {}\n"
         self.assertEqual(statuses(old, new), [(gate.CHANGED, 1, 1, False)])
 
+    def test_one_of_two_identical_blocks_grows(self):
+        block = "\t// retry the call\n\tcall()\n"
+        grown = "\t// retry the call\n\t// hard\n\tcall()\n"
+        old = "func f() {\n" + block + "\tother()\n" + block + "}\n"
+        for name, new in (
+            ("the first", "func f() {\n" + grown + "\tother()\n" + block + "}\n"),
+            ("the second", "func f() {\n" + block + "\tother()\n" + grown + "}\n"),
+        ):
+            with self.subTest(name):
+                self.assertEqual(statuses(old, new), [(gate.GREW, 1, 2, True)])
+
     def test_common_anchor_text_pairs_blocks_in_order(self):
         # Each grown block keeps every word of both old blocks above the same
         # anchor, so every pairing scores the same and position decides. The
@@ -1046,6 +1057,25 @@ class RunTest(unittest.TestCase):
         self.repo.write("a.go", "package p\n\nfunc keep() {}\n")
         self.repo.write("b.go", "package p\n\nfunc other() {}\n\n" + retry)
         self.assertEqual(gate.run(self.repo.path, base).findings, ())
+
+    def test_file_with_too_many_changed_comments_is_not_checked(self):
+        count = 30
+        old = "".join("// remark %d about thing %d\nfunc f%d() {}\n" % (n, n, n) for n in range(count))
+        new = "".join("// remark %d about thing %d, changed\n// more\nfunc f%d() {}\n" % (n, n, n) for n in range(count))
+        self.repo.write("many.go", old)
+        self.repo.write("few.go", OLD)
+        base = self.repo.commit("add")
+        self.repo.write("many.go", new)
+        self.repo.write("few.go", GROWN)
+        with mock.patch.object(gate, "MOST_PAIRS_IN_FILE", count * count - 1):
+            report = gate.run(self.repo.path, base)
+        self.assertEqual(self.summary(report), [("few.go", gate.GREW, True)])
+        self.assertEqual(report.too_many, ("many.go",))
+        out = gate.render(report)
+        self.assertIn("     many.go  NOT CHECKED  too many comments to compare, read its diff", out)
+        self.assertIn("1 flagged, 1 listed, 0 removed, 1 not checked", out)
+        with mock.patch.object(gate, "MOST_PAIRS_IN_FILE", count * count):
+            self.assertEqual(len(gate.run(self.repo.path, base).findings), count + 1)
 
     def test_unknown_file_type_is_listed_as_not_checked(self):
         self.repo.write("rules.xyz", "?? a comment in a syntax the gate does not know\n")

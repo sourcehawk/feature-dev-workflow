@@ -250,6 +250,8 @@ KEPT_ACROSS_FILES = 0.5
 # The most pairs of blocks the pairing across files scores. Past it the
 # pairing across files does not run, so its time stays bounded, and the report says so.
 MOST_PAIRS_ACROSS_FILES = 150000
+# The same limit for the blocks of one file, which pair with no share of words to keep.
+MOST_PAIRS_IN_FILE = 150000
 
 _WORDS = re.compile(r"\w+")
 
@@ -341,7 +343,10 @@ def pair(
             and _similarity(block.anchor, new[other].anchor) >= SIMILAR_ANCHOR
             and _kept(words, new_words[other]) == 1.0
         }
-        if longer:
+        if longer and len(orders) > 1:
+            # One of several identical blocks of old is this copy. The others stay free for a longer block.
+            orders.remove(min(orders, key=lambda order: abs(order - index)))
+        elif longer:
             copies[index] = orders[0]
             freed_for.setdefault(orders[0], set()).update(longer)
         else:
@@ -496,6 +501,8 @@ def changed_files(top: str, merge_base: str) -> List[Change]:
 class Report:
     findings: Tuple[Finding, ...]
     not_checked: Tuple[str, ...]
+    # The files with more changed blocks than the gate compares.
+    too_many: Tuple[str, ...] = ()
     # (removed, added) block counts when the pairing across files did not run.
     not_paired_across_files: Optional[Tuple[int, int]] = None
 
@@ -510,6 +517,7 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
     # (change, new blocks, pairs, removed blocks) of each file that was compared.
     files: List[Tuple[Change, List[Block], Dict[int, Optional[Block]], List[Block]]] = []
     not_checked: List[str] = []
+    too_many: List[str] = []
     for change in changed_files(top, merge_base):
         full_path = os.path.join(top, change.path)
         # Git keeps the target of a symbolic link as the text of the file. The
@@ -541,7 +549,17 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
         old_source = git(top, "show", merge_base + ":" + change.base_path) if change.base_path else ""
         old_family = (family_for(change.base_path) if change.base_path else None) or family
         new = scan(new_source, family)
-        files.append((change, new, *_pair_blocks(scan(old_source, old_family), new)))
+        old = scan(old_source, old_family)
+        try:
+            pairs, removed = pair(old, new, most=MOST_PAIRS_IN_FILE)
+        except TooManyPairs:
+            too_many.append(change.path)
+            continue
+        files.append((
+            change, new,
+            {index: None if order is None else old[order] for index, order in pairs.items()},
+            [old[order] for order in removed],
+        ))
 
     # A block that moved to another file is still free on both sides after
     # the pairing inside each file, so the free blocks pair once more across files.
@@ -587,7 +605,7 @@ def run(cwd: str, base: str, user_facing: Sequence[str] = ()) -> Report:
             if exempt:
                 finding = replace(finding, flagged=False, user_facing=True)
             findings.append(finding)
-    return Report(tuple(findings), tuple(not_checked), not_paired)
+    return Report(tuple(findings), tuple(not_checked), tuple(too_many), not_paired)
 
 
 def render(report: Report) -> str:
@@ -606,6 +624,8 @@ def render(report: Report) -> str:
         )
     for path in report.not_checked:
         lines.append("     %s  NOT CHECKED  unknown file type, read its diff" % path)
+    for path in report.too_many:
+        lines.append("     %s  NOT CHECKED  too many comments to compare, read its diff" % path)
     if report.not_paired_across_files:
         lines.append(
             "     %d removed and %d added blocks NOT PAIRED ACROSS FILES, too many to compare; read their diff"
@@ -614,7 +634,7 @@ def render(report: Report) -> str:
     flagged = sum(1 for finding in report.findings if finding.flagged)
     removed = sum(1 for finding in report.findings if finding.status == REMOVED)
     summary = "%d flagged, %d listed, %d removed, %d not checked" % (
-        flagged, len(report.findings), removed, len(report.not_checked)
+        flagged, len(report.findings), removed, len(report.not_checked) + len(report.too_many)
     )
     if report.not_paired_across_files:
         summary += ", %d not paired across files" % sum(report.not_paired_across_files)
