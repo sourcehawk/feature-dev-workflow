@@ -94,6 +94,7 @@ Record the choice as `sub_pr_target: feature-branch` or `sub_pr_target: main`. T
   - **2+ independent tasks → drive the build task-by-task with review between tasks.** **REQUIRED SUB-SKILL:** `superpowers:subagent-driven-development`. The orchestrator (this session — the main loop, which *can* dispatch subagents) runs that skill's loop engine: a fresh implementer subagent per task with full task text handed in, then review, fix-loop, and continuous execution across all tasks. Two adaptations keep it consistent with the rest of this plugin:
     - **Per-task review is the `review` skill** (the same mechanism `feature-dev-workflow:fanning-out-with-worktrees` uses for sub-PRs), run by the orchestrator — not the implementer subagent that wrote the task. Run it as two scoped passes, spec-compliance first as a gate, then code quality; route findings back to the implementer and re-run until clean.
     - Each implementer subagent uses **`superpowers:test-driven-development`** + **`feature-dev-workflow:testing-a-feature`** for its task, and `feature-dev-workflow:writing-code-comments` for every comment the change adds, edits, or deletes, exactly as the direct path below.
+    - Each implementer subagent's prompt carries the bounded command line for every heavy command it will run, and the rule to use no other form. A subagent does not see the orchestrator's project memory. **REQUIRED SUB-SKILL:** `feature-dev-workflow:bounding-heavy-commands` (§Dispatching subagents).
 
     Why conditional: SDD's premise is independent tasks. Below that threshold the dispatch overhead and context hand-off cost more than they return, so the direct path is correct. This is the in-session analogue of the multi-PR fan-out — same "author and reviewer are different contexts" discipline, one PR instead of many.
 
@@ -102,6 +103,8 @@ Record the choice as `sub_pr_target: feature-branch` or `sub_pr_target: main`. T
     - **REQUIRED SUB-SKILL:** `feature-dev-workflow:testing-a-feature` for the assertion shape — black-box against the contract, not implementation.
 
   Either way: commits follow CLAUDE.md conventions (`<type>(<area>): <imperative summary> (#<feature-issue>)`), and you run the project's test and lint commands (and typecheck, if it has one) before claiming work is done. Discover them from the project's CLAUDE.md / AGENTS.md or its build config (Makefile, package.json, etc.).
+
+  **REQUIRED SUB-SKILL:** `feature-dev-workflow:bounding-heavy-commands` before you run any of them. Every test, lint, build, and typecheck command goes through its wrapper, whether or not this session looks alone: other sessions and other projects share the machine, and none of them can see the others.
 
   **REQUIRED SUB-SKILL:** `feature-dev-workflow:writing-code-comments` for every comment the change adds, edits, or deletes, on both single-PR build modes. It decides whether the comment exists and what it holds.
 

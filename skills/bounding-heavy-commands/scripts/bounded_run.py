@@ -1,0 +1,887 @@
+#!/usr/bin/env python3
+"""Runs a command under a memory reservation that every project of the user shares.
+
+Usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measure] -- COMMAND...
+
+The exit code is the exit code of the command. Exit code 125 means that this
+script failed before the command gave a result.
+
+A normal call sets none of the environment variables below. A person can
+set the tuning values in the profile of the shell, so that every session
+on the machine uses the same values. The tests of this script set the
+rest, and so do its maintainers when they look for a fault of the script.
+
+Do not set one of them for a single call. A call with its own slot size,
+reserve, or lock directory does not share the queue with the other
+sessions of the machine, and a call with no cap can take the memory of
+all of them.
+
+Tuning values, with their defaults:
+
+  BOUNDED_RUN_SLOT_MIB             size of one memory slot (default 2048)
+  BOUNDED_RUN_RESERVE_MIB          memory that the queue never gives out
+  BOUNDED_RUN_MEMORY_WAIT_SECONDS  time limit of the wait for free memory (default 300)
+
+Values for the tests of this script, and for its maintainers:
+
+  BOUNDED_RUN_TOTAL_MIB            memory of the machine, in place of the measured value
+  BOUNDED_RUN_POLL_SECONDS         time between two tries for the slots (default 2)
+  BOUNDED_RUN_SAMPLE_SECONDS       time between two memory samples (default 1)
+  BOUNDED_RUN_LOCK_DIR             directory of the lock files, as an absolute path
+  BOUNDED_RUN_NO_CAP               when set, do not apply the hard cap
+"""
+from __future__ import annotations
+
+import fcntl
+import hashlib
+import math
+import os
+import random
+import re
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import threading
+import time
+from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+
+try:
+    import ctypes
+except ImportError:
+    ctypes = None
+
+PREFIX = "bounded-run"
+EXIT_WRAPPER = 125
+ACTIVE_VARIABLE = "BOUNDED_RUN_ACTIVE"
+SLOT_MIB = 2048
+MINIMUM_RESERVE_MIB = 2048
+POLL_SECONDS = 2.0
+MEMORY_WAIT_SECONDS = 300.0
+SAMPLE_SECONDS = 1.0
+MARGIN_EXACT = 0.25
+MARGIN_APPROXIMATE = 0.5
+BUDGET_STEP_MIB = 256
+PR_SET_PDEATHSIG = 1
+USAGE = "usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measure] -- COMMAND..."
+
+
+class WrapperError(Exception):
+    """A failure of the wrapper, not of the command."""
+
+
+def log(message: str) -> None:
+    sys.stderr.write("%s: %s\n" % (PREFIX, message))
+    sys.stderr.flush()
+
+
+def parse_size_mib(text: str) -> int:
+    parts = re.match(r"^(\d+)([GgMm]?)$", text.strip())
+    if parts is None:
+        raise WrapperError("cannot read the size '%s'; use a form such as 6G or 4096M" % text)
+    value = int(parts.group(1))
+    if parts.group(2) in ("G", "g"):
+        value *= 1024
+    if value <= 0:
+        raise WrapperError("the size '%s' must be more than zero" % text)
+    return value
+
+
+def physical_memory_mib() -> int:
+    try:
+        return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") // (1024 * 1024)
+    except (ValueError, OSError):
+        pass
+    try:
+        done = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=10)
+        return int(done.stdout.strip()) // (1024 * 1024)
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        raise WrapperError("cannot read the memory of the machine: %s" % error)
+
+
+def _limits_upward(root: str, path: str, name: str) -> List[Tuple[int, str]]:
+    found = []
+    relative = path.strip("/")
+    while True:
+        directory = os.path.join(root, relative)
+        try:
+            with open(os.path.join(directory, name)) as handle:
+                found.append((int(handle.read().strip()), directory))
+        except (OSError, ValueError):
+            pass
+        if not relative:
+            return found
+        relative = os.path.dirname(relative)
+
+
+def _cgroup_limits(proc_root: str, cgroup_root: str) -> List[Tuple[int, str, str, str]]:
+    """Returns the memory limit in bytes of each level of the cgroup of this process, with the directory of
+    that level and the names of its use file and of the inactive file cache line in its memory.stat."""
+    try:
+        with open(os.path.join(proc_root, "self", "cgroup")) as handle:
+            text = handle.read()
+    except (OSError, ValueError):
+        return []
+    limits: List[Tuple[int, str, str, str]] = []
+    for line in text.splitlines():
+        parts = line.strip().split(":", 2)
+        if len(parts) != 3:
+            continue
+        if parts[0] == "0" and parts[1] == "":
+            for limit, directory in _limits_upward(cgroup_root, parts[2], "memory.max"):
+                limits.append((limit, directory, "memory.current", "inactive_file"))
+        elif "memory" in parts[1].split(","):
+            for limit, directory in _limits_upward(os.path.join(cgroup_root, "memory"), parts[2], "memory.limit_in_bytes"):
+                limits.append((limit, directory, "memory.usage_in_bytes", "total_inactive_file"))
+    return limits
+
+
+def cgroup_limit_mib(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[int]:
+    """Returns the smallest memory limit of the cgroup of this process and of its parents, or None."""
+    limits = _cgroup_limits(proc_root, cgroup_root)
+    return min(limits)[0] // (1024 * 1024) if limits else None
+
+
+def _level_available(limit: int, directory: str, use_name: str, inactive_name: str) -> Optional[int]:
+    try:
+        with open(os.path.join(directory, use_name)) as handle:
+            use = int(handle.read().strip())
+        with open(os.path.join(directory, "memory.stat")) as handle:
+            stat_text = handle.read()
+    except (OSError, ValueError):
+        return None
+    # The kernel takes back the inactive file cache when the cgroup reaches its limit, so that cache is not use.
+    for line in stat_text.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] == inactive_name and parts[1].isdigit():
+            return max(0, limit - max(0, use - int(parts[1]))) // (1024 * 1024)
+    return None
+
+
+def cgroup_available_mib(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[int]:
+    """Returns the smallest free memory of the cgroup of this process and of its parents: the limit of a
+    level less the use at that level. Returns None when the use at the smallest limit cannot be read."""
+    limits = _cgroup_limits(proc_root, cgroup_root)
+    if not limits:
+        return None
+    smallest = _level_available(*min(limits))
+    if smallest is None:
+        return None
+    others = [_level_available(*level) for level in limits]
+    return min([smallest] + [value for value in others if value is not None])
+
+
+def total_memory_mib(
+    proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup",
+    read_physical: Callable[[], int] = physical_memory_mib,
+) -> int:
+    """Returns the physical memory, or the memory limit of the cgroup of this process when that is smaller."""
+    physical = read_physical()
+    # Cgroup version 1 writes a number near 2**63 when the cgroup has no limit.
+    limit = cgroup_limit_mib(proc_root, cgroup_root)
+    return physical if limit is None else min(physical, limit)
+
+
+def default_reserve_mib(total_mib: int) -> int:
+    return max(MINIMUM_RESERVE_MIB, total_mib // 4)
+
+
+def slot_count(total_mib: int, slot_mib: int, reserve_mib: int) -> int:
+    return max(1, (total_mib - reserve_mib) // slot_mib)
+
+
+def queue_mib(total_mib: int, slot_mib: int, reserve_mib: int) -> int:
+    """Returns the most memory that the commands of the queue hold together."""
+    after_reserve = total_mib - reserve_mib
+    if after_reserve >= slot_mib:
+        return slot_count(total_mib, slot_mib, reserve_mib) * slot_mib
+    if after_reserve > 0:
+        return after_reserve
+    return max(1, min(total_mib, slot_mib))
+
+
+def slots_needed(budget_mib: int, slot_mib: int, count: int) -> int:
+    return min(count, max(1, -(-budget_mib // slot_mib)))
+
+
+def default_budget_mib(total_mib: int, slot_mib: int) -> int:
+    return max(1, min(total_mib, max(1, math.ceil(total_mib / 4 / slot_mib)) * slot_mib))
+
+
+class Settings:
+    def __init__(self, environ: Mapping[str, str], read_total: Callable[[], int] = total_memory_mib) -> None:
+        self.slot_mib = int(_number(environ, "BOUNDED_RUN_SLOT_MIB", SLOT_MIB))
+        total = environ.get("BOUNDED_RUN_TOTAL_MIB")
+        self.total_mib = int(_number(environ, "BOUNDED_RUN_TOTAL_MIB", 0)) if total else read_total()
+        self.reserve_mib = int(_number(environ, "BOUNDED_RUN_RESERVE_MIB", default_reserve_mib(self.total_mib)))
+        self.poll_seconds = _number(environ, "BOUNDED_RUN_POLL_SECONDS", POLL_SECONDS)
+        self.memory_wait_seconds = _number(environ, "BOUNDED_RUN_MEMORY_WAIT_SECONDS", MEMORY_WAIT_SECONDS)
+        self.sample_seconds = _number(environ, "BOUNDED_RUN_SAMPLE_SECONDS", SAMPLE_SECONDS)
+        self.no_cap = bool(environ.get("BOUNDED_RUN_NO_CAP"))
+        if self.slot_mib <= 0:
+            raise WrapperError("BOUNDED_RUN_SLOT_MIB must be more than zero")
+        # A loop that sleeps for zero seconds never ends its wait and takes a full processor.
+        if self.poll_seconds <= 0:
+            raise WrapperError("BOUNDED_RUN_POLL_SECONDS must be more than zero")
+        if self.sample_seconds <= 0:
+            raise WrapperError("BOUNDED_RUN_SAMPLE_SECONDS must be more than zero")
+
+
+def _number(environ: Mapping[str, str], name: str, fallback: float) -> float:
+    text = environ.get(name)
+    if text is None or text == "":
+        return fallback
+    try:
+        value = float(text)
+    except ValueError:
+        raise WrapperError("cannot read %s='%s'; use a number" % (name, text))
+    if not math.isfinite(value):
+        raise WrapperError("cannot read %s='%s'; use a number" % (name, text))
+    if value < 0:
+        raise WrapperError("%s must not be less than zero" % name)
+    return value
+
+
+def lock_directory(environ: Mapping[str, str], uid: int) -> str:
+    override = environ.get("BOUNDED_RUN_LOCK_DIR")
+    if override:
+        if not os.path.isabs(override):
+            raise WrapperError("cannot use BOUNDED_RUN_LOCK_DIR='%s'; use an absolute path" % override)
+        return override
+    runtime = environ.get("XDG_RUNTIME_DIR")
+    if runtime and os.path.isabs(runtime):
+        return os.path.join(runtime, PREFIX)
+    login_directory = "/run/user/%d" % uid
+    try:
+        if os.stat(login_directory).st_uid == uid:
+            return os.path.join(login_directory, PREFIX)
+    except OSError:
+        pass
+    return "/tmp/%s-%d" % (PREFIX, uid)
+
+
+def ensure_lock_directory(path: str, uid: int) -> None:
+    try:
+        os.makedirs(path, mode=0o700, exist_ok=True)
+        info = os.lstat(path)
+    except OSError as error:
+        raise WrapperError("cannot use the lock directory %s: %s" % (path, error))
+    if not stat.S_ISDIR(info.st_mode):
+        raise WrapperError("the lock directory %s is not a directory" % path)
+    if info.st_uid != uid:
+        raise WrapperError("the lock directory %s belongs to a different user" % path)
+    if stat.S_IMODE(info.st_mode) & 0o077:
+        try:
+            os.chmod(path, 0o700)
+        except OSError as error:
+            raise WrapperError("cannot use the lock directory %s: %s" % (path, error))
+
+
+def repository_id(directory: str) -> str:
+    root = os.path.realpath(directory)
+    try:
+        done = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=directory, capture_output=True, text=True, timeout=10,
+            env=dict(os.environ, LC_ALL="C", LANGUAGE="C"),
+        )
+        if done.returncode == 0 and done.stdout.strip():
+            root = os.path.realpath(os.path.join(directory, done.stdout.strip()))
+        elif "not a git repository" not in done.stderr:
+            # A fault of git in a worktree must not give that worktree a lock of its own.
+            lines = done.stderr.strip().splitlines()
+            raise WrapperError("cannot find the repository of %s: %s" % (directory, lines[0] if lines else "git gave no answer"))
+    except FileNotFoundError:
+        # A machine with no git has no worktrees, so the directory names the repository.
+        pass
+    except (OSError, subprocess.TimeoutExpired) as error:
+        # The directory in place of the repository gives each worktree a lock of its own.
+        raise WrapperError("cannot find the repository of %s: %s" % (directory, error))
+    return hashlib.sha256(root.encode("utf-8")).hexdigest()[:12]
+
+
+def exclusive_file_name(repository: str, name: str) -> str:
+    if re.match(r"^[A-Za-z0-9._-]+$", name) is None:
+        raise WrapperError("cannot use the name '%s'; use letters, digits, '.', '_' and '-'" % name)
+    return "exclusive-%s-%s.lock" % (repository, name)
+
+
+class Reservation:
+    def __init__(self, descriptors: Sequence[int]) -> None:
+        self.descriptors = list(descriptors)
+
+    def release(self) -> None:
+        for descriptor in self.descriptors:
+            os.close(descriptor)
+        self.descriptors = []
+
+
+def _open_lock_file(path: str) -> int:
+    try:
+        return os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    except OSError as error:
+        raise WrapperError("cannot open %s: %s" % (path, error.strerror if error.strerror else error))
+
+
+def _is_the_file_at(path: str, descriptor: int) -> bool:
+    try:
+        return os.path.samestat(os.stat(path), os.fstat(descriptor))
+    except OSError:
+        return False
+
+
+def _refresh(descriptor: int) -> None:
+    # A cleaner of a temporary directory deletes a file by its age, also while a lock is held on it.
+    try:
+        os.utime(descriptor)
+    except (OSError, TypeError, NotImplementedError):
+        pass
+
+
+def _lock(path: str, wait: bool) -> Optional[int]:
+    """Locks the file that the path names now. Returns None when wait is false and the lock is held."""
+    while True:
+        descriptor = _open_lock_file(path)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(descriptor)
+            return None
+        except OSError as error:
+            os.close(descriptor)
+            raise _lock_error(path, error)
+        except BaseException:
+            os.close(descriptor)
+            raise
+        # A file that was deleted after the open is locked by this process only: the next caller makes a new one.
+        if _is_the_file_at(path, descriptor):
+            _refresh(descriptor)
+            return descriptor
+        os.close(descriptor)
+
+
+def _try_lock(path: str) -> Optional[int]:
+    return _lock(path, wait=False)
+
+
+def _lock_error(path: str, error: OSError) -> WrapperError:
+    error_text = error.strerror if error.strerror else str(error)
+    return WrapperError("cannot lock %s: %s. The lock directory must be on a filesystem that supports file locks." % (path, error_text))
+
+
+def try_reserve(directory: str, count: int, needed: int, exclusive_files: Sequence[str]) -> Optional[Reservation]:
+    turn_path = os.path.join(directory, "reserve.lock")
+    turn = _lock(turn_path, wait=True)
+    held: List[int] = []
+    try:
+        names = list(exclusive_files) + ["slot-%03d.lock" % index for index in range(count)]
+        slots = 0
+        for position, name in enumerate(names):
+            is_slot = position >= len(exclusive_files)
+            if is_slot and slots == needed:
+                break
+            descriptor = _try_lock(os.path.join(directory, name))
+            if descriptor is None:
+                if is_slot:
+                    continue
+                break
+            held.append(descriptor)
+            if is_slot:
+                slots += 1
+        if slots == needed and len(held) == needed + len(exclusive_files):
+            reservation = Reservation(held)
+            held = []
+            return reservation
+        return None
+    finally:
+        for descriptor in held:
+            os.close(descriptor)
+        os.close(turn)
+
+
+def reserve(
+    directory: str, count: int, needed: int, exclusive_files: Sequence[str], poll_seconds: float,
+    sleep: Callable[[float], None] = time.sleep,
+) -> Reservation:
+    announced = False
+    while True:
+        reservation = try_reserve(directory, count, needed, exclusive_files)
+        if reservation is not None:
+            log("holding %d of %d slot(s)" % (needed, count))
+            return reservation
+        if not announced:
+            log("waiting for %d of %d slot(s)" % (needed, count))
+            announced = True
+        sleep(poll_seconds * (0.5 + random.random()))
+
+
+def parse_meminfo(text: str) -> Optional[int]:
+    for line in text.splitlines():
+        if line.startswith("MemAvailable:"):
+            return int(line.split()[1]) // 1024
+    return None
+
+
+def parse_vm_stat(text: str) -> Optional[int]:
+    page = None
+    pages = 0
+    for line in text.splitlines():
+        size = re.search(r"page size of (\d+) bytes", line)
+        if size is not None:
+            page = int(size.group(1))
+        counted = re.match(r"^Pages (free|inactive|speculative):\s+(\d+)\.", line)
+        if counted is not None:
+            pages += int(counted.group(2))
+    if page is None:
+        return None
+    return pages * page // (1024 * 1024)
+
+
+def available_memory_mib(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[int]:
+    """Returns the free memory of the machine, or the free memory of the cgroup of this process when that is smaller."""
+    try:
+        with open(os.path.join(proc_root, "meminfo")) as handle:
+            meminfo = handle.read()
+    except OSError:
+        try:
+            done = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return parse_vm_stat(done.stdout)
+    found = [value for value in (parse_meminfo(meminfo), cgroup_available_mib(proc_root, cgroup_root)) if value is not None]
+    return min(found) if found else None
+
+
+def wait_for_memory(
+    budget_mib: int, limit_seconds: float, poll_seconds: float,
+    read_available: Callable[[], Optional[int]] = available_memory_mib,
+    sleep: Callable[[float], None] = time.sleep,
+) -> bool:
+    waited = 0.0
+    while True:
+        available = read_available()
+        if available is None:
+            log("cannot read the free memory; starting")
+            return True
+        if available >= budget_mib:
+            log("%d MiB free, budget %d MiB; starting" % (available, budget_mib))
+            return True
+        if waited >= limit_seconds:
+            log("WARNING: only %d MiB free after %ds, budget %d MiB; starting" % (available, waited, budget_mib))
+            return False
+        log("%d MiB free, budget %d MiB; waiting (%d of %ds)" % (available, budget_mib, waited, limit_seconds))
+        sleep(poll_seconds)
+        waited += poll_seconds
+
+
+def cap_prefix(budget_mib: int, cpus: Optional[int], unit: str, oom_policy: bool = True) -> List[str]:
+    prefix = [
+        "systemd-run", "--user", "--scope", "--quiet", "--collect", "--unit", unit,
+        "-p", "MemoryMax=%dM" % budget_mib,
+        "-p", "MemorySwapMax=0",
+    ]
+    if oom_policy:
+        prefix += ["-p", "OOMPolicy=continue"]
+    if cpus is not None:
+        prefix += ["-p", "CPUQuota=%d%%" % (cpus * 100)]
+    return prefix + ["--"]
+
+
+def cap_usable(
+    prefix: Sequence[str], platform: str = sys.platform,
+    which: Callable[[str], Optional[str]] = shutil.which,
+    run: Callable[..., "subprocess.CompletedProcess"] = subprocess.run,
+) -> bool:
+    if not platform.startswith("linux") or which("systemd-run") is None:
+        return False
+    try:
+        done = run(list(prefix) + ["true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return done.returncode == 0
+
+
+def choose_cap_prefix(
+    budget_mib: int, cpus: Optional[int], unit: str,
+    usable: Callable[[Sequence[str]], bool],
+) -> Optional[List[str]]:
+    """Returns the prefix of the hard cap for the unit, or None when no cap is usable here."""
+    # A scope unit accepts OOMPolicy= from systemd 253; an older systemd rejects the whole prefix.
+    for oom_policy in (True, False):
+        if usable(cap_prefix(budget_mib, cpus, unit + "-probe", oom_policy)):
+            return cap_prefix(budget_mib, cpus, unit, oom_policy)
+    return None
+
+
+def cgroup_directory(pid: int, unit: str, proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[str]:
+    try:
+        with open(os.path.join(proc_root, str(pid), "cgroup")) as handle:
+            text = handle.read()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith("0::") and line.strip().endswith("/%s.scope" % unit):
+            return cgroup_root + line.strip()[3:]
+    return None
+
+
+def cgroup_peak_mib(directory: str, names: Sequence[str] = ("memory.peak", "memory.current")) -> Optional[int]:
+    for name in names:
+        try:
+            with open(os.path.join(directory, name)) as handle:
+                return math.ceil(int(handle.read().strip()) / (1024 * 1024))
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def parse_group_rss_mib(text: str, group: int) -> Optional[int]:
+    total = 0
+    found = False
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] == str(group) and parts[1].isdigit():
+            total += int(parts[1])
+            found = True
+    if not found:
+        return None
+    return math.ceil(total / 1024)
+
+
+def group_rss_mib(group: int) -> Optional[int]:
+    try:
+        done = subprocess.run(["ps", "-A", "-o", "pgid=", "-o", "rss="], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return parse_group_rss_mib(done.stdout, group)
+
+
+def rusage_peak_mib(maxrss: int, platform: str = sys.platform) -> int:
+    if platform == "darwin":
+        return math.ceil(maxrss / (1024 * 1024))
+    return math.ceil(maxrss / 1024)
+
+
+def suggested_budget_mib(peak_mib: int, approximate: bool) -> int:
+    margin = MARGIN_APPROXIMATE if approximate else MARGIN_EXACT
+    return max(1, math.ceil(peak_mib * (1 + margin) / BUDGET_STEP_MIB)) * BUDGET_STEP_MIB
+
+
+class PeakTracker(threading.Thread):
+    def __init__(self, read_sample: Callable[[], Optional[int]], interval: float) -> None:
+        super().__init__(daemon=True)
+        self.read_sample = read_sample
+        self.interval = interval
+        self.peak: Optional[int] = None
+        self.done = threading.Event()
+
+    def run(self) -> None:
+        while True:
+            self.sample()
+            if self.done.wait(self.interval):
+                return
+
+    def sample(self) -> None:
+        try:
+            value = self.read_sample()
+        except Exception:
+            value = None
+        if value is not None and (self.peak is None or value > self.peak):
+            self.peak = value
+
+    def finish(self) -> Optional[int]:
+        self.done.set()
+        self.join(timeout=15)
+        return self.peak
+
+
+def exit_code_of(status: int) -> int:
+    code = os.waitstatus_to_exitcode(status)
+    if code < 0:
+        return 128 - code
+    return code
+
+
+def parent_death_signal(platform: str = sys.platform) -> Optional[Callable[[], None]]:
+    """Returns a preexec_fn that makes the kernel kill the child when this process stops, or None where no such call exists.
+
+    The kernel ties the signal to the thread that starts the child, and preexec_fn is safe only
+    while this process has no other thread: call Popen from the main thread before a tracker starts.
+    """
+    # macOS has no parent-death signal: there a command lives on after a hard kill of the wrapper.
+    if ctypes is None or not platform.startswith("linux"):
+        return None
+    try:
+        prctl = ctypes.CDLL(None, use_errno=True).prctl
+    except (OSError, AttributeError):
+        return None
+    parent = os.getpid()
+    kill = int(signal.SIGKILL)
+
+    def set_signal() -> None:
+        if prctl(PR_SET_PDEATHSIG, kill, 0, 0, 0) != 0:
+            os.write(2, ("%s: WARNING: cannot set the parent-death signal; the command lives on after a hard kill of the wrapper\n" % PREFIX).encode())
+        # A parent that stopped before the call sends no signal; the child then has a new parent.
+        if os.getppid() != parent:
+            os._exit(EXIT_WRAPPER)
+
+    return set_signal
+
+
+def _group_runs(group: int) -> bool:
+    try:
+        os.killpg(group, 0)
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def run_command(
+    command: Sequence[str], environ: Mapping[str, str],
+    on_start: Optional[Callable[[int], None]] = None,
+) -> Tuple[int, int]:
+    """Runs the command in its own process group. Returns the exit code and ru_maxrss."""
+    received: List[int] = []
+    started: List[int] = []
+
+    def forward(signum: int, frame: object) -> None:
+        received.append(signum)
+        if started:
+            try:
+                os.killpg(started[0], signum if len(received) == 1 else signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    previous = {signum: signal.signal(signum, forward) for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    try:
+        try:
+            process = subprocess.Popen(list(command), env=dict(environ), start_new_session=True, preexec_fn=parent_death_signal())
+        except OSError as error:
+            raise WrapperError("cannot start '%s': %s" % (command[0], error))
+        started.append(process.pid)
+        try:
+            if received:
+                try:
+                    os.killpg(process.pid, received[0] if len(received) == 1 else signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+            if on_start is not None:
+                on_start(process.pid)
+            _, status, usage = os.wait4(process.pid, 0)
+        except BaseException:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            try:
+                os.waitpid(process.pid, 0)
+            except ChildProcessError:
+                pass
+            raise
+        process.returncode = exit_code_of(status)
+        if not received and _group_runs(process.pid):
+            log("WARNING: the command left a process that still runs; the queue does not count its memory")
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+    if received:
+        return 128 + received[0], usage.ru_maxrss
+    return process.returncode, usage.ru_maxrss
+
+
+def inside_cap(
+    peak_file: str, unit: str, command: Sequence[str],
+    proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup",
+) -> int:
+    """Runs the command as a child in the cgroup of the cap, then writes the peak of that cgroup.
+
+    The cgroup exists for as long as this process is in it. Thus the peak is readable after the
+    command stops, which is not possible from outside the cgroup.
+    """
+    def keep_running(signum: int, frame: object) -> None:
+        pass
+
+    previous = {signum: signal.signal(signum, keep_running) for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    try:
+        try:
+            process = subprocess.Popen(list(command), preexec_fn=parent_death_signal())
+        except OSError as error:
+            log("cannot start '%s': %s" % (command[0], error))
+            return EXIT_WRAPPER
+        _, status = os.waitpid(process.pid, 0)
+        process.returncode = exit_code_of(status)
+        # After the kernel kills a process of the scope for memory, systemd can stop the scope with SIGTERM.
+        directory = cgroup_directory(os.getpid(), unit, proc_root, cgroup_root)
+        peak = cgroup_peak_mib(directory, names=("memory.peak",)) if directory is not None else None
+        if peak is not None:
+            try:
+                with open(peak_file, "w") as handle:
+                    handle.write("%d\n" % peak)
+            except OSError:
+                pass
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+    return process.returncode
+
+
+def read_peak_file(path: str) -> Optional[int]:
+    try:
+        with open(path) as handle:
+            text = handle.read().strip()
+        os.unlink(path)
+    except OSError:
+        return None
+    return int(text) if text.isdigit() else None
+
+
+class Options:
+    def __init__(self) -> None:
+        self.memory: Optional[str] = None
+        self.cpus: Optional[int] = None
+        self.exclusive: List[str] = []
+        self.measure = False
+        self.command: List[str] = []
+
+
+def parse_arguments(argv: Sequence[str]) -> Options:
+    options = Options()
+    arguments = list(argv)
+    if "--" not in arguments:
+        raise WrapperError("the '--' before the command is missing\n" + USAGE)
+    split = arguments.index("--")
+    options.command = arguments[split + 1:]
+    if not options.command:
+        raise WrapperError("the command is missing\n" + USAGE)
+    flags = arguments[:split]
+    while flags:
+        flag = flags.pop(0)
+        if flag == "--measure":
+            options.measure = True
+            continue
+        if flag not in ("--memory", "--cpus", "--exclusive"):
+            raise WrapperError("cannot read the option '%s'\n%s" % (flag, USAGE))
+        if not flags:
+            raise WrapperError("the option '%s' needs a value\n%s" % (flag, USAGE))
+        value = flags.pop(0)
+        if flag == "--memory":
+            options.memory = value
+        elif flag == "--exclusive":
+            if value not in options.exclusive:
+                options.exclusive.append(value)
+        else:
+            if not value.isdigit() or int(value) < 1:
+                raise WrapperError("cannot read --cpus '%s'; use a whole number of 1 or more" % value)
+            options.cpus = int(value)
+    return options
+
+
+def bounded(options: Options, environ: Mapping[str, str]) -> int:
+    settings = Settings(environ)
+    if options.memory is not None:
+        budget = parse_size_mib(options.memory)
+    else:
+        budget = default_budget_mib(settings.total_mib, settings.slot_mib)
+    command = list(options.command)
+    if shutil.which(command[0], path=environ.get("PATH")) is None:
+        raise WrapperError("cannot start '%s': the command does not exist" % command[0])
+
+    count = slot_count(settings.total_mib, settings.slot_mib, settings.reserve_mib)
+    needed = slots_needed(budget, settings.slot_mib, count)
+    if settings.reserve_mib >= settings.total_mib:
+        log("WARNING: the reserve of %d MiB leaves no memory of the %d MiB of the machine; the queue does not keep the reserve" % (settings.reserve_mib, settings.total_mib))
+    most = queue_mib(settings.total_mib, settings.slot_mib, settings.reserve_mib)
+    if budget > most:
+        log("WARNING: the budget of %d MiB is more than the %d MiB of the queue; the budget is %d MiB" % (budget, most, most))
+        budget = most
+    uid = os.getuid()
+    directory = lock_directory(environ, uid)
+    ensure_lock_directory(directory, uid)
+    repository = ""
+    if options.exclusive:
+        try:
+            repository = repository_id(os.getcwd())
+        except OSError as error:
+            raise WrapperError("cannot read the working directory for --exclusive: %s" % error)
+    exclusive_files = [exclusive_file_name(repository, name) for name in options.exclusive]
+
+    unit = "%s-%d-%06x" % (PREFIX, os.getpid(), random.randrange(16 ** 6))
+    prefix = None if settings.no_cap else choose_cap_prefix(budget, options.cpus, unit, cap_usable)
+    capped = prefix is not None
+    peak_file = os.path.join(directory, "peak-%s" % unit)
+    if prefix is not None:
+        inside = [sys.executable, os.path.abspath(__file__), "--inside-cap", peak_file, unit, "--"]
+        command = prefix + inside + command
+    else:
+        log("no hard cap is available here; the queue and the wait for free memory are the full protection")
+
+    child_environ: Dict[str, str] = dict(environ)
+    child_environ[ACTIVE_VARIABLE] = "1"
+    child_environ["BOUNDED_RUN_MEMORY_MIB"] = str(budget)
+    child_environ["BOUNDED_RUN_CPUS"] = str(options.cpus if options.cpus is not None else (os.cpu_count() or 1))
+
+    trackers: List[PeakTracker] = []
+
+    def start_tracker(pid: int) -> None:
+        if capped:
+            def read_sample() -> Optional[int]:
+                found = cgroup_directory(pid, unit)
+                return cgroup_peak_mib(found) if found is not None else None
+            interval = min(settings.sample_seconds, 0.5)
+        else:
+            def read_sample() -> Optional[int]:
+                return group_rss_mib(pid)
+            interval = settings.sample_seconds
+        tracker = PeakTracker(read_sample, interval)
+        tracker.start()
+        trackers.append(tracker)
+
+    reported: Optional[int] = None
+    reservation = reserve(directory, count, needed, exclusive_files, settings.poll_seconds)
+    try:
+        wait_for_memory(budget, settings.memory_wait_seconds, settings.poll_seconds)
+        code, maxrss = run_command(command, child_environ, start_tracker)
+        tracked = trackers[0].finish() if trackers else None
+    finally:
+        if capped:
+            reported = read_peak_file(peak_file)
+        reservation.release()
+
+    exact = reported is not None
+    peak = max(reported or tracked or 0, rusage_peak_mib(maxrss))
+    log("budget %d MiB, peak %d MiB (%s), exit %d" % (budget, peak, "cgroup" if exact else "sampled, approximate", code))
+    if capped and code == 137:
+        log("the command was killed; if the peak is near the budget, the hard cap stopped it")
+    if options.measure:
+        log("suggested budget %d MiB" % suggested_budget_mib(peak, not exact))
+    return code
+
+
+def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, str]] = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    variables = os.environ if environ is None else environ
+    try:
+        if len(arguments) > 4 and arguments[0] == "--inside-cap" and arguments[3] == "--":
+            return inside_cap(arguments[1], arguments[2], arguments[4:])
+        options = parse_arguments(arguments)
+        if variables.get(ACTIVE_VARIABLE):
+            log("nested call; running the command directly")
+            try:
+                os.execvpe(options.command[0], options.command, dict(variables))
+            except OSError as error:
+                raise WrapperError("cannot start '%s': %s" % (options.command[0], error))
+        try:
+            return bounded(options, variables)
+        except KeyboardInterrupt:
+            log("interrupted while waiting")
+            return 130
+    except WrapperError as error:
+        log(str(error))
+        return EXIT_WRAPPER
+
+
+if __name__ == "__main__":
+    sys.exit(main())

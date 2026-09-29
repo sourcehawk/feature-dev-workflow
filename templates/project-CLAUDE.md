@@ -17,7 +17,7 @@ flowchart TD
     Shape -->|single PR| IssueOne[File one issue<br/>feature or bug]
     IssueOne --> PlanS[Write the plan<br/>ordered tasks · dependencies]
     PlanS --> Build[Implement directly<br/>test-first · one commit per task]
-    Build --> VerifyS[Verify green<br/>tests · lint · typecheck]
+    Build --> VerifyS[Verify green<br/>tests · lint · typecheck<br/>each through the memory queue]
     VerifyS --> PR1[Open PR → main<br/>Fixes / Closes the issue]
 
     Shape -->|many PRs| Epic[File an epic<br/>+ one sub-issue per PR, linked]
@@ -27,7 +27,7 @@ flowchart TD
     Wave --> Merge[Orchestrator reviews each sub-PR,<br/>merges it, closes its sub-issue]
     Merge --> Done{All sub-PRs<br/>merged?}
     Done -->|next wave| Wave
-    Done -->|yes| VerifyM[Verify the integrated branch<br/>green end to end]
+    Done -->|yes| VerifyM[Verify the integrated branch<br/>green end to end, through the memory queue]
     VerifyM --> PR2[Open the integration PR<br/>feature → main · Closes the epic]
 
     PR1 --> Ship([External review → act on the feedback,<br/>comments checked for growth → merge<br/>plan + state torn down in the same diff])
@@ -48,6 +48,7 @@ Invoke `feature-dev-workflow:planning-a-feature` at conception. It and the `**RE
 | Code comments and doc comments (whether one exists, and what it holds) | `feature-dev-workflow:writing-code-comments` |
 | Public-facing docs for what the feature changed (once structurally complete) | `feature-dev-workflow:writing-docs` |
 | Verify-before-done | `superpowers:verification-before-completion` |
+| Run tests, lint, builds, and other heavy commands without exhausting the machine | `feature-dev-workflow:bounding-heavy-commands` |
 | Open / flip pull requests | `feature-dev-workflow:opening-a-pull-request` |
 | Loop a PR through automated (Copilot) review until clean (opt-in) | `feature-dev-workflow:copilot-review-loop` |
 | Act on review feedback without growing comments into a second account of the code (every round of a review) | `feature-dev-workflow:addressing-review-feedback` |
