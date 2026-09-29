@@ -36,6 +36,7 @@ It is also the faster path. Breaking the feature into independent PRs lets the m
 | `testing-a-feature` | Writing tests for any non-trivial change. Decides the assertion shape (black-box against the contract). |
 | `testing-end-to-end` | A structurally-complete feature introduces a new user- or consumer-visible flow. Decides which flows earn an end-to-end test and what each asserts (golden path, not edge cases). |
 | `writing-code-comments` | About to write, edit, or delete a comment in source code. Decides whether the comment exists and what it holds: the contract for a doc comment, and the fact that the code cannot show for an inline comment. |
+| `addressing-review-feedback` | About to act on review feedback, and before each push of a review fix. Keeps a review round from growing comments into a second account of the code: a script flags each comment that grew, and a fresh agent that does not see the finding judges it. |
 | `writing-docs` | A structurally-complete feature changed public-facing docs (README, usage guide, tutorial, API/reference). Writes them to an OSS-grade bar and verifies a reader can use them via a fresh-reader test; defers docstrings, release notes, and specs to their owning skills. |
 | `opening-a-pull-request` | About to `gh pr create`/`edit`. Draft and ready body templates, issue-linking keywords. |
 | `maintaining-architectural-coherence` | Work split across PRs/agents/waves must read as one author. Invoked when agreeing conventions before parallel work, and when reviewing the merged union for structural, interface, naming, and vocabulary drift. |
@@ -70,7 +71,7 @@ flowchart TD
     Done -->|yes| VerifyM[Verify the integrated branch<br/>green end to end, through the memory queue]
     VerifyM --> PR2[Open the integration PR<br/>feature → main · Closes the epic]
 
-    PR1 --> Ship([External review → merge<br/>plan + state torn down in the same diff])
+    PR1 --> Ship([External review → act on the feedback,<br/>comments checked for growth → merge<br/>plan + state torn down in the same diff])
     PR2 --> Ship
 ```
 
