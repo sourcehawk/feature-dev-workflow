@@ -62,6 +62,7 @@ MINIMUM_HEADROOM_MIB = 1024
 POLL_SECONDS = 2.0
 MEMORY_WAIT_SECONDS = 300.0
 SAMPLE_SECONDS = 1.0
+SCOPE_WAIT_SECONDS = 5.0
 MARGIN_EXACT = 0.25
 MARGIN_APPROXIMATE = 0.5
 BUDGET_STEP_MIB = 256
@@ -471,15 +472,19 @@ def wait_for_memory(
     read_available: Callable[[], Optional[int]] = available_memory_mib,
     read_outstanding: Callable[[], Optional[int]] = lambda: None,
     sleep: Callable[[float], None] = time.sleep,
+    lock: Callable[[], None] = lambda: None,
+    unlock: Callable[[], None] = lambda: None,
 ) -> None:
     """Returns when the free memory, less the unused budgets of running commands and the headroom, holds the budget.
 
     There is no time limit, so the call can block for as long as the machine is full. Returns at once when
     the free memory cannot be read. read_outstanding gives None where the unused budgets cannot be counted.
+    The call returns with lock held: the caller calls unlock once the new command counts in read_outstanding.
     """
     waited = 0.0
     next_line = 0.0
     while True:
+        lock()
         available = read_available()
         if available is None:
             log("cannot read the free memory; starting")
@@ -493,6 +498,7 @@ def wait_for_memory(
         if waited >= next_line:
             log(state + ("; waiting" if waited == 0 else "; still waiting after %ds" % waited))
             next_line = waited + interval_seconds
+        unlock()
         sleep(poll_seconds)
         waited += poll_seconds
 
@@ -589,6 +595,18 @@ def unused_budget_mib(parent: str, skip: Sequence[str]) -> int:
             # A scope ends between the listing and the read.
             continue
     return unused // (1024 * 1024)
+
+
+def wait_for_scope(parent: str, unit: str, limit_seconds: float, sleep: Callable[[float], None] = time.sleep) -> bool:
+    """Returns True when the scope of the unit is in parent, or False when it is not there after limit_seconds."""
+    path = os.path.join(parent, unit + ".scope")
+    waited = 0.0
+    while not os.path.isdir(path):
+        if waited >= limit_seconds:
+            return False
+        sleep(0.02)
+        waited += 0.02
+    return True
 
 
 def cgroup_directory(pid: int, unit: str, proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[str]:
@@ -946,6 +964,26 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
         tracker.start()
         trackers.append(tracker)
 
+    # Without one lock over the check and the start, two wrappers with different slots both pass the check before either scope counts.
+    memory_lock_path = os.path.join(directory, "memory.lock")
+    memory_lock: List[int] = []
+
+    def lock_memory() -> None:
+        descriptor = _lock(memory_lock_path, wait=True)
+        if descriptor is not None:
+            memory_lock.append(descriptor)
+
+    def unlock_memory() -> None:
+        while memory_lock:
+            os.close(memory_lock.pop())
+
+    def on_start(pid: int) -> None:
+        start_tracker(pid)
+        if scopes is not None and memory_lock:
+            if not wait_for_scope(scopes, unit, SCOPE_WAIT_SECONDS):
+                log("the scope of the command did not appear after %ds; the next command may not count its budget" % SCOPE_WAIT_SECONDS)
+        unlock_memory()
+
     reported: Optional[int] = None
     reservation = reserve(directory, count, needed, exclusive_files, settings.poll_seconds)
     try:
@@ -953,10 +991,12 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
             wait_budget, settings.memory_wait_seconds, settings.poll_seconds,
             headroom_mib=headroom_mib(settings.total_mib, wait_budget, most),
             read_available=read_available, read_outstanding=read_outstanding,
+            lock=lock_memory, unlock=unlock_memory,
         )
-        code, maxrss = run_command(command, child_environ, start_tracker)
+        code, maxrss = run_command(command, child_environ, on_start)
         tracked = trackers[0].finish() if trackers else None
     finally:
+        unlock_memory()
         if capped:
             reported = read_peak_file(peak_file)
         reservation.release()

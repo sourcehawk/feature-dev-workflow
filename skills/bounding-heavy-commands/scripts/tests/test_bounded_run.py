@@ -9,6 +9,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -793,6 +794,20 @@ class MemoryWaitTest(unittest.TestCase):
         self.assertEqual(self.wait([None], 300), [])
         self.assertEqual(self.lines(), ["cannot read the free memory; starting"])
 
+    def test_each_reading_holds_the_lock_and_the_call_returns_with_it_held(self):
+        events = []
+        readings = [1000, 5000]
+
+        def read():
+            events.append("read")
+            return readings.pop(0)
+
+        bounded_run.wait_for_memory(
+            4096, 300, 5.0, read_available=read, sleep=lambda seconds: events.append("sleep"),
+            lock=lambda: events.append("lock"), unlock=lambda: events.append("unlock"),
+        )
+        self.assertEqual(events, ["lock", "read", "unlock", "sleep", "lock", "read"])
+
     def test_the_headroom_is_not_given_out(self):
         self.assertEqual(self.wait([5000, 5200], 300, headroom=1024), [5.0])
 
@@ -1504,6 +1519,59 @@ class BoundedCleanupTest(unittest.TestCase):
         self.assertIn("bounded-run-2-111111.scope", skip)
         self.assertTrue(any(re.match(r"^bounded-run-%d-[0-9a-f]{6}\.scope$" % os.getpid(), name) for name in skip), skip)
 
+    def run_with_scopes(self, appear_after):
+        """Runs bounded() with a capped command whose scope appears in a temporary slice after appear_after seconds, or never when None.
+
+        Returns whether the memory lock was free while the scope did not exist yet, and whether it was free when the command started.
+        """
+        scopes = os.path.join(self.base.name, "slice")
+        os.makedirs(scopes)
+        lock_path = os.path.join(self.directory, "memory.lock")
+        free = {}
+
+        def lock_is_free():
+            descriptor = bounded_run._try_lock(lock_path)
+            if descriptor is None:
+                return False
+            os.close(descriptor)
+            return True
+
+        def fake_run_command(command, environ, on_start=None):
+            unit = command[command.index("--inside-cap") + 2]
+
+            def appear():
+                time.sleep(0.2)
+                free["before the scope"] = lock_is_free()
+                if appear_after is not None:
+                    os.mkdir(os.path.join(scopes, unit + ".scope"))
+
+            thread = threading.Thread(target=appear)
+            thread.start()
+            on_start(os.getpid())
+            thread.join()
+            free["at the start"] = lock_is_free()
+            return 0, 0
+
+        options = bounded_run.Options()
+        options.memory = "1G"
+        options.command = [sys.executable, "-c", "pass"]
+        with mock.patch.object(bounded_run, "probe_cap", return_value="0::/slice/bounded-run-1-000000-probe.scope\n"), \
+                mock.patch.object(bounded_run, "scope_parent_directory", return_value=scopes), \
+                mock.patch.object(bounded_run, "SCOPE_WAIT_SECONDS", 0.5), \
+                mock.patch.object(bounded_run, "run_command", fake_run_command):
+            self.assertEqual(bounded_run.bounded(options, self.environ), 0)
+        return free
+
+    def test_the_next_memory_check_waits_until_the_scope_of_the_command_counts(self):
+        free = self.run_with_scopes(appear_after=0.2)
+        self.assertEqual(free, {"before the scope": False, "at the start": True})
+
+    def test_a_scope_that_never_appears_frees_the_memory_check_after_a_time_limit(self):
+        started = time.monotonic()
+        free = self.run_with_scopes(appear_after=None)
+        self.assertEqual(free, {"before the scope": False, "at the start": True})
+        self.assertLess(time.monotonic() - started, 5)
+
     def test_the_wait_counts_no_unused_budget_without_a_cap(self):
         self.assertIsNone(self.wait_arguments(None)["read_outstanding"]())
 
@@ -1856,7 +1924,7 @@ class WrapperProcessTest(WrapperProcessCase):
         )
         process = self.wrapper(["--memory", "4G", "--exclusive", "port"], [sys.executable, "-c", script])
         output, errors = process.communicate(timeout=60)
-        self.assertEqual(output, "locks 4 inherited 0\n", errors)
+        self.assertEqual(output, "locks 5 inherited 0\n", errors)
 
     def test_commands_with_the_same_exclusive_name_take_turns(self):
         workers = [self.worker("w%d" % index, "2G", hold="0.3", options=["--exclusive", "port-8080"]) for index in range(3)]  # brief; the test waits for each to end
