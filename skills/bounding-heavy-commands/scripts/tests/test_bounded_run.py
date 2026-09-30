@@ -1257,6 +1257,29 @@ class ArgumentTest(unittest.TestCase):
         )
         self.assertEqual(options.exclusive, ["port", "cache"])
 
+    def test_reads_the_rows_largest_first_and_each_one_time(self):
+        options = bounded_run.parse_arguments(["--measure-rows", "4,16,8,4", "--label", "unit-tests", "--", "tool"])
+        self.assertEqual((options.rows, options.label, options.measure), ([16, 8, 4], "unit-tests", True))
+
+    def test_rejects_bad_rows_and_labels(self):
+        for arguments in (
+            ["--measure-rows", "0,2", "--", "tool"],
+            ["--measure-rows", "two", "--", "tool"],
+            ["--measure-rows", "", "--", "tool"],
+            ["--measure-rows", "4,,2", "--", "tool"],
+            ["--measure-rows", "\u00b2", "--", "tool"],
+            ["--measure-rows", "9" * 5000, "--", "tool"],
+            ["--measure-rows", "1000000", "--", "tool"],
+            ["--measure-rows", "4,2", "--cpus", "2", "--", "tool"],
+            ["--measure", "--label", "unit tests", "--", "tool"],
+            ["--measure", "--label", "-", "--", "tool"],
+            ["--measure", "--label", "lint\n", "--", "tool"],
+            ["--label", "lint", "--", "tool"],
+        ):
+            with self.subTest(arguments=arguments):
+                with self.assertRaises(bounded_run.WrapperError):
+                    bounded_run.parse_arguments(arguments)
+
 
 class InsideCapTest(unittest.TestCase):
     def setUp(self):
@@ -1708,6 +1731,137 @@ class BoundedCleanupTest(unittest.TestCase):
 
     def test_the_wait_counts_no_unused_budget_without_a_cgroup_version_2(self):
         self.assertIsNone(self.wait_arguments("")["read_outstanding"]())
+
+
+class MeasuredRowTest(unittest.TestCase):
+    """Calls bounded() in this process, with run_command replaced by a stub and no hard cap.
+
+    The stub gives each run the exit code and the ru_maxrss of the next answer, and keeps the
+    budget and the processors that the wrapper gave to the command.
+    """
+
+    def setUp(self):
+        self.lines = []
+        patcher = mock.patch.object(bounded_run, "log", side_effect=self.lines.append)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.base = tempfile.TemporaryDirectory()
+        self.addCleanup(self.base.cleanup)
+        self.environ = dict(os.environ)
+        self.environ.pop("BOUNDED_RUN_ACTIVE", None)
+        self.environ.update({
+            "BOUNDED_RUN_LOCK_DIR": os.path.join(self.base.name, "locks"),
+            "BOUNDED_RUN_TOTAL_MIB": "8192",
+            "BOUNDED_RUN_RESERVE_MIB": "0",
+            "BOUNDED_RUN_SLOT_MIB": "2048",
+            "BOUNDED_RUN_POLL_SECONDS": "0.05",
+            "BOUNDED_RUN_MEMORY_WAIT_SECONDS": "0",
+            "BOUNDED_RUN_SAMPLE_SECONDS": "0.1",
+            "BOUNDED_RUN_NO_CAP": "1",
+            "BOUNDED_RUN_FREE_MIB": "1048576",
+        })
+        self.runs = []
+
+    def run_bounded(self, arguments, answers):
+        remaining = list(answers)
+
+        def fake_run_command(command, environ, on_start=None):
+            self.runs.append((int(environ["BOUNDED_RUN_CPUS"]), int(environ["BOUNDED_RUN_MEMORY_MIB"])))
+            code, peak_mib = remaining.pop(0)
+            return code, peak_mib * 1024
+
+        options = bounded_run.parse_arguments(arguments + ["--", sys.executable, "-c", "pass"])
+        with mock.patch.object(bounded_run, "run_command", fake_run_command), \
+                mock.patch.object(bounded_run, "rusage_peak_mib", side_effect=lambda maxrss: maxrss // 1024):
+            return bounded_run.bounded(options, self.environ)
+
+    def row_lines(self):
+        return [line for line in self.lines if line.startswith("row ")]
+
+    def test_a_measurement_prints_one_row_line(self):
+        self.assertEqual(self.run_bounded(["--measure", "--cpus", "4", "--label", "unit-tests"], [(0, 1000)]), 0)
+        self.assertEqual(self.row_lines(), ["row label=unit-tests cpus=4 budget=1536M peak=1000M exact=no exit=0"])
+
+    def test_a_row_line_marks_the_options_that_were_not_given(self):
+        self.run_bounded(["--measure"], [(3, 100)])
+        self.assertEqual(self.row_lines(), ["row label=- cpus=- budget=256M peak=100M exact=no exit=3"])
+
+    def test_a_run_that_does_not_measure_prints_no_row_line(self):
+        self.run_bounded(["--memory", "2G"], [(0, 100)])
+        self.assertEqual(self.row_lines(), [])
+
+    def test_rows_run_largest_first_and_each_smaller_row_gets_the_budget_of_the_row_before_it(self):
+        code = self.run_bounded(["--measure-rows", "2,8,4", "--label", "build"], [(0, 1000), (0, 500), (0, 200)])
+        self.assertEqual(code, 0)
+        # The first row has no budget yet, so it holds the whole queue of 8192 MiB.
+        self.assertEqual(self.runs, [(8, 8192), (4, 1536), (2, 768)])
+        self.assertEqual(self.row_lines(), [
+            "row label=build cpus=8 budget=1536M peak=1000M exact=no exit=0",
+            "row label=build cpus=4 budget=768M peak=500M exact=no exit=0",
+            "row label=build cpus=2 budget=512M peak=200M exact=no exit=0",
+        ])
+
+    def test_the_largest_row_runs_with_the_given_memory(self):
+        self.run_bounded(["--measure-rows", "8,4", "--memory", "4G"], [(0, 1000), (0, 500)])
+        self.assertEqual(self.runs, [(8, 4096), (4, 1536)])
+
+    def test_the_row_after_a_failed_row_gets_the_budget_of_the_failed_row(self):
+        code = self.run_bounded(["--measure-rows", "8,4,2"], [(1, 300), (0, 1000), (2, 100)])
+        self.assertEqual(code, 1)
+        self.assertEqual(self.runs, [(8, 8192), (4, 8192), (2, 1536)])
+        self.assertEqual([line.split()[-1] for line in self.row_lines()], ["exit=1", "exit=0", "exit=2"])
+
+    def test_a_row_that_a_stop_signal_ended_ends_the_rows(self):
+        code = self.run_bounded(["--measure-rows", "8,4,2"], [(0, 1000), (130, 100), (0, 100)])
+        self.assertEqual(code, 130)
+        self.assertEqual(self.runs, [(8, 8192), (4, 1536)])
+        self.assertEqual(len(self.row_lines()), 2)
+
+    def test_a_stop_signal_after_a_failed_row_keeps_the_first_exit_code(self):
+        code = self.run_bounded(["--measure-rows", "8,4,2"], [(1, 1000), (130, 100), (0, 100)])
+        self.assertEqual(code, 1)
+        self.assertEqual(len(self.runs), 2)
+
+    def test_a_stop_signal_while_a_later_row_waits_keeps_the_first_exit_code(self):
+        for failure, expected in ((1, 1), (0, 128 + signal.SIGTERM)):
+            with self.subTest(failure=failure):
+                real_once = bounded_run.bounded_once
+                calls = []
+
+                def once(options, environ):
+                    calls.append(options.cpus)
+                    if len(calls) == 2:
+                        os.kill(os.getpid(), signal.SIGTERM)
+                        time.sleep(5)
+                    return real_once(options, environ)
+
+                before = signal.getsignal(signal.SIGTERM)
+                self.runs = []
+                with mock.patch.object(bounded_run, "bounded_once", once):
+                    code = self.run_bounded(["--measure-rows", "8,4,2"], [(failure, 1000)])
+                self.assertEqual(code, expected)
+                self.assertEqual(calls, [8, 4])
+                self.assertIs(signal.getsignal(signal.SIGTERM), before)
+
+    def test_a_stop_signal_outside_a_row_ends_main_with_its_code(self):
+        options = ["--measure-rows", "8,4", "--", sys.executable, "-c", "pass"]
+        with mock.patch.object(bounded_run, "bounded", side_effect=bounded_run._Stopped(int(signal.SIGTERM))):
+            self.assertEqual(bounded_run.main(options, self.environ), 128 + signal.SIGTERM)
+
+    def test_an_interrupt_while_a_later_row_waits_keeps_the_first_exit_code(self):
+        real_once = bounded_run.bounded_once
+        calls = []
+
+        def once(options, environ):
+            calls.append(options.cpus)
+            if len(calls) == 2:
+                raise KeyboardInterrupt
+            return real_once(options, environ)
+
+        with mock.patch.object(bounded_run, "bounded_once", once):
+            code = self.run_bounded(["--measure-rows", "8,4,2"], [(1, 1000)])
+        self.assertEqual(code, 1)
+        self.assertEqual(calls, [8, 4])
 
 
 class WrapperProcessCase(unittest.TestCase):
@@ -2221,6 +2375,15 @@ class WrapperProcessTest(WrapperProcessCase):
         suggested = [line for line in errors.splitlines() if "suggested budget" in line][0]
         self.assertEqual(int(suggested.split()[-2]) % 256, 0)
         self.assertGreaterEqual(int(suggested.split()[-2]), value * 1.5)
+
+    def test_measured_rows_print_their_row_lines_in_order(self):
+        script = "import os; print(os.environ['BOUNDED_RUN_CPUS'])"
+        process = self.wrapper(["--measure-rows", "1,2", "--label", "lint"], [sys.executable, "-c", script])
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(process.returncode, 0, errors)
+        self.assertEqual(output.split(), ["2", "1"])
+        rows = re.findall(r"^bounded-run: row label=lint cpus=(\d+) budget=\d+M peak=\d+M exact=no exit=0$", errors, re.MULTILINE)
+        self.assertEqual(rows, ["2", "1"], errors)
 
     def test_an_interrupt_in_the_queue_gives_130_and_no_traceback(self):
         holder = self.worker("holder", "4G", hold="300")

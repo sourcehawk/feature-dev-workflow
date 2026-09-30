@@ -33,7 +33,8 @@ A server that a heavy command talks to is a part of that command: a development 
 ## The wrapper
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/bounding-heavy-commands/scripts/bounded_run.py" --memory <budget> [--cpus <n>] [--exclusive <name>]... [--measure] -- <command>
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/bounding-heavy-commands/scripts/bounded_run.py" --memory <budget> [--cpus <n>] [--exclusive <name>]... [--measure] [--label <name>] -- <command>
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/bounding-heavy-commands/scripts/bounded_run.py" --measure-rows <n>,<n>,... [--memory <budget>] [--exclusive <name>]... [--label <name>] -- <command>
 ```
 
 | Option | Meaning |
@@ -42,8 +43,18 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/bounding-heavy-commands/scripts/bounded_ru
 | `--cpus <n>` | Processor limit, as a whole number. Taken from the record. |
 | `--exclusive <name>` | A resource that only one command may hold at a time, such as a fixed port. You choose the name. The wrapper keeps the names of each repository apart, and all worktrees of one repository share them. Repeat the option for each resource. |
 | `--measure` | Also print a suggested budget. Discovery uses it. With no `--memory`, the command runs alone in the queue. |
+| `--measure-rows <n>,<n>,...` | Measure the command one time at each `--cpus` of the list, one after the other, the largest first. The largest runs with the `--memory` of the call. With no `--memory`, it runs alone in the queue. Each smaller one runs with `--memory` at the suggested budget of the one before it. When the one before it did not exit 0, the smaller one runs with the same `--memory` as that one. Use it in place of `--cpus` and `--measure`. A stop signal ends the list. The exit code is the first exit code of a row that is not 0. |
+| `--label <name>` | A name for the row lines of a measurement, such as `unit-tests`. Use letters, digits, `.`, `_`, and `-`, and start with a letter or a digit. It changes nothing else. |
 
-The wrapper does four things in sequence. It waits for its turn in the queue. It waits until the memory of its budget is free. It runs the command. It prints the budget and the measured peak on the error stream. For the wait, the free memory is the memory that the machine has free now, less the part of their budgets that the running bounded commands do not use yet, less a headroom for the programs outside the queue. The headroom is a tenth of the memory of the machine, and at least 1 GiB. The budget and the headroom together never need more than the memory of the queue, so a budget of the whole queue does not wait for a headroom. The wait has no time limit: the command does not start before its memory is free, and the wrapper prints a line at intervals while it waits. Each line that the wrapper prints starts with `bounded-run:`. Its exit code is the command's exit code. Exit code 125, with a `bounded-run:` line that names a fault and with no line for the budget and the peak, means that the wrapper itself failed (see §When the wrapper cannot run).
+The wrapper does four things in sequence. It waits for its turn in the queue. It waits until the memory of its budget is free. It runs the command. It prints the budget and the measured peak on the error stream. For the wait, the free memory is the memory that the machine has free now, less the part of their budgets that the running bounded commands do not use yet, less a headroom for the programs outside the queue. The headroom is a tenth of the memory of the machine, and at least 1 GiB. The budget and the headroom together never need more than the memory of the queue, so a budget of the whole queue does not wait for a headroom. The wait has no time limit: the command does not start before its memory is free, and the wrapper prints a line at intervals while it waits. Each line that the wrapper prints starts with `bounded-run:`. A measurement also prints one row line, in a fixed form:
+
+```
+bounded-run: row label=<name> cpus=<n> budget=<n>M peak=<n>M exact=<yes|no> exit=<code>
+```
+
+`budget` is the suggested budget. `exact=no` means that the peak was sampled, so the margin is larger. A `-` in place of the label or the `--cpus` means that the call did not give the option. The wrapper cannot know if the command did its full work: the exit code and the output of the command tell you (§Discovery, step 5).
+
+The exit code of the wrapper is the command's exit code. Exit code 125, with a `bounded-run:` line that names a fault and with no line for the budget and the peak, means that the wrapper itself failed (see §When the wrapper cannot run).
 
 The wrapper sets `BOUNDED_RUN_CPUS` and `BOUNDED_RUN_MEMORY_MIB` in the environment of the command, from `--cpus` and `--memory`. A recorded command line can read them and hand them to the toolchain's own parallelism and memory settings. You do not set them: you change them with the two options.
 
@@ -78,7 +89,7 @@ Then, before each heavy command, use the first case that applies:
 2. **The record exists and has a complete entry for the command.** Check that the plain command still exists in the project, and that the file of the wrapper in the command line still exists. When the file of the wrapper is not there, an update of the plugin moved it. The command line in §The wrapper shows the correct path: put it into each command line of the record. Then use the bounded command line with the default row.
 3. **The record exists, and the command is not in it, its entry is incomplete, or its entry is no longer correct.** Run the discovery for that command and correct the entry. When the command line changes in more than the values of the wrapper's `--memory` and `--cpus`, its rows measured a different command: delete them, and measure the new command line. Remove an entry whose command the project no longer has.
 4. **Your harness has no project memory, or it is off.** You cannot save a record, so do not try. Run the discovery in this session, keep the result in your context, and use the wrapper's default budget for anything you could not measure.
-5. **Project memory is on, and the record does not exist.** Run the discovery for the commands that you are about to run, and save the record. The measured runs of the discovery are your first heavy runs. A heavy command of the project that you do not run now gets its entry when an agent first needs it.
+5. **Project memory is on, and the record does not exist.** Run the discovery for every heavy command of the project, not only for the command that you are about to run, and measure them all with one command line that the user runs (§Measure the whole project). While you wait for the answer of the user and for the line, run a heavy command that you need through the wrapper, as its bounded command line at `--cpus` of half the machine's processors, with no `--memory` option.
 
 A budget is a measurement, not a preference. Change a row only when the wrapper's output at the `--cpus` of that row shows that the peak moved, and write the new peak and date in it.
 
@@ -88,7 +99,7 @@ A part of a recorded command (one test file, one target) uses the bounded comman
 
 ## Discovery
 
-1. Find how the project runs its tests, its linter, its build, and its type check. Read the project's instruction files, its build configuration, and its CI configuration.
+1. Find how the project runs its tests, its linter, its build, and its type check, and each other heavy command (§When to invoke): code generators, installs, formatters over the whole tree. Read the project's instruction files, its build configuration, and its CI configuration.
 2. Bound the command before you measure it. Do not measure a command until this step is done. Find what makes the toolchain run fewer things at once: a flag or a variable for the number of jobs, workers, processes, or threads. Find a memory setting too, but only one that covers the whole command. A memory setting for one process does not cover the processes that it starts. Most tools that start many processes have no memory setting for the whole command, so the number of things that run at once is the main way to lower the peak. Write the command line so that it takes the setting from `BOUNDED_RUN_CPUS` or `BOUNDED_RUN_MEMORY_MIB`, and record that setting as the `self-bound` of the entry. When the tool has no such setting, record `self-bound: none: <why>`, so that a missing bound is a decision and not an omission. The wrapper sets the two variables for the command only. Your own shell does not have them. Put the command into an inner shell, in single quotes, so that your own shell does not replace the variable with an empty value before the wrapper starts:
 
    ```
@@ -108,6 +119,26 @@ A part of a recorded command (one test file, one target) uses the bounded comman
 6. Save the record.
 
 The measured run is a real run of the command. Its result counts, also when the run stopped early, so do not run the command a second time to get the result.
+
+### Measure the whole project
+
+When the record does not exist (§The record, case 5), do steps 1 to 3 for every heavy command of the project. Then measure them all in one run, in place of steps 4 and 5. Do not measure only the command that you need now. A command that gets its entry later gets its first measurement in the middle of someone's work, and that measurement holds the whole queue while other sessions wait.
+
+1. Choose the rows. Measure each command at three `--cpus`: all the machine's processors, half of them, and a quarter of them. Round each one down, use at least 1, and drop a value that is the same as another. A command with `self-bound: none` gets the row at half only: nothing in it reads its `--cpus`, so each row would measure the same command. A command whose next run reuses the output of the run before, such as a build or a generator with a cache, also gets the row at half only: its later rows would do less work and measure a peak that is too small.
+2. Write one command line. For each command, write one call of the wrapper with `--measure-rows` and the rows that step 1 chose for it, a `--label` that names the command and no other command of the line, the `--exclusive` options of the command, and its bounded command line. Join the calls with `;`, so that a measurement that fails does not stop the others. Write the path of the wrapper in full, so that the line runs in any shell. Run it from the root of the project:
+
+   ```
+   python3 "<path of the wrapper>" --measure-rows 16,8,4 --label unit-tests -- <bounded command> ; python3 "<path of the wrapper>" --measure-rows 16,8,4 --label lint -- <bounded command>
+   ```
+
+3. Ask the user to run the line when the machine is quiet. Do not run it yourself unless the user asks you to. Your message names the commands and the rows that the line measures. It says that the line can take a long time, and that the first row of each command holds the whole queue, so that the heavy commands of the other sessions wait while it runs. It says how to run the line: type `! <the line>` in this session, or run it in a terminal at the root of the project, or tell you to run it.
+4. Act on the answer:
+   - **The user ran the line.** Read its output into the record (step 5 of this list). When the user ran it in a terminal, you cannot see the output: ask the user for each line that starts with `bounded-run: row`, and for the end of the output of each command, which shows whether the run did its full work.
+   - **The user tells you to run it.** Run it in the background, with no short timeout around it. Continue with work that runs no heavy command. A heavy command that you need before the line ends runs through the wrapper with no `--memory` option. When the line ends, read its output into the record (step 5 of this list).
+   - **The user declines.** Run steps 4 to 6 of the list above for the command that you are about to run, and save the record. Each other command gets its entry when an agent first needs it (§The record, case 3).
+5. Read the row lines of the output. Each row line of a run that did its full work gives the row at its `cpus`, in the entry of its `label`: its `budget`, its `peak`, and the date. A run did its full work when it exits 0, or when it ran all of its work and reported failures, such as a suite that ran each test and reported the failures. Step 5 of the list above names the runs that stopped early. A row line of such a run gives no row: write nothing for it. The row at half the processors is the default row. When it has no row, the default row is the row with the `--cpus` nearest to half. An entry that has no row is incomplete (§The record), and an agent measures it when it first needs it. Save the record.
+
+A command that the project adds later gets its entry when an agent first needs it (§The record, case 3).
 
 ## Rules for the wait
 
@@ -176,6 +207,8 @@ When Python is missing or too old, and when the fault is a fault of the machine,
 | "I measured the plain command, the peak is real" | It is the real peak of a command that nothing limits. Bound the command first, then measure the bounded command line at the `--cpus` that you record. |
 | "The new measurement at a different `--cpus` replaces the old entry" | A different `--cpus` is a different command. Add a row and keep the others. Only a measurement at the same `--cpus` replaces a row. |
 | "A smaller `--cpus` is a lower budget by another name" | A lower `--memory` on the same command is a guess. A row at a smaller `--cpus` is a smaller command with a measured budget. Use it to start sooner. |
+| "I only need the unit tests now, the others get entries when an agent needs them" | Each later first measurement holds the whole queue in the middle of someone's work. When the record does not exist, measure every heavy command of the project with one command line. |
+| "I'll run the measurements myself now, it saves the user a step" | The line holds the whole queue for a long time. The user chooses when the machine can give it that time. Ask, and run it only when the user tells you to. |
 | "Four subagents is too many for this machine, I'll dispatch two" | The queue limits the commands. Fewer subagents only makes the work slower. |
 | "Project memory is off, so there is no record to keep" | Discover in this session and keep the result in context. The rule does not depend on the memory. |
 | "The wrapper cannot run here, so none of this applies" | The fallback applies: one heavy command at a time, toolchain parallelism at half or less, and say so. |

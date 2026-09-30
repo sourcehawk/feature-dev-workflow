@@ -1,10 +1,22 @@
 #!/usr/bin/env python3
 """Runs a command under a memory reservation that every project of the user shares.
 
-Usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measure] -- COMMAND...
+Usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measure] [--label NAME] -- COMMAND...
+       bounded_run.py --measure-rows N,N,... [--memory SIZE] [--exclusive NAME]... [--label NAME] -- COMMAND...
 
 The exit code is the exit code of the command. Exit code 125 means that this
 script failed before the command gave a result.
+
+A measurement prints one row line on the error stream, in a fixed form:
+
+  bounded-run: row label=NAME cpus=N budget=<n>M peak=<n>M exact=yes|no exit=CODE
+
+budget is the suggested budget. A '-' stands for an option that the call did
+not give. --measure-rows measures the command at each processor limit of the
+list, the largest first. The largest runs with --memory, or alone in the queue.
+Each smaller one runs with the suggested budget of the one before it, or with
+the budget of the one before it when that run did not exit 0. The exit code
+is the first exit code that is not 0.
 
 A normal call sets none of the environment variables below. A person can
 set the tuning values in the profile of the shell, so that every session
@@ -68,7 +80,12 @@ MARGIN_EXACT = 0.25
 MARGIN_APPROXIMATE = 0.5
 BUDGET_STEP_MIB = 256
 PR_SET_PDEATHSIG = 1
-USAGE = "usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measure] -- COMMAND..."
+USAGE = (
+    "usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measure] [--label NAME] -- COMMAND...\n"
+    "       bounded_run.py --measure-rows N,N,... [--memory SIZE] [--exclusive NAME]... [--label NAME] -- COMMAND..."
+)
+# The exit codes of a run that a stop signal to the wrapper ended: 128 plus SIGHUP, SIGINT, SIGQUIT, or SIGTERM.
+STOP_CODES = frozenset(128 + int(signum) for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGQUIT, signal.SIGTERM))
 
 
 class WrapperError(Exception):
@@ -939,6 +956,8 @@ class Options:
         self.cpus: Optional[int] = None
         self.exclusive: List[str] = []
         self.measure = False
+        self.rows: List[int] = []
+        self.label: Optional[str] = None
         self.command: List[str] = []
 
 
@@ -957,7 +976,7 @@ def parse_arguments(argv: Sequence[str]) -> Options:
         if flag == "--measure":
             options.measure = True
             continue
-        if flag not in ("--memory", "--cpus", "--exclusive"):
+        if flag not in ("--memory", "--cpus", "--exclusive", "--measure-rows", "--label"):
             raise WrapperError("cannot read the option '%s'\n%s" % (flag, USAGE))
         if not flags:
             raise WrapperError("the option '%s' needs a value\n%s" % (flag, USAGE))
@@ -967,14 +986,80 @@ def parse_arguments(argv: Sequence[str]) -> Options:
         elif flag == "--exclusive":
             if value not in options.exclusive:
                 options.exclusive.append(value)
+        elif flag == "--label":
+            # The row line separates its fields with spaces and marks a missing label with '-'.
+            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", value) is None:
+                raise WrapperError("cannot use the label '%s'; use letters, digits, '.', '_' and '-', and start with a letter or a digit" % value)
+            options.label = value
+        elif flag == "--measure-rows":
+            parts = value.split(",")
+            # int() of a very long number is slow on some versions of Python and raises ValueError on others.
+            rows = [int(part) for part in parts if re.fullmatch(r"[0-9]{1,6}", part)]
+            if len(rows) != len(parts) or min(rows) < 1:
+                raise WrapperError("cannot read --measure-rows '%s'; use whole numbers from 1 to 999999, such as 16,8,4" % value)
+            options.rows = sorted(set(rows), reverse=True)
+            options.measure = True
         else:
             if not value.isdigit() or int(value) < 1:
                 raise WrapperError("cannot read --cpus '%s'; use a whole number of 1 or more" % value)
             options.cpus = int(value)
+    if options.rows and options.cpus is not None:
+        raise WrapperError("use --measure-rows or --cpus, not both\n" + USAGE)
+    if options.label is not None and not options.measure:
+        raise WrapperError("--label needs --measure or --measure-rows\n" + USAGE)
     return options
 
 
+class _Stopped(Exception):
+    def __init__(self, signum: int) -> None:
+        super().__init__(signum)
+        self.signum = signum
+
+
+def _raise_stopped(signum: int, frame: object) -> None:
+    raise _Stopped(signum)
+
+
 def bounded(options: Options, environ: Mapping[str, str]) -> int:
+    if not options.rows:
+        return bounded_once(options, environ)[0]
+    # run_command sets its own handlers while a row runs and puts these back after it.
+    previous = {signum: signal.signal(signum, _raise_stopped) for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)}
+    try:
+        return _bounded_rows(options, environ)
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
+def _bounded_rows(options: Options, environ: Mapping[str, str]) -> int:
+    memory = options.memory
+    result = 0
+    measured = 0
+    try:
+        for cpus in options.rows:
+            row = Options()
+            row.memory, row.cpus, row.exclusive, row.measure, row.label, row.command = (
+                memory, cpus, options.exclusive, True, options.label, options.command)
+            code, suggested = bounded_once(row, environ)
+            measured += 1
+            if code in STOP_CODES:
+                log("stopped by a signal; the rows after --cpus %d are not measured" % cpus)
+                return result or code
+            if code == 0:
+                memory = "%dM" % suggested
+            else:
+                # A run that stopped early has a peak that is too small to be the budget of a smaller command.
+                result = result or code
+    except (KeyboardInterrupt, _Stopped) as stop:
+        # A signal while a row runs comes back as its exit code. A signal at any other time in the list raises.
+        log("stopped by a signal; %d of %d rows are measured" % (measured, len(options.rows)))
+        return result or 128 + (stop.signum if isinstance(stop, _Stopped) else int(signal.SIGINT))
+    return result
+
+
+def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int]:
+    """Runs the command one time. Returns the exit code and the suggested budget in MiB."""
     settings = Settings(environ)
     if options.memory is not None:
         budget = parse_size_mib(options.memory)
@@ -1095,9 +1180,12 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
     log("budget %d MiB, peak %d MiB (%s), exit %d" % (budget, peak, "cgroup" if exact else "sampled, approximate", code))
     if capped and code == 137:
         log("the command was killed; if the peak is near the budget, the hard cap stopped it")
+    suggested = suggested_budget_mib(peak, not exact)
     if options.measure:
-        log("suggested budget %d MiB" % suggested_budget_mib(peak, not exact))
-    return code
+        log("suggested budget %d MiB" % suggested)
+        log("row label=%s cpus=%s budget=%dM peak=%dM exact=%s exit=%d" % (
+            options.label or "-", options.cpus if options.cpus is not None else "-", suggested, peak, "yes" if exact else "no", code))
+    return code, suggested
 
 
 def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, str]] = None) -> int:
@@ -1118,6 +1206,10 @@ def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, st
         except KeyboardInterrupt:
             log("interrupted while waiting")
             return 130
+        except _Stopped as stop:
+            # The handlers of --measure-rows can fire after its list ends, before they are put back.
+            log("stopped by a signal")
+            return 128 + stop.signum
     except WrapperError as error:
         log(str(error))
         return EXIT_WRAPPER
