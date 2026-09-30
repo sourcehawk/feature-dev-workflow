@@ -1822,6 +1822,21 @@ class MeasuredRowTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(len(self.runs), 2)
 
+    def test_an_interrupt_while_a_later_row_waits_keeps_the_first_exit_code(self):
+        real_once = bounded_run.bounded_once
+        calls = []
+
+        def once(options, environ):
+            calls.append(options.cpus)
+            if len(calls) == 2:
+                raise KeyboardInterrupt
+            return real_once(options, environ)
+
+        with mock.patch.object(bounded_run, "bounded_once", once):
+            code = self.run_bounded(["--measure-rows", "8,4,2"], [(1, 1000)])
+        self.assertEqual(code, 1)
+        self.assertEqual(calls, [8, 4])
+
 
 class WrapperProcessCase(unittest.TestCase):
     """Runs the script as a process, with two slots of 2 GiB and no hard cap."""

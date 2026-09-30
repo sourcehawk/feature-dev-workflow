@@ -1019,7 +1019,12 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
         row = Options()
         row.memory, row.cpus, row.exclusive, row.measure, row.label, row.command = (
             memory, cpus, options.exclusive, True, options.label, options.command)
-        code, suggested = bounded_once(row, environ)
+        try:
+            code, suggested = bounded_once(row, environ)
+        except KeyboardInterrupt:
+            # A signal while a row runs comes back as its exit code. A signal while it waits in the queue raises.
+            log("interrupted while waiting; the rows from --cpus %d are not measured" % cpus)
+            return result or 130
         if code in STOP_CODES:
             log("stopped by a signal; the rows after --cpus %d are not measured" % cpus)
             return result or code
