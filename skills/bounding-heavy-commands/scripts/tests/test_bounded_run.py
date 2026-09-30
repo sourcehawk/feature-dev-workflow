@@ -2103,6 +2103,23 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.lines[1], "check held unit=bounded-run-7-abcdef budget=4096M used=100M age=5s dir=/w command=tool")
         self.assertTrue(self.lines[2].startswith("check budget=2048M "), self.lines)
 
+    def test_a_check_inside_a_bounded_command_counts_its_unused_budget_too(self):
+        self.environ.pop("BOUNDED_RUN_NO_CAP")
+        output = "0::/user.slice/app.slice/bounded-run-1-000000-probe.scope\n"
+        skips = []
+
+        def unused(parent, skip):
+            skips.append(list(skip))
+            return 0
+
+        options = bounded_run.parse_arguments(["--check"])
+        with mock.patch.object(bounded_run, "probe_cap", return_value=output), \
+                mock.patch.object(bounded_run, "own_scope_name", return_value="bounded-run-2-111111.scope"), \
+                mock.patch.object(bounded_run, "unused_budget_mib", unused), \
+                mock.patch.object(bounded_run, "held_commands", return_value=[]):
+            bounded_run.check(options.budgets, self.environ, read_available=lambda: 9000)
+        self.assertEqual(skips, [[], []])
+
     def test_a_check_inside_a_bounded_command_names_that_command_too(self):
         self.environ.pop("BOUNDED_RUN_NO_CAP")
         output = "0::/user.slice/app.slice/bounded-run-1-000000-probe.scope\n"

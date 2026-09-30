@@ -1347,10 +1347,10 @@ def check(
     if line is not None:
         os.close(line)
     scopes = scope_parent_directory(choice[1]) if choice is not None else None
-    skip = [name for name in (own_scope_name(),) if name is not None]
     if read_outstanding is None:
+        # A wrapper that starts on its own counts every bounded scope, also the one that this check runs in.
         def read_outstanding() -> Optional[int]:
-            return None if scopes is None else unused_budget_mib(scopes, skip)
+            return None if scopes is None else unused_budget_mib(scopes, ())
 
     if settings.free_mib is None:
         before = read_outstanding()
