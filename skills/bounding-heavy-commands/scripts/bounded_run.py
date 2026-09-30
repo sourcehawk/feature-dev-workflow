@@ -1347,8 +1347,10 @@ def check(
             return None if scopes is None else unused_budget_mib(scopes, skip)
 
     if settings.free_mib is None:
-        outstanding = read_outstanding()
+        before = read_outstanding()
         available = read_available()
+        after = read_outstanding()
+        outstanding = None if before is None or after is None else max(before, after)
     else:
         available, outstanding = settings.free_mib, None
 

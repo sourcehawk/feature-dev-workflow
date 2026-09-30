@@ -2057,6 +2057,12 @@ class CheckTest(unittest.TestCase):
         lines = self.check(["64G"], available=9300)
         self.assertEqual(lines[1], "check budget=65536M slots=4 headroom=0M starts=yes")
 
+    def test_counts_the_larger_of_the_unused_budgets_read_before_and_after_the_free_memory(self):
+        unused = [100, 900]
+        options = bounded_run.parse_arguments(["--check"])
+        bounded_run.check(options.budgets, self.environ, read_available=lambda: 6000, read_outstanding=lambda: unused.pop(0))
+        self.assertIn(" unused=900M ", self.lines[0])
+
     def test_counts_the_unused_budgets_beside_the_scope_of_the_probe(self):
         self.environ.pop("BOUNDED_RUN_NO_CAP")
         output = "0::/user.slice/app.slice/bounded-run-1-000000-probe.scope\n"
@@ -2071,7 +2077,7 @@ class CheckTest(unittest.TestCase):
                 mock.patch.object(bounded_run, "unused_budget_mib", unused), \
                 mock.patch.object(bounded_run, "held_commands", return_value=[]):
             self.assertEqual(bounded_run.check(options.budgets, self.environ, read_available=lambda: 9000), 0)
-        self.assertEqual(calls, ["/sys/fs/cgroup/user.slice/app.slice"])
+        self.assertEqual(set(calls), {"/sys/fs/cgroup/user.slice/app.slice"})
         self.assertIn(" unused=700M ", self.lines[0])
 
     def test_names_each_held_command_after_the_state_line(self):
