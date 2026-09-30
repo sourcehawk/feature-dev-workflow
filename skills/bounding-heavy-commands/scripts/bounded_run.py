@@ -9,7 +9,7 @@ script failed before the command gave a result.
 
 A measurement prints one row line on the error stream, in a fixed form:
 
-  bounded-run: row label=NAME cpus=N budget=MIBM peak=MIBM exact=yes|no exit=CODE
+  bounded-run: row label=NAME cpus=N budget=<n>M peak=<n>M exact=yes|no exit=CODE
 
 budget is the suggested budget. A '-' stands for an option that the call did
 not give. --measure-rows measures the command at each processor limit of the
