@@ -988,7 +988,7 @@ def parse_arguments(argv: Sequence[str]) -> Options:
                 options.exclusive.append(value)
         elif flag == "--label":
             # The row line separates its fields with spaces and marks a missing label with '-'.
-            if re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", value) is None:
+            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", value) is None:
                 raise WrapperError("cannot use the label '%s'; use letters, digits, '.', '_' and '-', and start with a letter or a digit" % value)
             options.label = value
         elif flag == "--measure-rows":

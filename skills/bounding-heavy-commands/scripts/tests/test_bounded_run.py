@@ -1272,6 +1272,7 @@ class ArgumentTest(unittest.TestCase):
             ["--measure-rows", "4,2", "--cpus", "2", "--", "tool"],
             ["--measure", "--label", "unit tests", "--", "tool"],
             ["--measure", "--label", "-", "--", "tool"],
+            ["--measure", "--label", "lint\n", "--", "tool"],
             ["--label", "lint", "--", "tool"],
         ):
             with self.subTest(arguments=arguments):
