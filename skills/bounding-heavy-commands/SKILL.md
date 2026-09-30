@@ -28,6 +28,8 @@ Skip for commands that only read (listing files, searching, version-control quer
 
 A command that does not end, such as a server or a watch mode, holds its memory in the queue until it stops. Start it through the wrapper, and stop it when your work with it is done.
 
+A server that a heavy command talks to is a part of that command: a development server, a database, or a container that a test suite sends its requests to. The work of the suite grows the server, and the budget of the suite does not count a server outside it. When the test runner can start the server itself, let it: give the run a port that no running server uses, so that the server starts inside the bounded command and its budget covers it. When the server must run on its own, start it through the wrapper. Do not run a heavy command against a server that runs outside the queue, also when it already listens on the port: an agent or a person started it without the wrapper, and the queue cannot count it. Do not stop that server either, because it belongs to someone else. Use a port of your own.
+
 ## The wrapper
 
 ```
@@ -41,11 +43,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/bounding-heavy-commands/scripts/bounded_ru
 | `--exclusive <name>` | A resource that only one command may hold at a time, such as a fixed port. You choose the name. The wrapper keeps the names of each repository apart, and all worktrees of one repository share them. Repeat the option for each resource. |
 | `--measure` | Also print a suggested budget. Discovery uses it. With no `--memory`, the command runs alone in the queue. |
 
-The wrapper does four things in sequence. It waits for its turn in the queue. It waits until the memory of its budget is free. It runs the command. It prints the budget and the measured peak on the error stream. Each line that the wrapper prints starts with `bounded-run:`. Its exit code is the command's exit code. Exit code 125, with a `bounded-run:` line that names a fault and with no line for the budget and the peak, means that the wrapper itself failed (see §When the wrapper cannot run).
+The wrapper does four things in sequence. It waits for its turn in the queue. It waits until the memory of its budget is free. It runs the command. It prints the budget and the measured peak on the error stream. For the wait, the free memory is the memory that the machine has free now, less the part of their budgets that the running bounded commands do not use yet, less a headroom for the programs outside the queue. The headroom is a tenth of the memory of the machine, and at least 1 GiB. The budget and the headroom together never need more than the memory of the queue, so a budget of the whole queue does not wait for a headroom. The wait has no time limit: the command does not start before its memory is free, and the wrapper prints a line at intervals while it waits. Each line that the wrapper prints starts with `bounded-run:`. Its exit code is the command's exit code. Exit code 125, with a `bounded-run:` line that names a fault and with no line for the budget and the peak, means that the wrapper itself failed (see §When the wrapper cannot run).
 
 The wrapper sets `BOUNDED_RUN_CPUS` and `BOUNDED_RUN_MEMORY_MIB` in the environment of the command, from `--cpus` and `--memory`. A recorded command line can read them and hand them to the toolchain's own parallelism and memory settings. You do not set them: you change them with the two options.
 
-On Linux the wrapper also puts a hard cap on the command where the system allows it: a command that passes its budget is stopped with exit code 137, and the machine does not swap. Elsewhere there is no hard cap, the wrapper says so in its output, and the queue and the wait are the whole protection. When a recorded command ends with exit code 137 and the wrapper reports a peak near the budget, the cap stopped it: the command grew. Measure it again with `--measure` and `--memory` at two times the budget, and correct the record.
+On Linux the wrapper also puts a hard cap on the command where the system allows it: a command that passes its budget is stopped with exit code 137, and the machine does not swap. Elsewhere there is no hard cap, the wrapper says so in its output, and the queue and the wait are the whole protection. Without the cap, and on a system with cgroup version 1, the wait does not count the unused budgets of the running commands. When a recorded command ends with exit code 137 and the wrapper reports a peak near the budget, the cap stopped it: the command grew. Measure it again with `--measure` and `--memory` at two times the budget, and correct the record.
 
 ## The record
 
@@ -158,6 +160,7 @@ When Python is missing or too old, and when the fault is a fault of the machine,
 | "The port was in use, I'll back off once and retry" | Two commands wanted one resource. Record it as `--exclusive` and run through the wrapper. |
 | "My command timed out, the tests must hang" | It was waiting in the queue. Run it in the background with no short timeout. |
 | "The subagent will find the test command on its own" | It will find the plain one. Put the bounded command lines in its prompt. |
+| "The server is already running on the port, the tests can reuse it" | The queue does not count a server that runs outside it, and the tests make it grow. Give the run a port of its own, so that the runner starts the server inside the bounded command. |
 | "Four subagents is too many for this machine, I'll dispatch two" | The queue limits the commands. Fewer subagents only makes the work slower. |
 | "Project memory is off, so there is no record to keep" | Discover in this session and keep the result in context. The rule does not depend on the memory. |
 | "The wrapper cannot run here, so none of this applies" | The fallback applies: one heavy command at a time, toolchain parallelism at half or less, and say so. |
