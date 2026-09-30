@@ -1055,6 +1055,92 @@ class UnusedBudgetTest(unittest.TestCase):
         self.assertEqual(sleeps, [5.0])
 
 
+class HeldCommandTest(unittest.TestCase):
+    """Gives held_commands a slice of the cgroup filesystem and a process filesystem in temporary directories."""
+
+    def setUp(self):
+        self.base = tempfile.TemporaryDirectory()
+        self.addCleanup(self.base.cleanup)
+        self.slice = os.path.join(self.base.name, "app.slice")
+        self.proc = os.path.join(self.base.name, "proc")
+        os.makedirs(self.slice)
+        os.makedirs(self.proc)
+        Path(self.proc, "uptime").write_text("170.52 300.00\n")
+
+    def scope(self, name, limit=str(4096 * 1024 ** 2), current=str(1024 * 1024 ** 2), pids=("100",)):
+        directory = os.path.join(self.slice, name)
+        os.makedirs(directory)
+        Path(directory, "memory.max").write_text(limit + "\n")
+        Path(directory, "memory.current").write_text(current + "\n")
+        Path(directory, "cgroup.procs").write_text("".join(pid + "\n" for pid in pids))
+
+    def process(self, pid, arguments, start_ticks=5000, cwd="/work/project"):
+        directory = os.path.join(self.proc, str(pid))
+        os.makedirs(directory)
+        Path(directory, "stat").write_text("%d (python 3) S %s %d 0 0\n" % (pid, " ".join(["0"] * 18), start_ticks))
+        Path(directory, "cmdline").write_bytes(b"".join(argument.encode() + b"\0" for argument in arguments))
+        os.symlink(cwd, os.path.join(directory, "cwd"))
+
+    def held(self, skip=()):
+        return bounded_run.held_commands(self.slice, skip, proc_root=self.proc, ticks=100)
+
+    def inside(self, *command):
+        return ["python3", "/x/bounded_run.py", "--inside-cap", "/l/peak-u", "bounded-run-100-aaaaaa", "--"] + list(command)
+
+    def test_names_the_budget_the_use_the_age_the_directory_and_the_command(self):
+        self.scope("bounded-run-100-aaaaaa.scope", pids=("105", "100"))
+        self.process(100, self.inside("sh", "-c", "make test"))
+        self.process(105, ["make", "test"], start_ticks=9000, cwd="/elsewhere")
+        self.assertEqual(self.held(), [
+            "unit=bounded-run-100-aaaaaa budget=4096M used=1024M age=120s dir=/work/project command=sh -c make test",
+        ])
+
+    def test_a_scope_with_no_budget_gives_a_dash(self):
+        self.scope("bounded-run-100-aaaaaa.scope", limit="max")
+        self.process(100, self.inside("tool"))
+        self.assertIn(" budget=- ", self.held()[0])
+
+    def test_skips_probe_scopes_named_scopes_and_other_units(self):
+        self.scope("bounded-run-100-aaaaaa-probe.scope")
+        self.scope("bounded-run-101-bbbbbb.scope")
+        self.scope("editor-1.scope")
+        self.scope("bounded-run-102-cccccc.scope")
+        self.process(100, self.inside("tool"))
+        held = self.held(skip=["bounded-run-101-bbbbbb.scope"])
+        self.assertEqual([line.split()[0] for line in held], ["unit=bounded-run-102-cccccc"])
+
+    def test_a_process_that_cannot_be_read_gives_dashes(self):
+        self.scope("bounded-run-100-aaaaaa.scope", pids=("999",))
+        self.assertEqual(self.held(), ["unit=bounded-run-100-aaaaaa budget=4096M used=1024M age=- dir=- command=-"])
+
+    def test_a_scope_with_no_process_gives_dashes(self):
+        self.scope("bounded-run-100-aaaaaa.scope", pids=())
+        self.assertTrue(self.held()[0].endswith(" age=- dir=- command=-"), self.held())
+
+    def test_a_scope_that_ends_while_it_is_read_is_skipped(self):
+        self.scope("bounded-run-100-aaaaaa.scope")
+        self.process(100, self.inside("tool"))
+        listing = os.listdir(self.slice) + ["bounded-run-200-dddddd.scope"]
+        with mock.patch.object(bounded_run.os, "listdir", return_value=listing):
+            held = self.held()
+        self.assertEqual([line.split()[0] for line in held], ["unit=bounded-run-100-aaaaaa"])
+
+    def test_a_long_command_is_cut_and_stays_on_one_line(self):
+        self.scope("bounded-run-100-aaaaaa.scope")
+        self.process(100, self.inside("sh", "-c", "first\nsecond " + "x" * 300))
+        command = self.held()[0].split(" command=", 1)[1]
+        self.assertEqual(len(command), bounded_run.HELD_COMMAND_CHARACTERS)
+        self.assertTrue(command.startswith("sh -c first second x"), command)
+
+    def test_a_command_without_the_prefix_of_the_wrapper_is_given_whole(self):
+        self.scope("bounded-run-100-aaaaaa.scope")
+        self.process(100, ["sleep", "60"])
+        self.assertTrue(self.held()[0].endswith(" command=sleep 60"), self.held())
+
+    def test_no_slice_gives_no_line(self):
+        self.assertEqual(bounded_run.held_commands(os.path.join(self.base.name, "gone"), (), proc_root=self.proc), [])
+
+
 class CapTest(unittest.TestCase):
     def test_prefix_holds_the_limits(self):
         self.assertEqual(bounded_run.cap_prefix(6144, 4, "unit-1"), [
@@ -1977,10 +2063,33 @@ class CheckTest(unittest.TestCase):
 
         options = bounded_run.parse_arguments(["--check"])
         with mock.patch.object(bounded_run, "probe_cap", return_value=output), \
-                mock.patch.object(bounded_run, "unused_budget_mib", unused):
+                mock.patch.object(bounded_run, "unused_budget_mib", unused), \
+                mock.patch.object(bounded_run, "held_commands", return_value=[]):
             self.assertEqual(bounded_run.check(options.budgets, self.environ, read_available=lambda: 9000), 0)
         self.assertEqual(calls, ["/sys/fs/cgroup/user.slice/app.slice"])
         self.assertIn(" unused=700M ", self.lines[0])
+
+    def test_names_each_held_command_after_the_state_line(self):
+        self.environ.pop("BOUNDED_RUN_NO_CAP")
+        output = "0::/user.slice/app.slice/bounded-run-1-000000-probe.scope\n"
+        calls = []
+
+        def held(parent, skip):
+            calls.append(parent)
+            return ["unit=bounded-run-7-abcdef budget=4096M used=100M age=5s dir=/w command=tool"]
+
+        options = bounded_run.parse_arguments(["--check", "--memory", "2G"])
+        with mock.patch.object(bounded_run, "probe_cap", return_value=output), \
+                mock.patch.object(bounded_run, "unused_budget_mib", return_value=0), \
+                mock.patch.object(bounded_run, "held_commands", held):
+            bounded_run.check(options.budgets, self.environ, read_available=lambda: 9000)
+        self.assertEqual(calls, ["/sys/fs/cgroup/user.slice/app.slice"])
+        self.assertEqual(self.lines[1], "check held unit=bounded-run-7-abcdef budget=4096M used=100M age=5s dir=/w command=tool")
+        self.assertTrue(self.lines[2].startswith("check budget=2048M "), self.lines)
+
+    def test_no_held_line_without_a_cap(self):
+        self.hold("slot-000.lock")
+        self.assertFalse(any(line.startswith("check held") for line in self.check(["2G"])))
 
     def test_counts_no_unused_budget_without_a_cap(self):
         options = bounded_run.parse_arguments(["--check"])

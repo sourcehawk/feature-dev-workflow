@@ -20,10 +20,12 @@ the budget of the one before it when that run did not exit 0. The exit code
 is the first exit code that is not 0.
 
 --check runs no command and holds no lock when it returns. Its exit code is 0.
-It prints the state of the queue at that moment, and one line for each
---memory, in the order given:
+It prints the state of the queue at that moment, one held line for each
+running bounded command where the hard cap is available, and one line for
+each --memory, in the order given:
 
   bounded-run: check slots=N slot=MIBM free-slots=N|- free=MIBM|- unused=MIBM|- headroom=MIBM line=free|busy
+  bounded-run: check held unit=NAME budget=MIBM|- used=MIBM|- age=Ns|- dir=PATH|- command=TEXT|-
   bounded-run: check budget=MIBM slots=N starts=yes|no
 
 A '-' stands for a value that the check cannot read or count here. starts=yes
@@ -90,6 +92,7 @@ SCOPE_WAIT_SECONDS = 5.0
 MARGIN_EXACT = 0.25
 MARGIN_APPROXIMATE = 0.5
 BUDGET_STEP_MIB = 256
+HELD_COMMAND_CHARACTERS = 200
 PR_SET_PDEATHSIG = 1
 USAGE = (
     "usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measure] [--label NAME] -- COMMAND...\n"
@@ -681,19 +684,25 @@ def own_scope_name(proc_root: str = "/proc") -> Optional[str]:
     return None if path is None else os.path.basename(path)
 
 
+def _bounded_scopes(parent: str, skip: Sequence[str]) -> List[str]:
+    """Returns the names of the scopes of bounded commands in parent, less the probe scopes and the names in skip."""
+    try:
+        names = os.listdir(parent)
+    except OSError:
+        return []
+    return sorted(
+        name for name in names
+        if name.startswith(PREFIX + "-") and name.endswith(".scope") and not name.endswith("-probe.scope") and name not in skip
+    )
+
+
 def unused_budget_mib(parent: str, skip: Sequence[str]) -> int:
     """Returns the part of their budgets that the bounded commands whose scopes are in parent do not use yet.
 
     Probe scopes, the scopes named in skip, and scopes with no memory limit add nothing.
     """
-    try:
-        names = os.listdir(parent)
-    except OSError:
-        return 0
     unused = 0
-    for name in names:
-        if not name.startswith(PREFIX + "-") or not name.endswith(".scope") or name.endswith("-probe.scope") or name in skip:
-            continue
+    for name in _bounded_scopes(parent, skip):
         try:
             with open(os.path.join(parent, name, "memory.max")) as handle:
                 limit = handle.read().strip()
@@ -733,6 +742,72 @@ def wait_for_scope(
             return False
         sleep(0.02)
     return True
+
+
+def _read_text(path: str) -> Optional[str]:
+    try:
+        with open(path, "rb") as handle:
+            return handle.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+
+
+def _process_age_seconds(pid: int, proc_root: str, ticks: int) -> Optional[int]:
+    stat_text = _read_text(os.path.join(proc_root, str(pid), "stat"))
+    uptime = _read_text(os.path.join(proc_root, "uptime"))
+    try:
+        # The name of the process can hold spaces and ')', so the fields are counted from its last ')'.
+        start = int(stat_text.rsplit(")", 1)[1].split()[19])
+        return max(0, int(float(uptime.split()[0]) - start / ticks))
+    except (AttributeError, IndexError, ValueError):
+        return None
+
+
+def _held_command(pid: int, proc_root: str) -> Optional[str]:
+    text = _read_text(os.path.join(proc_root, str(pid), "cmdline"))
+    if not text:
+        return None
+    arguments = text.rstrip("\0").split("\0")
+    if "--inside-cap" in arguments:
+        at = arguments.index("--inside-cap")
+        if arguments[at + 3:at + 4] == ["--"]:
+            arguments = arguments[at + 4:]
+    # The check prints one line for each command, so a line break inside an argument becomes a space.
+    return " ".join(" ".join(arguments).split())[:HELD_COMMAND_CHARACTERS]
+
+
+def held_commands(parent: str, skip: Sequence[str], proc_root: str = "/proc", ticks: Optional[int] = None) -> List[str]:
+    """Returns one text for each running bounded command whose scope is in parent, as the fields of a check line.
+
+    A field that cannot be read is '-'. Probe scopes and the scopes named in skip give no text.
+    """
+    if ticks is None:
+        ticks = os.sysconf("SC_CLK_TCK")
+
+    def mib(text: Optional[str]) -> str:
+        return "%dM" % (int(text) // (1024 * 1024)) if text is not None and text.strip().isdigit() else "-"
+
+    held = []
+    for name in _bounded_scopes(parent, skip):
+        directory = os.path.join(parent, name)
+        limit = _read_text(os.path.join(directory, "memory.max"))
+        current = _read_text(os.path.join(directory, "memory.current"))
+        pids = [int(line) for line in (_read_text(os.path.join(directory, "cgroup.procs")) or "").split() if line.isdigit()]
+        if not os.path.isdir(directory):
+            # The scope ended while it was read.
+            continue
+        # The wrapper starts the first process of the scope, and that process starts the command.
+        pid = min(pids) if pids else None
+        age = _process_age_seconds(pid, proc_root, ticks) if pid is not None else None
+        try:
+            working = os.readlink(os.path.join(proc_root, str(pid), "cwd")) if pid is not None else None
+        except OSError:
+            working = None
+        command = _held_command(pid, proc_root) if pid is not None else None
+        held.append("unit=%s budget=%s used=%s age=%s dir=%s command=%s" % (
+            name[:-len(".scope")], mib(limit), mib(current), "-" if age is None else "%ds" % age,
+            working or "-", command or "-"))
+    return held
 
 
 def cgroup_directory(pid: int, unit: str, proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[str]:
@@ -1251,12 +1326,11 @@ def check(
     line = _try_lock(os.path.join(directory, "line.lock"))
     if line is not None:
         os.close(line)
+    unit = "%s-%d-%06x" % (PREFIX, os.getpid(), random.randrange(16 ** 6))
+    choice = None if settings.no_cap else choose_cap_prefix(settings.slot_mib, None, unit, probe_cap)
+    scopes = scope_parent_directory(choice[1]) if choice is not None else None
+    skip = [name for name in (own_scope_name(),) if name is not None]
     if read_outstanding is None:
-        unit = "%s-%d-%06x" % (PREFIX, os.getpid(), random.randrange(16 ** 6))
-        choice = None if settings.no_cap else choose_cap_prefix(settings.slot_mib, None, unit, probe_cap)
-        scopes = scope_parent_directory(choice[1]) if choice is not None else None
-        skip = [name for name in (own_scope_name(),) if name is not None]
-
         def read_outstanding() -> Optional[int]:
             return None if scopes is None else unused_budget_mib(scopes, skip)
 
@@ -1273,6 +1347,8 @@ def check(
     log("check slots=%d slot=%dM free-slots=%s free=%s unused=%s headroom=%dM line=%s" % (
         count, settings.slot_mib, "-" if free_slots is None else free_slots, mib(available), mib(outstanding),
         headroom, "free" if line is not None else "busy"))
+    for held in held_commands(scopes, skip) if scopes is not None else []:
+        log("check held " + held)
     for budget in budgets:
         needed = slots_needed(budget, settings.slot_mib, count)
         starts = (line is not None and free_slots is not None and free_slots >= needed
