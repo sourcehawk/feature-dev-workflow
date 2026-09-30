@@ -1010,9 +1010,29 @@ def parse_arguments(argv: Sequence[str]) -> Options:
     return options
 
 
+class _Stopped(Exception):
+    def __init__(self, signum: int) -> None:
+        super().__init__(signum)
+        self.signum = signum
+
+
+def _raise_stopped(signum: int, frame: object) -> None:
+    raise _Stopped(signum)
+
+
 def bounded(options: Options, environ: Mapping[str, str]) -> int:
     if not options.rows:
         return bounded_once(options, environ)[0]
+    # run_command sets its own handlers while a row runs and puts these back after it.
+    previous = {signum: signal.signal(signum, _raise_stopped) for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)}
+    try:
+        return _bounded_rows(options, environ)
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
+def _bounded_rows(options: Options, environ: Mapping[str, str]) -> int:
     memory = options.memory
     result = 0
     for cpus in options.rows:
@@ -1021,10 +1041,10 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
             memory, cpus, options.exclusive, True, options.label, options.command)
         try:
             code, suggested = bounded_once(row, environ)
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, _Stopped) as stop:
             # A signal while a row runs comes back as its exit code. A signal while it waits in the queue raises.
-            log("interrupted while waiting; the rows from --cpus %d are not measured" % cpus)
-            return result or 130
+            log("stopped by a signal while waiting; the rows from --cpus %d are not measured" % cpus)
+            return result or 128 + (stop.signum if isinstance(stop, _Stopped) else int(signal.SIGINT))
         if code in STOP_CODES:
             log("stopped by a signal; the rows after --cpus %d are not measured" % cpus)
             return result or code

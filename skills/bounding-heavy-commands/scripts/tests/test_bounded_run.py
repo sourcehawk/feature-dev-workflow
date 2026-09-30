@@ -1822,6 +1822,27 @@ class MeasuredRowTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(len(self.runs), 2)
 
+    def test_a_stop_signal_while_a_later_row_waits_keeps_the_first_exit_code(self):
+        for failure, expected in ((1, 1), (0, 128 + signal.SIGTERM)):
+            with self.subTest(failure=failure):
+                real_once = bounded_run.bounded_once
+                calls = []
+
+                def once(options, environ):
+                    calls.append(options.cpus)
+                    if len(calls) == 2:
+                        os.kill(os.getpid(), signal.SIGTERM)
+                        time.sleep(5)
+                    return real_once(options, environ)
+
+                before = signal.getsignal(signal.SIGTERM)
+                self.runs = []
+                with mock.patch.object(bounded_run, "bounded_once", once):
+                    code = self.run_bounded(["--measure-rows", "8,4,2"], [(failure, 1000)])
+                self.assertEqual(code, expected)
+                self.assertEqual(calls, [8, 4])
+                self.assertIs(signal.getsignal(signal.SIGTERM), before)
+
     def test_an_interrupt_while_a_later_row_waits_keeps_the_first_exit_code(self):
         real_once = bounded_run.bounded_once
         calls = []
