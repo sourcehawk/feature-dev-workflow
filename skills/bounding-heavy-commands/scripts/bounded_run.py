@@ -474,6 +474,7 @@ def wait_for_memory(
     sleep: Callable[[float], None] = time.sleep,
     lock: Callable[[], None] = lambda: None,
     unlock: Callable[[], None] = lambda: None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> None:
     """Returns when the free memory, less the unused budgets of running commands and the headroom, holds the budget.
 
@@ -481,8 +482,8 @@ def wait_for_memory(
     the free memory cannot be read. read_outstanding gives None where the unused budgets cannot be counted.
     The call returns with lock held: the caller calls unlock once the new command counts in read_outstanding.
     """
-    waited = 0.0
-    next_line = 0.0
+    started = clock()
+    next_line: Optional[float] = None
     while True:
         lock()
         # A running command that grows or shrinks during the reads moves both values. The larger of the two unused
@@ -499,12 +500,12 @@ def wait_for_memory(
         if available - (outstanding or 0) - headroom_mib >= budget_mib:
             log(state + "; starting")
             return
-        if waited >= next_line:
-            log(state + ("; waiting" if waited == 0 else "; still waiting after %ds" % waited))
+        waited = clock() - started
+        if next_line is None or waited >= next_line:
+            log(state + ("; waiting" if next_line is None else "; still waiting after %ds" % waited))
             next_line = waited + interval_seconds
         unlock()
         sleep(poll_seconds)
-        waited += poll_seconds
 
 
 def cap_prefix(budget_mib: int, cpus: Optional[int], unit: str, oom_policy: bool = True) -> List[str]:

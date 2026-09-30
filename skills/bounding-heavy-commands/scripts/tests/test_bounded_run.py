@@ -757,12 +757,18 @@ class MemoryWaitTest(unittest.TestCase):
         self.log = patcher.start()
         self.addCleanup(patcher.stop)
 
-    def wait(self, values, limit, outstanding=None, headroom=0):
+    def wait(self, values, limit, outstanding=None, headroom=0, oversleep=1):
         readings = list(values)
         sleeps = []
+        now = [0.0]
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            now[0] += seconds * oversleep
+
         bounded_run.wait_for_memory(
             4096, limit, 5.0, headroom_mib=headroom, read_available=lambda: readings.pop(0),
-            read_outstanding=lambda: outstanding, sleep=sleeps.append,
+            read_outstanding=lambda: outstanding, sleep=sleep, clock=lambda: now[0],
         )
         return sleeps
 
@@ -789,6 +795,12 @@ class MemoryWaitTest(unittest.TestCase):
         waiting = [line for line in self.lines() if "waiting" in line]
         self.assertEqual(len(waiting), 4, waiting)
         self.assertIn("still waiting", waiting[1])
+
+    def test_the_time_between_two_lines_is_real_time(self):
+        self.wait([1000] * 3 + [5000], 100, oversleep=10)
+        waiting = [line for line in self.lines() if "waiting" in line]
+        self.assertEqual(len(waiting), 2, waiting)
+        self.assertTrue(waiting[1].endswith("; still waiting after 100s"), waiting)
 
     def test_starts_when_the_memory_is_not_readable(self):
         self.assertEqual(self.wait([None], 300), [])
