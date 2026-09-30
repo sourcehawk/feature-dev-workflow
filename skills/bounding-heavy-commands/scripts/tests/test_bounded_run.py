@@ -1132,6 +1132,11 @@ class HeldCommandTest(unittest.TestCase):
         self.assertEqual(len(command), bounded_run.HELD_COMMAND_CHARACTERS)
         self.assertTrue(command.startswith("sh -c first second x"), command)
 
+    def test_a_directory_with_a_line_break_stays_on_one_line(self):
+        self.scope("bounded-run-100-aaaaaa.scope")
+        self.process(100, self.inside("tool"), cwd="/work/two\nlines")
+        self.assertEqual(self.held(), ["unit=bounded-run-100-aaaaaa budget=4096M used=1024M age=120s dir=/work/two lines command=tool"])
+
     def test_a_command_without_the_prefix_of_the_wrapper_is_given_whole(self):
         self.scope("bounded-run-100-aaaaaa.scope")
         self.process(100, ["sleep", "60"])

@@ -803,6 +803,8 @@ def held_commands(parent: str, skip: Sequence[str], proc_root: str = "/proc", ti
             working = os.readlink(os.path.join(proc_root, str(pid), "cwd")) if pid is not None else None
         except OSError:
             working = None
+        if working is not None:
+            working = " ".join(working.split())
         command = _held_command(pid, proc_root) if pid is not None else None
         held.append("unit=%s budget=%s used=%s age=%s dir=%s command=%s" % (
             name[:-len(".scope")], mib(limit), mib(current), "-" if age is None else "%ds" % age,
