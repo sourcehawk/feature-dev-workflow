@@ -1035,24 +1035,26 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
 def _bounded_rows(options: Options, environ: Mapping[str, str]) -> int:
     memory = options.memory
     result = 0
-    for cpus in options.rows:
-        row = Options()
-        row.memory, row.cpus, row.exclusive, row.measure, row.label, row.command = (
-            memory, cpus, options.exclusive, True, options.label, options.command)
-        try:
+    measured = 0
+    try:
+        for cpus in options.rows:
+            row = Options()
+            row.memory, row.cpus, row.exclusive, row.measure, row.label, row.command = (
+                memory, cpus, options.exclusive, True, options.label, options.command)
             code, suggested = bounded_once(row, environ)
-        except (KeyboardInterrupt, _Stopped) as stop:
-            # A signal while a row runs comes back as its exit code. A signal while it waits in the queue raises.
-            log("stopped by a signal while waiting; the rows from --cpus %d are not measured" % cpus)
-            return result or 128 + (stop.signum if isinstance(stop, _Stopped) else int(signal.SIGINT))
-        if code in STOP_CODES:
-            log("stopped by a signal; the rows after --cpus %d are not measured" % cpus)
-            return result or code
-        if code == 0:
-            memory = "%dM" % suggested
-        else:
-            # A run that stopped early has a peak that is too small to be the budget of a smaller command.
-            result = result or code
+            measured += 1
+            if code in STOP_CODES:
+                log("stopped by a signal; the rows after --cpus %d are not measured" % cpus)
+                return result or code
+            if code == 0:
+                memory = "%dM" % suggested
+            else:
+                # A run that stopped early has a peak that is too small to be the budget of a smaller command.
+                result = result or code
+    except (KeyboardInterrupt, _Stopped) as stop:
+        # A signal while a row runs comes back as its exit code. A signal at any other time in the list raises.
+        log("stopped by a signal; %d of %d rows are measured" % (measured, len(options.rows)))
+        return result or 128 + (stop.signum if isinstance(stop, _Stopped) else int(signal.SIGINT))
     return result
 
 
@@ -1204,6 +1206,10 @@ def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, st
         except KeyboardInterrupt:
             log("interrupted while waiting")
             return 130
+        except _Stopped as stop:
+            # The handlers of --measure-rows can fire after its list ends, before they are put back.
+            log("stopped by a signal")
+            return 128 + stop.signum
     except WrapperError as error:
         log(str(error))
         return EXIT_WRAPPER
