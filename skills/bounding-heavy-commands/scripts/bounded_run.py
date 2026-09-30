@@ -764,6 +764,12 @@ def _process_age_seconds(pid: int, proc_root: str, ticks: int) -> Optional[int]:
         return None
 
 
+def _one_line(text: str) -> str:
+    # The check prints one line for each command: a line break in an argument or a path would split the line,
+    # and a control character would act on the terminal.
+    return "".join(character if character.isprintable() else "?" for character in " ".join(text.split()))
+
+
 def _held_command(pid: int, proc_root: str) -> Optional[str]:
     text = _read_text(os.path.join(proc_root, str(pid), "cmdline"))
     if not text:
@@ -773,8 +779,7 @@ def _held_command(pid: int, proc_root: str) -> Optional[str]:
         at = arguments.index("--inside-cap")
         if arguments[at + 3:at + 4] == ["--"]:
             arguments = arguments[at + 4:]
-    # The check prints one line for each command, so a line break inside an argument becomes a space.
-    return " ".join(" ".join(arguments).split())[:HELD_COMMAND_CHARACTERS]
+    return _one_line(" ".join(arguments))[:HELD_COMMAND_CHARACTERS]
 
 
 def held_commands(parent: str, skip: Sequence[str], proc_root: str = "/proc", ticks: Optional[int] = None) -> List[str]:
@@ -805,7 +810,7 @@ def held_commands(parent: str, skip: Sequence[str], proc_root: str = "/proc", ti
         except OSError:
             working = None
         if working is not None:
-            working = " ".join(working.split())
+            working = _one_line(working)
         command = _held_command(pid, proc_root) if pid is not None else None
         held.append("unit=%s budget=%s used=%s age=%s dir=%s command=%s" % (
             name[:-len(".scope")], mib(limit), mib(current), "-" if age is None else "%ds" % age,

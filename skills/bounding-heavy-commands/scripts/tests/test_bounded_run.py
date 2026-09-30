@@ -1137,6 +1137,11 @@ class HeldCommandTest(unittest.TestCase):
         self.process(100, self.inside("tool"), cwd="/work/two\nlines")
         self.assertEqual(self.held(), ["unit=bounded-run-100-aaaaaa budget=4096M used=1024M age=120s dir=/work/two lines command=tool"])
 
+    def test_control_characters_of_the_command_and_the_directory_become_question_marks(self):
+        self.scope("bounded-run-100-aaaaaa.scope")
+        self.process(100, self.inside("printf", "\x1b[2Jdone"), cwd="/work/\x1b[31mred")
+        self.assertEqual(self.held(), ["unit=bounded-run-100-aaaaaa budget=4096M used=1024M age=120s dir=/work/?[31mred command=printf ?[2Jdone"])
+
     def test_a_command_without_the_prefix_of_the_wrapper_is_given_whole(self):
         self.scope("bounded-run-100-aaaaaa.scope")
         self.process(100, ["sleep", "60"])
