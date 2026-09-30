@@ -847,7 +847,7 @@ def cgroup_peak_mib(directory: str, names: Sequence[str] = ("memory.peak", "memo
 # The kernel cannot take back these pages at once to keep a cgroup under its limit: dirty and writeback file pages
 # must reach the disk first. An older kernel has no 'kernel' line, and there its parts stand in for it.
 HELD_FIELDS = ("anon", "shmem", "file_dirty", "file_writeback")
-KERNEL_PARTS = ("kernel_stack", "slab_unreclaimable", "sock", "percpu")
+KERNEL_PARTS = ("kernel_stack", "pagetables", "sec_pagetables", "slab_unreclaimable", "sock", "percpu", "vmalloc")
 
 
 def cgroup_held_mib(directory: str) -> Optional[int]:
