@@ -516,6 +516,81 @@ class ReserveTest(unittest.TestCase):
         self.addCleanup(reservation.release)
         self.assertTrue(turn_lock_acquired[0], "turn lock should be free while reserve waits")
 
+    def line_is_free(self):
+        descriptor = os.open(os.path.join(self.directory, "line.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            bounded_run.fcntl.flock(descriptor, bounded_run.fcntl.LOCK_EX | bounded_run.fcntl.LOCK_NB)
+            return True
+        except BlockingIOError:
+            return False
+        finally:
+            os.close(descriptor)
+
+    def test_the_waiter_at_the_head_keeps_the_line_while_it_waits(self):
+        blocker = bounded_run.try_reserve(self.directory, 1, 1, [])
+        free_during_wait = []
+
+        def sleep(seconds):
+            free_during_wait.append(self.line_is_free())
+            if len(free_during_wait) == 2:
+                blocker.release()
+
+        reservation = bounded_run.reserve(self.directory, 1, 1, [], 0.2, sleep=sleep)
+        self.addCleanup(reservation.release)
+        self.assertEqual(free_during_wait, [False, False])
+        self.assertTrue(self.line_is_free(), "the line lock is still held after the slots were taken")
+
+    def test_the_head_leaves_the_line_when_no_slot_comes_free_for_the_time_limit(self):
+        blocker = bounded_run.try_reserve(self.directory, 2, 1, [])
+        now = [0.0]
+        free_during_wait = []
+
+        def sleep(seconds):
+            now[0] += 4.0
+            free_during_wait.append(self.line_is_free())
+            if len(free_during_wait) == 5:
+                blocker.release()
+
+        reservation = bounded_run.reserve(
+            self.directory, 2, 2, [], 0.2, sleep=sleep, clock=lambda: now[0], line_seconds=10.0,
+        )
+        self.addCleanup(reservation.release)
+        self.assertEqual(free_during_wait[:2], [False, False])
+        self.assertIn(True, free_during_wait[2:4])
+
+    def test_a_slot_that_comes_free_restarts_the_time_limit_of_the_head(self):
+        first = bounded_run.try_reserve(self.directory, 3, 1, [])
+        second = bounded_run.try_reserve(self.directory, 3, 1, [])
+        now = [0.0]
+        free_during_wait = []
+
+        def sleep(seconds):
+            now[0] += 4.0
+            free_during_wait.append(self.line_is_free())
+            if len(free_during_wait) == 2:
+                first.release()
+            if len(free_during_wait) == 4:
+                second.release()
+
+        reservation = bounded_run.reserve(
+            self.directory, 3, 3, [], 0.2, sleep=sleep, clock=lambda: now[0], line_seconds=10.0,
+        )
+        self.addCleanup(reservation.release)
+        self.assertEqual(free_during_wait, [False, False, False, False])
+
+    def test_a_waiter_does_not_keep_the_line_while_its_exclusive_name_is_held(self):
+        holder = bounded_run.try_reserve(self.directory, 2, 1, ["exclusive-abc-port.lock"])
+        free_during_wait = []
+
+        def sleep(seconds):
+            free_during_wait.append(self.line_is_free())
+            if len(free_during_wait) == 2:
+                holder.release()
+
+        reservation = bounded_run.reserve(self.directory, 2, 1, ["exclusive-abc-port.lock"], 0.2, sleep=sleep)
+        self.addCleanup(reservation.release)
+        self.assertEqual(free_during_wait, [True, True])
+
 
 class LockFileTest(unittest.TestCase):
     def setUp(self):
@@ -1925,21 +2000,22 @@ class WrapperProcessTest(WrapperProcessCase):
             self.assertEqual(process.wait(timeout=60), 0)
         self.assertEqual(self.peak_concurrency(), 1)
 
-    def test_a_waiting_command_holds_no_slot(self):
+    def test_a_waiting_command_holds_no_slot_and_is_not_overtaken(self):
         release = os.path.join(self.base.name, "release")
         long_holder = self.worker("holder", "2G", hold="300", release=release)  # runs until the release file below ends it early
         self.wait_for_event("start", "holder")
         large = self.worker("large", "4G", hold="0")  # ends at once once it gets its slots; the test waits for it to end
         self.wait_for_stderr(large, "waiting for")
+        self.assertEqual(bounded_run._free_slots(self.environ["BOUNDED_RUN_LOCK_DIR"], 2), 1)
         small = self.worker("small", "2G", hold="0")  # ends at once; the test waits for it to end
-        self.assertEqual(small.wait(timeout=60), 0)
-        names = [line.split()[1] for line in self.read_events() if line.startswith("end ")]
-        self.assertEqual(names, ["small"])
+        self.wait_for_stderr(small, "behind other commands")
         Path(release).write_text("")
         self.assertEqual(large.wait(timeout=60), 0)
+        self.assertEqual(small.wait(timeout=60), 0)
         self.assertEqual(long_holder.wait(timeout=60), 0)
         order = [line.split()[:2] for line in self.read_events()]
         self.assertLess(order.index(["end", "holder"]), order.index(["start", "large"]))
+        self.assertLess(order.index(["start", "large"]), order.index(["start", "small"]))
 
     def test_a_hard_kill_of_the_wrapper_frees_the_slots_at_once(self):
         holder = self.worker("holder", "4G", hold="300")  # runs until the kill below ends it
@@ -1980,7 +2056,7 @@ class WrapperProcessTest(WrapperProcessCase):
         )
         process = self.wrapper(["--memory", "4G", "--exclusive", "port"], [sys.executable, "-c", script])
         output, errors = process.communicate(timeout=60)
-        self.assertEqual(output, "locks 5 inherited 0\n", errors)
+        self.assertEqual(output, "locks 6 inherited 0\n", errors)
 
     def test_commands_with_the_same_exclusive_name_take_turns(self):
         workers = [self.worker("w%d" % index, "2G", hold="0.3", options=["--exclusive", "port-8080"]) for index in range(3)]  # brief; the test waits for each to end
@@ -2162,6 +2238,74 @@ class WrapperProcessTest(WrapperProcessCase):
 
         holder.send_signal(signal.SIGTERM)
         self.assertEqual(holder.wait(timeout=60), 143)
+
+    def hold_the_line(self):
+        os.makedirs(self.environ["BOUNDED_RUN_LOCK_DIR"], exist_ok=True)
+        descriptor = os.open(os.path.join(self.environ["BOUNDED_RUN_LOCK_DIR"], "line.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        bounded_run.fcntl.flock(descriptor, bounded_run.fcntl.LOCK_EX)
+        return descriptor
+
+    def test_an_interrupt_behind_others_in_the_line_gives_130_and_no_traceback(self):
+        line = self.hold_the_line()
+        self.addCleanup(os.close, line)
+        waiting = self.worker("waiting", "2G", hold="0")  # never reached; interrupted while still in the line
+        self.wait_for_stderr(waiting, "behind other commands")
+        waiting.send_signal(signal.SIGINT)
+        self.assertEqual(waiting.wait(timeout=10), 130)
+        buffer = self.stderr_of(waiting)
+        self.assertNotIn("Traceback", buffer)
+        self.assertIn("interrupted while waiting", buffer)
+
+    def test_a_waiter_that_dies_in_the_line_does_not_block_the_next(self):
+        release = os.path.join(self.base.name, "release")
+        holder = self.worker("holder", "2G", hold="300", release=release)  # runs until the release file below ends it
+        self.wait_for_event("start", "holder")
+        head = self.worker("head", "4G", hold="0")  # killed while it waits at the head of the line
+        self.wait_for_stderr(head, "waiting for")
+        follower = self.worker("follower", "4G", hold="0")  # ends at once once it gets its slots
+        self.wait_for_stderr(follower, "behind other commands")
+        head.kill()
+        head.wait(timeout=60)
+        Path(release).write_text("")
+        self.assertEqual(holder.wait(timeout=60), 0)
+        self.assertEqual(follower.wait(timeout=30), 0)
+        directory = self.environ["BOUNDED_RUN_LOCK_DIR"]
+        for name in os.listdir(directory):
+            self.assertTrue(name.endswith(".lock"), name)
+            self.assertEqual(os.path.getsize(os.path.join(directory, name)), 0, name)
+
+    def a_large_command_starts_under_a_steady_stream_of_small_commands(self, options, command):
+        """Keeps at least one slot held by 1-slot commands, and fails when the large command does not start in time."""
+        large = None
+        stream = []
+        deadline = time.time() + 30
+        try:
+            while time.time() < deadline:
+                if sum(1 for process in stream if process.poll() is None) < 4:
+                    stream.append(self.worker("small%d" % len(stream), "2G", hold="0.3"))  # brief; the test waits for each to end
+                if large is None and len(stream) >= 4:
+                    self.wait_for_event("start", "small0")
+                    large = self.wrapper(options, command)
+                if large is not None and any(line.split()[:2] == ["start", "large"] for line in self.read_events()):
+                    break
+                time.sleep(0.05)
+            else:
+                self.fail("the large command did not start within 30 seconds, while %d small commands started" % len(stream))
+        finally:
+            for process in stream:
+                process.wait(timeout=60)
+        self.assertEqual(large.wait(timeout=60), 0)
+        self.assertGreater(len([line for line in self.read_events() if line.startswith("start small")]), 4)
+
+    def test_a_command_that_needs_all_slots_starts_while_small_commands_keep_arriving(self):
+        self.a_large_command_starts_under_a_steady_stream_of_small_commands(
+            ["--memory", "4G"], [sys.executable, "-c", WORKER, "large"],
+        )
+
+    def test_a_first_measurement_starts_while_small_commands_keep_arriving(self):
+        self.a_large_command_starts_under_a_steady_stream_of_small_commands(
+            ["--measure"], [sys.executable, "-c", WORKER, "large"],
+        )
 
 
 @unittest.skipUnless(

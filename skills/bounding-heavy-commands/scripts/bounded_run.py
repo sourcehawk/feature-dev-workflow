@@ -60,6 +60,7 @@ SLOT_MIB = 2048
 MINIMUM_RESERVE_MIB = 2048
 MINIMUM_HEADROOM_MIB = 1024
 POLL_SECONDS = 2.0
+LINE_SECONDS = 300.0
 MEMORY_WAIT_SECONDS = 300.0
 SAMPLE_SECONDS = 1.0
 SCOPE_WAIT_SECONDS = 5.0
@@ -414,20 +415,88 @@ def try_reserve(directory: str, count: int, needed: int, exclusive_files: Sequen
         os.close(turn)
 
 
+def _names_free(directory: str, exclusive_files: Sequence[str]) -> bool:
+    for name in exclusive_files:
+        descriptor = _try_lock(os.path.join(directory, name))
+        if descriptor is None:
+            return False
+        os.close(descriptor)
+    return True
+
+
+def _free_slots(directory: str, count: int) -> int:
+    turn = _lock(os.path.join(directory, "reserve.lock"), wait=True)
+    try:
+        free = 0
+        for index in range(count):
+            descriptor = _try_lock(os.path.join(directory, "slot-%03d.lock" % index))
+            if descriptor is not None:
+                os.close(descriptor)
+                free += 1
+        return free
+    finally:
+        os.close(turn)
+
+
 def reserve(
     directory: str, count: int, needed: int, exclusive_files: Sequence[str], poll_seconds: float,
     sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+    line_seconds: float = LINE_SECONDS,
 ) -> Reservation:
-    announced = False
+    """Waits in the line of all waiters, then for the slots and the exclusive names, and holds them.
+
+    Only the waiter at the head of the line tries for slots, so a command that arrives later cannot
+    take the slots that the head waits for. The head leaves the line when no slot comes free for
+    line_seconds, so a command that never ends cannot stop the whole queue.
+    """
+    announced: List[bool] = []
+
+    def announce() -> None:
+        if not announced:
+            log("waiting for %d of %d slot(s)" % (needed, count))
+            announced.append(True)
+
+    def pause() -> None:
+        sleep(poll_seconds * (0.5 + random.random()))
+
+    line_path = os.path.join(directory, "line.lock")
+    behind = False
     while True:
-        reservation = try_reserve(directory, count, needed, exclusive_files)
+        # A name held by a command that does not end would stop the whole line.
+        while not _names_free(directory, exclusive_files):
+            announce()
+            pause()
+        line = _lock(line_path, wait=False)
+        if line is None:
+            announce()
+            if not behind:
+                log("waiting behind other commands in the line")
+                behind = True
+            line = _lock(line_path, wait=True)
+        try:
+            reservation = None
+            most_free = -1
+            since = clock()
+            while True:
+                reservation = try_reserve(directory, count, needed, exclusive_files)
+                if reservation is not None or not _names_free(directory, exclusive_files):
+                    break
+                free = _free_slots(directory, count)
+                if free > most_free:
+                    most_free, since = free, clock()
+                elif clock() - since >= line_seconds:
+                    log("no slot came free for %ds; letting the commands behind this one try first" % line_seconds)
+                    break
+                announce()
+                pause()
+        finally:
+            os.close(line)
         if reservation is not None:
             log("holding %d of %d slot(s)" % (needed, count))
             return reservation
-        if not announced:
-            log("waiting for %d of %d slot(s)" % (needed, count))
-            announced = True
-        sleep(poll_seconds * (0.5 + random.random()))
+        # The waiters behind this one need a moment to take the line before this one asks again.
+        pause()
 
 
 def parse_meminfo(text: str) -> Optional[int]:
