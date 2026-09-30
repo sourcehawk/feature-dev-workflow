@@ -1519,10 +1519,11 @@ class BoundedCleanupTest(unittest.TestCase):
         self.assertIn("bounded-run-2-111111.scope", skip)
         self.assertTrue(any(re.match(r"^bounded-run-%d-[0-9a-f]{6}\.scope$" % os.getpid(), name) for name in skip), skip)
 
-    def run_with_scopes(self, appear_after):
-        """Runs bounded() with a capped command whose scope appears in a temporary slice after appear_after seconds, or never when None.
+    def run_with_scopes(self, appears):
+        """Runs bounded() with a capped command whose scope appears in a temporary slice in two steps, or never when appears is false.
 
-        Returns whether the memory lock was free while the scope did not exist yet, and whether it was free when the command started.
+        The scope appears first with no memory limit, then with its limit. Returns whether the memory lock was free before the
+        scope, before its limit, and when the command started.
         """
         scopes = os.path.join(self.base.name, "slice")
         os.makedirs(scopes)
@@ -1537,13 +1538,19 @@ class BoundedCleanupTest(unittest.TestCase):
             return True
 
         def fake_run_command(command, environ, on_start=None):
-            unit = command[command.index("--inside-cap") + 2]
+            scope = os.path.join(scopes, command[command.index("--inside-cap") + 2] + ".scope")
 
             def appear():
                 time.sleep(0.2)
                 free["before the scope"] = lock_is_free()
-                if appear_after is not None:
-                    os.mkdir(os.path.join(scopes, unit + ".scope"))
+                if appears:
+                    os.mkdir(scope)
+                    Path(scope, "memory.max").write_text("max\n")
+                time.sleep(0.2)
+                free["before the limit"] = lock_is_free()
+                if appears:
+                    Path(scope, "memory.current").write_text("0\n")
+                    Path(scope, "memory.max").write_text("%d\n" % (1024 * 1024 ** 2))
 
             thread = threading.Thread(target=appear)
             thread.start()
@@ -1557,19 +1564,19 @@ class BoundedCleanupTest(unittest.TestCase):
         options.command = [sys.executable, "-c", "pass"]
         with mock.patch.object(bounded_run, "probe_cap", return_value="0::/slice/bounded-run-1-000000-probe.scope\n"), \
                 mock.patch.object(bounded_run, "scope_parent_directory", return_value=scopes), \
-                mock.patch.object(bounded_run, "SCOPE_WAIT_SECONDS", 0.5), \
+                mock.patch.object(bounded_run, "SCOPE_WAIT_SECONDS", 1.0), \
                 mock.patch.object(bounded_run, "run_command", fake_run_command):
             self.assertEqual(bounded_run.bounded(options, self.environ), 0)
         return free
 
     def test_the_next_memory_check_waits_until_the_scope_of_the_command_counts(self):
-        free = self.run_with_scopes(appear_after=0.2)
-        self.assertEqual(free, {"before the scope": False, "at the start": True})
+        free = self.run_with_scopes(appears=True)
+        self.assertEqual(free, {"before the scope": False, "before the limit": False, "at the start": True})
 
     def test_a_scope_that_never_appears_frees_the_memory_check_after_a_time_limit(self):
         started = time.monotonic()
-        free = self.run_with_scopes(appear_after=None)
-        self.assertEqual(free, {"before the scope": False, "at the start": True})
+        free = self.run_with_scopes(appears=False)
+        self.assertEqual(free, {"before the scope": False, "before the limit": False, "at the start": True})
         self.assertLess(time.monotonic() - started, 5)
 
     def test_the_wait_counts_no_unused_budget_without_a_cap(self):

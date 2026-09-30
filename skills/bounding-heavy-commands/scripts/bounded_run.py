@@ -597,11 +597,24 @@ def unused_budget_mib(parent: str, skip: Sequence[str]) -> int:
     return unused // (1024 * 1024)
 
 
+def _scope_counts(path: str) -> bool:
+    try:
+        with open(os.path.join(path, "memory.max")) as handle:
+            limit = handle.read().strip()
+        with open(os.path.join(path, "memory.current")) as handle:
+            int(handle.read().strip())
+    except (OSError, ValueError):
+        return False
+    return limit.isdigit()
+
+
 def wait_for_scope(parent: str, unit: str, limit_seconds: float, sleep: Callable[[float], None] = time.sleep) -> bool:
-    """Returns True when the scope of the unit is in parent, or False when it is not there after limit_seconds."""
+    """Returns True when the scope of the unit is in parent with its memory limit, as unused_budget_mib counts it,
+    or False when it is not there after limit_seconds."""
     path = os.path.join(parent, unit + ".scope")
     waited = 0.0
-    while not os.path.isdir(path):
+    # systemd makes the directory of the scope before it writes the limit.
+    while not _scope_counts(path):
         if waited >= limit_seconds:
             return False
         sleep(0.02)
