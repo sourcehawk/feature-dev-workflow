@@ -117,7 +117,7 @@ A local path also works for development: `/plugin marketplace add /path/to/featu
 
 No further setup is required; the skills derive your repo and build commands from context. Optionally, paste [`templates/project-CLAUDE.md`](templates/project-CLAUDE.md) into your project's `CLAUDE.md` to give every session the workflow overview and the operational rules (commit conventions, safe git staging, GitHub-mutation confirmation).
 
-Keep project memory on to get the most from `bounding-heavy-commands`. In Claude Code that is auto memory, which is on by default. The skill saves the measured memory budget and the bounded command line of each heavy command there, so a later session starts with them. With memory off, each session measures the commands again, and each first measurement runs alone in the queue, so the sessions wait for each other more often. A command that a session did not measure runs under the default budget, which can be less than the command needs.
+Keep project memory on to get the most from `bounding-heavy-commands`. In Claude Code that is auto memory, which is on by default. The skill saves the measured memory budget and the bounded command line of each heavy command there, so a later session starts with them. With memory off, each session measures the commands again, and each first measurement holds the default budget, or runs alone in the queue where there is no hard cap, so the sessions wait for each other more often. A command that a session did not measure runs under the default budget, which can be less than the command needs.
 
 ## Notes
 
