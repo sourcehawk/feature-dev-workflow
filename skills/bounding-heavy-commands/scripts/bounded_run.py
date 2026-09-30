@@ -612,17 +612,19 @@ def _scope_counts(path: str) -> bool:
     return limit.isdigit()
 
 
-def wait_for_scope(parent: str, unit: str, limit_seconds: float, sleep: Callable[[float], None] = time.sleep) -> bool:
+def wait_for_scope(
+    parent: str, unit: str, limit_seconds: float,
+    sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
+) -> bool:
     """Returns True when the scope of the unit is in parent with its memory limit, as unused_budget_mib counts it,
     or False when it is not there after limit_seconds."""
     path = os.path.join(parent, unit + ".scope")
-    waited = 0.0
+    deadline = clock() + limit_seconds
     # systemd makes the directory of the scope before it writes the limit.
     while not _scope_counts(path):
-        if waited >= limit_seconds:
+        if clock() >= deadline:
             return False
         sleep(0.02)
-        waited += 0.02
     return True
 
 

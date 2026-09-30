@@ -943,6 +943,15 @@ class UnusedBudgetTest(unittest.TestCase):
         self.assertIsNone(bounded_run.scope_parent_directory("", "/cg"))
         self.assertIsNone(bounded_run.scope_parent_directory("4:memory:/user.slice/unit-1-probe.scope\n", "/cg"))
 
+    def test_the_wait_for_a_scope_ends_after_its_time_limit_of_real_time(self):
+        now = [0.0]
+
+        def slow_sleep(seconds):
+            now[0] += 10 * seconds
+
+        self.assertFalse(bounded_run.wait_for_scope(self.slice, "bounded-run-1-000000", 1.0, sleep=slow_sleep, clock=lambda: now[0]))
+        self.assertLessEqual(now[0], 1.2)
+
     def test_a_running_command_that_uses_little_of_a_large_budget_holds_back_the_next(self):
         self.scope("bounded-run-10-aaaaaa.scope", str(6144 * 1024 ** 2), str(1024 * 1024 ** 2))
         sleeps = []
