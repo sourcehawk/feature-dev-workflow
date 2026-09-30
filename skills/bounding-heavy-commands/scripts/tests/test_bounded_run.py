@@ -1326,7 +1326,7 @@ class MeasurementTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             self.write_stat(directory, anon=100, file=5000, kernel=20, kernel_stack=1, slab_unreclaimable=2, shmem=30,
                             file_dirty=40, file_writeback=50, inactive_file=4000, active_file=900, slab_reclaimable=10)
-            self.assertEqual(bounded_run.cgroup_held_mib(directory), 240)
+            self.assertEqual(bounded_run.cgroup_held_mib(directory), 230)
 
     def test_held_memory_without_the_kernel_line_adds_the_parts_of_kernel_memory(self):
         with tempfile.TemporaryDirectory() as directory:

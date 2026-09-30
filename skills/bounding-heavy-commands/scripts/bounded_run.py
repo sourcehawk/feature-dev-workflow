@@ -863,6 +863,9 @@ def cgroup_held_mib(directory: str) -> Optional[int]:
         parts = line.split()
         if len(parts) == 2 and parts[1].isdigit():
             fields[parts[0]] = int(parts[1])
+    if "kernel" in fields:
+        # The 'kernel' line also counts the reclaimable slab, the cache of file names and inodes.
+        fields["kernel"] = max(0, fields["kernel"] - fields.get("slab_reclaimable", 0))
     names = HELD_FIELDS + (("kernel",) if "kernel" in fields else KERNEL_PARTS)
     found = [fields[name] for name in names if name in fields]
     return math.ceil(sum(found) / (1024 * 1024)) if found else None
