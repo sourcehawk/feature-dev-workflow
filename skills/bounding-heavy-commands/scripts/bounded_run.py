@@ -81,6 +81,7 @@ except ImportError:
 PREFIX = "bounded-run"
 EXIT_WRAPPER = 125
 ACTIVE_VARIABLE = "BOUNDED_RUN_ACTIVE"
+VALUE_OPTIONS = ("--memory", "--cpus", "--exclusive", "--measure-rows", "--label")
 SLOT_MIB = 2048
 MINIMUM_RESERVE_MIB = 2048
 MINIMUM_HEADROOM_MIB = 1024
@@ -1060,6 +1061,15 @@ class Options:
         self.budgets: List[int] = []
 
 
+def _check_option_given(flags: Sequence[str]) -> bool:
+    position = 0
+    while position < len(flags):
+        if flags[position] == "--check":
+            return True
+        position += 2 if flags[position] in VALUE_OPTIONS else 1
+    return False
+
+
 def _parse_check(flags: Sequence[str], has_command: bool) -> Options:
     options = Options()
     options.check = True
@@ -1082,7 +1092,7 @@ def parse_arguments(argv: Sequence[str]) -> Options:
     options = Options()
     arguments = list(argv)
     split = arguments.index("--") if "--" in arguments else len(arguments)
-    if "--check" in arguments[:split]:
+    if _check_option_given(arguments[:split]):
         return _parse_check(arguments[:split], split < len(arguments))
     if "--" not in arguments:
         raise WrapperError("the '--' before the command is missing\n" + USAGE)
@@ -1095,7 +1105,7 @@ def parse_arguments(argv: Sequence[str]) -> Options:
         if flag == "--measure":
             options.measure = True
             continue
-        if flag not in ("--memory", "--cpus", "--exclusive", "--measure-rows", "--label"):
+        if flag not in VALUE_OPTIONS:
             raise WrapperError("cannot read the option '%s'\n%s" % (flag, USAGE))
         if not flags:
             raise WrapperError("the option '%s' needs a value\n%s" % (flag, USAGE))

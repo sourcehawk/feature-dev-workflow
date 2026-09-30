@@ -2119,6 +2119,10 @@ class CheckArgumentTest(unittest.TestCase):
         options = bounded_run.parse_arguments(["--memory", "2G", "--", "tool", "--check"])
         self.assertEqual((options.check, options.command), (False, ["tool", "--check"]))
 
+    def test_the_value_of_an_option_is_not_the_check_option(self):
+        options = bounded_run.parse_arguments(["--exclusive", "--check", "--", "tool"])
+        self.assertEqual((options.check, options.exclusive, options.command), (False, ["--check"], ["tool"]))
+
     def test_rejects_a_command_and_the_other_options(self):
         for arguments in (
             ["--check", "--", "tool"],
