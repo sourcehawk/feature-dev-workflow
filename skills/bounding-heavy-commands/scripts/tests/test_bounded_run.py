@@ -1269,6 +1269,7 @@ class ArgumentTest(unittest.TestCase):
             ["--measure-rows", "4,,2", "--", "tool"],
             ["--measure-rows", "\u00b2", "--", "tool"],
             ["--measure-rows", "9" * 5000, "--", "tool"],
+            ["--measure-rows", "1000000", "--", "tool"],
             ["--measure-rows", "4,2", "--cpus", "2", "--", "tool"],
             ["--measure", "--label", "unit tests", "--", "tool"],
             ["--measure", "--label", "-", "--", "tool"],

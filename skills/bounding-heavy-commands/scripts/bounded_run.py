@@ -993,13 +993,10 @@ def parse_arguments(argv: Sequence[str]) -> Options:
             options.label = value
         elif flag == "--measure-rows":
             parts = value.split(",")
-            try:
-                rows = [int(part) for part in parts if re.fullmatch(r"[0-9]+", part)]
-            except ValueError:
-                # int() refuses a number with more digits than its limit.
-                rows = []
+            # int() of a very long number is slow on some versions of Python and raises ValueError on others.
+            rows = [int(part) for part in parts if re.fullmatch(r"[0-9]{1,6}", part)]
             if len(rows) != len(parts) or min(rows) < 1:
-                raise WrapperError("cannot read --measure-rows '%s'; use whole numbers of 1 or more, such as 16,8,4" % value)
+                raise WrapperError("cannot read --measure-rows '%s'; use whole numbers from 1 to 999999, such as 16,8,4" % value)
             options.rows = sorted(set(rows), reverse=True)
             options.measure = True
         else:
