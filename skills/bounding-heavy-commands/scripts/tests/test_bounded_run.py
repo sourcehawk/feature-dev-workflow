@@ -2056,7 +2056,7 @@ class WrapperProcessTest(WrapperProcessCase):
         )
         process = self.wrapper(["--memory", "4G", "--exclusive", "port"], [sys.executable, "-c", script])
         output, errors = process.communicate(timeout=60)
-        self.assertEqual(output, "locks 5 inherited 0\n", errors)
+        self.assertEqual(output, "locks 6 inherited 0\n", errors)
 
     def test_commands_with_the_same_exclusive_name_take_turns(self):
         workers = [self.worker("w%d" % index, "2G", hold="0.3", options=["--exclusive", "port-8080"]) for index in range(3)]  # brief; the test waits for each to end
