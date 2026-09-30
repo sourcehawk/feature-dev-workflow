@@ -1889,7 +1889,7 @@ class MeasuredRowTest(unittest.TestCase):
     def test_rows_run_largest_first_and_each_smaller_row_gets_the_budget_of_the_row_before_it(self):
         code = self.run_bounded(["--measure-rows", "2,8,4", "--label", "build"], [(0, 1000), (0, 500), (0, 200)])
         self.assertEqual(code, 0)
-        # The first row has no budget yet, so it holds the whole queue of 8192 MiB.
+        # The first row has no budget yet and no cap, so it holds the whole queue of 8192 MiB.
         self.assertEqual(self.runs, [(8, 8192), (4, 1536), (2, 768)])
         self.assertEqual(self.row_lines(), [
             "row label=build cpus=8 budget=1536M peak=1000M exact=no exit=0",
@@ -1958,6 +1958,65 @@ class MeasuredRowTest(unittest.TestCase):
             code = self.run_bounded(["--measure-rows", "8,4,2"], [(1, 1000)])
         self.assertEqual(code, 1)
         self.assertEqual(calls, [8, 4])
+
+
+class FirstMeasurementTest(unittest.TestCase):
+    """Calls bounded() in this process with eight slots of 2 GiB, so the default budget of 4096 MiB needs two.
+
+    reserve, run_command, and probe_cap are stubs: no lock is waited for and no command or probe runs.
+    """
+
+    def setUp(self):
+        patcher = mock.patch.object(bounded_run, "log")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.base = tempfile.TemporaryDirectory()
+        self.addCleanup(self.base.cleanup)
+        self.environ = dict(os.environ)
+        self.environ.pop("BOUNDED_RUN_ACTIVE", None)
+        self.environ.pop("BOUNDED_RUN_NO_CAP", None)
+        self.environ.update({
+            "BOUNDED_RUN_LOCK_DIR": os.path.join(self.base.name, "locks"),
+            "BOUNDED_RUN_TOTAL_MIB": "16384",
+            "BOUNDED_RUN_RESERVE_MIB": "0",
+            "BOUNDED_RUN_SLOT_MIB": "2048",
+            "BOUNDED_RUN_POLL_SECONDS": "0.05",
+            "BOUNDED_RUN_MEMORY_WAIT_SECONDS": "0",
+            "BOUNDED_RUN_SAMPLE_SECONDS": "0.1",
+            "BOUNDED_RUN_FREE_MIB": "1048576",
+        })
+
+    def run_bounded(self, arguments, probe_output):
+        """Returns, for each run, the slots it reserved, the budget its command got, and the MemoryMax of its cap or None."""
+        runs = []
+
+        def fake_reserve(directory, count, needed, exclusive_files, poll_seconds):
+            runs.append([needed])
+            return bounded_run.Reservation([])
+
+        def fake_run_command(command, environ, on_start=None):
+            caps = [int(part[len("MemoryMax="):-1]) for part in command if part.startswith("MemoryMax=")]
+            runs[-1] += [int(environ["BOUNDED_RUN_MEMORY_MIB"]), caps[0] if caps else None]
+            return 0, 1024
+
+        options = bounded_run.parse_arguments(arguments + ["--", sys.executable, "-c", "pass"])
+        with mock.patch.object(bounded_run, "probe_cap", return_value=probe_output), \
+                mock.patch.object(bounded_run, "reserve", fake_reserve), \
+                mock.patch.object(bounded_run, "run_command", fake_run_command):
+            self.assertEqual(bounded_run.bounded(options, self.environ), 0)
+        return runs
+
+    def test_with_a_cap_a_first_measurement_takes_the_slots_of_the_default_budget(self):
+        self.assertEqual(self.run_bounded(["--measure"], ""), [[2, 4096, 4096]])
+
+    def test_without_a_cap_a_first_measurement_takes_the_whole_queue(self):
+        self.assertEqual(self.run_bounded(["--measure"], None), [[8, 16384, None]])
+
+    def test_with_a_cap_the_largest_measured_row_takes_the_slots_of_the_default_budget(self):
+        self.assertEqual(self.run_bounded(["--measure-rows", "4,2"], "")[0], [2, 4096, 4096])
+
+    def test_without_a_cap_the_largest_measured_row_takes_the_whole_queue(self):
+        self.assertEqual(self.run_bounded(["--measure-rows", "4,2"], None)[0], [8, 16384, None])
 
 
 class CheckTest(unittest.TestCase):
@@ -2661,7 +2720,7 @@ class WrapperProcessTest(WrapperProcessCase):
         output, errors = process.communicate(timeout=60)
         self.assertIn("no hard cap is available here", errors)
 
-    def test_a_first_measurement_runs_alone_in_the_queue(self):
+    def test_a_first_measurement_runs_alone_in_the_queue_without_a_cap(self):
         command = [sys.executable, "-c", WORKER, "measured"]
         first = self.wrapper(["--measure"], command, HOLD="1.0")
         self.wait_for_event("start", "measured")
@@ -2671,7 +2730,7 @@ class WrapperProcessTest(WrapperProcessCase):
         self.assertEqual(self.peak_concurrency(), 1)
         self.assertIn("bounded-run: budget 4096 MiB, peak ", self.stderr_of(first))
 
-    def test_a_first_measurement_waits_for_the_commands_that_run(self):
+    def test_a_first_measurement_waits_for_the_commands_that_run_without_a_cap(self):
         first = self.worker("first", "2G", hold="1.0")
         self.wait_for_event("start", "first")
         second = self.wrapper(["--measure"], [sys.executable, "-c", WORKER, "measured"], HOLD="0.1")

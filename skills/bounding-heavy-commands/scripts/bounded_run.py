@@ -14,10 +14,11 @@ A measurement prints one row line on the error stream, in a fixed form:
 
 budget is the suggested budget. A '-' stands for an option that the call did
 not give. --measure-rows measures the command at each processor limit of the
-list, the largest first. The largest runs with --memory, or alone in the queue.
-Each smaller one runs with the suggested budget of the one before it, or with
-the budget of the one before it when that run did not exit 0. The exit code
-is the first exit code that is not 0.
+list, the largest first. The largest runs with --memory. Without it, the
+largest runs with the default budget where the hard cap is available, and
+alone in the queue where it is not. Each smaller one runs with the suggested
+budget of the one before it, or with the budget of the one before it when that
+run did not exit 0. The exit code is the first exit code that is not 0.
 
 --check runs no command and holds no lock when it returns. Its exit code is 0.
 It prints the state of the queue at that moment, one held line for each
@@ -1199,7 +1200,6 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
         budget = parse_size_mib(options.memory)
     else:
         budget = default_budget_mib(settings.total_mib, settings.slot_mib)
-    wait_budget = budget
     command = list(options.command)
     if shutil.which(command[0], path=environ.get("PATH")) is None:
         raise WrapperError("cannot start '%s': the command does not exist" % command[0])
@@ -1209,13 +1209,10 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
     if settings.reserve_mib >= settings.total_mib:
         log("WARNING: the reserve of %d MiB leaves no memory of the %d MiB of the machine; the queue does not keep the reserve" % (settings.reserve_mib, settings.total_mib))
     most = queue_mib(settings.total_mib, settings.slot_mib, settings.reserve_mib)
-    if options.measure and options.memory is None:
-        # The peak of this command is not known yet, so no other command runs beside it.
-        budget, needed = most, count
     if budget > most:
         log("WARNING: the budget of %d MiB is more than the %d MiB of the queue; the budget is %d MiB" % (budget, most, most))
         budget = most
-    wait_budget = min(wait_budget, budget)
+    wait_budget = budget
     uid = os.getuid()
     directory = lock_directory(environ, uid)
     ensure_lock_directory(directory, uid)
@@ -1231,6 +1228,9 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
     choice = None if settings.no_cap else choose_cap_prefix(budget, options.cpus, unit, probe_cap)
     prefix = choice[0] if choice is not None else None
     capped = prefix is not None
+    if options.measure and options.memory is None and not capped:
+        # The peak of this command is not known yet, and without the cap only the queue keeps it from the other commands.
+        budget, needed = most, count
     # Every scope of the user that systemd-run makes with no slice option goes to the slice of the probe.
     scopes = scope_parent_directory(choice[1]) if choice is not None else None
     # A wrapper that runs inside a bounded scope does its work in the budget of that scope.
