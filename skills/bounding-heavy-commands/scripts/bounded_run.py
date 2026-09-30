@@ -1365,7 +1365,7 @@ def check(
     log("check slots=%d slot=%dM free-slots=%s free=%s unused=%s line=%s" % (
         count, settings.slot_mib, "-" if free_slots is None else free_slots, mib(available), mib(outstanding),
         "free" if line is not None else "busy"))
-    for held in held_commands(scopes, skip) if scopes is not None else []:
+    for held in held_commands(scopes, ()) if scopes is not None else []:
         log("check held " + held)
     for budget in budgets:
         needed = slots_needed(budget, settings.slot_mib, count)

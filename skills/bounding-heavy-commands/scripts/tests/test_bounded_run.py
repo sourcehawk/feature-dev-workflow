@@ -2103,6 +2103,23 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.lines[1], "check held unit=bounded-run-7-abcdef budget=4096M used=100M age=5s dir=/w command=tool")
         self.assertTrue(self.lines[2].startswith("check budget=2048M "), self.lines)
 
+    def test_a_check_inside_a_bounded_command_names_that_command_too(self):
+        self.environ.pop("BOUNDED_RUN_NO_CAP")
+        output = "0::/user.slice/app.slice/bounded-run-1-000000-probe.scope\n"
+        skips = []
+
+        def held(parent, skip):
+            skips.append(list(skip))
+            return []
+
+        options = bounded_run.parse_arguments(["--check"])
+        with mock.patch.object(bounded_run, "probe_cap", return_value=output), \
+                mock.patch.object(bounded_run, "own_scope_name", return_value="bounded-run-2-111111.scope"), \
+                mock.patch.object(bounded_run, "unused_budget_mib", return_value=0), \
+                mock.patch.object(bounded_run, "held_commands", held):
+            bounded_run.check(options.budgets, self.environ, read_available=lambda: 9000)
+        self.assertEqual(skips, [[]])
+
     def test_no_held_line_without_a_cap(self):
         self.hold("slot-000.lock")
         self.assertFalse(any(line.startswith("check held") for line in self.check(["2G"])))
