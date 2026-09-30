@@ -1020,7 +1020,7 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
         code, suggested = bounded_once(row, environ)
         if code in STOP_CODES:
             log("stopped by a signal; the rows after --cpus %d are not measured" % cpus)
-            return code
+            return result or code
         if code == 0:
             memory = "%dM" % suggested
         else:

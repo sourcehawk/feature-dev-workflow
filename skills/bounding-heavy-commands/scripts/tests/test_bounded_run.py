@@ -1814,6 +1814,11 @@ class MeasuredRowTest(unittest.TestCase):
         self.assertEqual(self.runs, [(8, 8192), (4, 1536)])
         self.assertEqual(len(self.row_lines()), 2)
 
+    def test_a_stop_signal_after_a_failed_row_keeps_the_first_exit_code(self):
+        code = self.run_bounded(["--measure-rows", "8,4,2"], [(1, 1000), (130, 100), (0, 100)])
+        self.assertEqual(code, 1)
+        self.assertEqual(len(self.runs), 2)
+
 
 class WrapperProcessCase(unittest.TestCase):
     """Runs the script as a process, with two slots of 2 GiB and no hard cap."""
