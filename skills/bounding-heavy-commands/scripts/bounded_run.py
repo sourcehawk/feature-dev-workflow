@@ -993,7 +993,7 @@ def parse_arguments(argv: Sequence[str]) -> Options:
             options.label = value
         elif flag == "--measure-rows":
             parts = value.split(",")
-            if not all(part.isdigit() and int(part) >= 1 for part in parts):
+            if not all(re.fullmatch(r"[0-9]+", part) and int(part) >= 1 for part in parts):
                 raise WrapperError("cannot read --measure-rows '%s'; use whole numbers of 1 or more, such as 16,8,4" % value)
             options.rows = sorted(set(int(part) for part in parts), reverse=True)
             options.measure = True
