@@ -1306,6 +1306,66 @@ class MeasurementTest(unittest.TestCase):
         self.assertEqual(bounded_run.suggested_budget_mib(4000, approximate=False), 5120)
         self.assertEqual(bounded_run.suggested_budget_mib(4000, approximate=True), 6144)
 
+    def test_a_peak_that_is_mostly_file_cache_gets_a_budget_near_its_held_memory_or_the_cache_floor(self):
+        # 300 MiB held gives 512 MiB with the margin of a sample; a quarter of the 8000 MiB peak gives 2560 MiB.
+        self.assertEqual(bounded_run.suggested_budget_mib(8000, approximate=False, held_mib=300), 2560)
+
+    def test_held_memory_that_grows_gets_a_budget_that_covers_it(self):
+        self.assertEqual(bounded_run.suggested_budget_mib(8000, approximate=False, held_mib=5000), 7680)
+
+    def test_the_budget_from_held_memory_is_never_more_than_the_budget_from_the_peak(self):
+        self.assertEqual(bounded_run.suggested_budget_mib(4000, approximate=False, held_mib=3900), 5120)
+
+    def test_no_held_memory_gives_the_budget_from_the_peak(self):
+        self.assertEqual(bounded_run.suggested_budget_mib(4000, approximate=False, held_mib=None), 5120)
+
+    def write_stat(self, directory, **fields):
+        Path(directory, "memory.stat").write_text("".join("%s %d\n" % (name, value * 1024 * 1024) for name, value in fields.items()))
+
+    def test_held_memory_is_what_the_kernel_cannot_take_back_at_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write_stat(directory, anon=100, file=5000, kernel=20, kernel_stack=1, slab_unreclaimable=2, shmem=30,
+                            file_dirty=40, file_writeback=50, inactive_file=4000, active_file=900, slab_reclaimable=10)
+            self.assertEqual(bounded_run.cgroup_held_mib(directory), 230)
+
+    def test_held_memory_without_the_kernel_line_adds_the_parts_of_kernel_memory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write_stat(directory, anon=100, kernel_stack=1, slab_unreclaimable=2, sock=3, percpu=4, pagetables=50,
+                            sec_pagetables=6, vmalloc=7, slab_reclaimable=60)
+            self.assertEqual(bounded_run.cgroup_held_mib(directory), 173)
+
+    def test_held_memory_counts_only_the_lines_that_exist(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write_stat(directory, anon=100, file=5000, inactive_file=5000)
+            self.assertEqual(bounded_run.cgroup_held_mib(directory), 100)
+
+    def test_dirty_file_pages_are_held(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write_stat(directory, anon=10, file=3000, file_dirty=1500, file_writeback=500)
+            self.assertEqual(bounded_run.cgroup_held_mib(directory), 2010)
+
+    def test_a_cgroup_without_a_readable_stat_file_has_no_held_memory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertIsNone(bounded_run.cgroup_held_mib(directory))
+            Path(directory, "memory.stat").write_text("file 100\ninactive_file 100\n")
+            self.assertIsNone(bounded_run.cgroup_held_mib(directory))
+
+    def test_the_tracker_keeps_the_largest_held_sample(self):
+        samples = [100, None, 900, 300]
+        tracker = bounded_run.PeakTracker(lambda: 1000, 0.01, read_held=lambda: samples.pop(0) if samples else 300)
+        tracker.start()
+        deadline = time.time() + 5
+        while samples and time.time() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(tracker.finish(), 1000)
+        self.assertEqual(tracker.held, 900)
+
+    def test_a_tracker_without_a_held_reader_has_no_held_memory(self):
+        tracker = bounded_run.PeakTracker(lambda: 1000, 0.01)
+        tracker.start()
+        tracker.finish()
+        self.assertIsNone(tracker.held)
+
     def test_the_tracker_keeps_the_largest_sample(self):
         samples = [100, None, 900, 300]
         tracker = bounded_run.PeakTracker(lambda: samples.pop(0) if samples else 300, 0.01)
@@ -1876,11 +1936,44 @@ class MeasuredRowTest(unittest.TestCase):
 
     def test_a_measurement_prints_one_row_line(self):
         self.assertEqual(self.run_bounded(["--measure", "--cpus", "4", "--label", "unit-tests"], [(0, 1000)]), 0)
-        self.assertEqual(self.row_lines(), ["row label=unit-tests cpus=4 budget=1536M peak=1000M exact=no exit=0"])
+        self.assertEqual(self.row_lines(), ["row label=unit-tests cpus=4 budget=1536M peak=1000M held=- exact=no exit=0"])
 
     def test_a_row_line_marks_the_options_that_were_not_given(self):
         self.run_bounded(["--measure"], [(3, 100)])
-        self.assertEqual(self.row_lines(), ["row label=- cpus=- budget=256M peak=100M exact=no exit=3"])
+        self.assertEqual(self.row_lines(), ["row label=- cpus=- budget=256M peak=100M held=- exact=no exit=3"])
+
+    def run_capped(self, arguments, peak_mib, stat):
+        """Runs bounded() as if under the hard cap, with a cgroup of fake files whose memory.stat holds stat in MiB."""
+        cgroup = os.path.join(self.base.name, "cgroup")
+        os.makedirs(cgroup, exist_ok=True)
+        Path(cgroup, "memory.peak").write_text("%d\n" % (peak_mib * 1024 * 1024))
+        Path(cgroup, "memory.stat").write_text("".join("%s %d\n" % (name, value * 1024 * 1024) for name, value in stat.items()))
+        environ = dict(self.environ)
+        del environ["BOUNDED_RUN_NO_CAP"]
+
+        def fake_run_command(command, environ, on_start=None):
+            on_start(os.getpid())
+            return 0, 0
+
+        options = bounded_run.parse_arguments(arguments + ["--", sys.executable, "-c", "pass"])
+        with mock.patch.object(bounded_run, "run_command", fake_run_command), \
+                mock.patch.object(bounded_run, "choose_cap_prefix", return_value=(["true"], "")), \
+                mock.patch.object(bounded_run, "cgroup_directory", return_value=cgroup), \
+                mock.patch.object(bounded_run, "read_peak_file", return_value=peak_mib):
+            return bounded_run.bounded(options, environ)
+
+    def test_a_capped_command_whose_peak_is_mostly_file_cache_gets_a_budget_from_its_held_memory(self):
+        self.assertEqual(self.run_capped(["--measure", "--memory", "8G"], 8000, {"anon": 300, "file": 7600, "inactive_file": 7000}), 0)
+        self.assertEqual(self.row_lines(), ["row label=- cpus=- budget=2560M peak=8000M held=300M exact=yes exit=0"])
+        self.assertIn("budget 8192 MiB, peak 8000 MiB (cgroup), held 300 MiB (sampled), exit 0", self.lines)
+
+    def test_a_capped_command_whose_held_memory_is_large_gets_a_budget_that_covers_it(self):
+        self.run_capped(["--measure", "--memory", "8G"], 8000, {"anon": 4000, "file_dirty": 1000, "file": 3500})
+        self.assertEqual(self.row_lines(), ["row label=- cpus=- budget=7680M peak=8000M held=5000M exact=yes exit=0"])
+
+    def test_a_capped_command_with_no_held_memory_in_its_stat_file_gets_the_budget_from_its_peak(self):
+        self.run_capped(["--measure", "--memory", "8G"], 8000, {})
+        self.assertEqual(self.row_lines()[0], "row label=- cpus=- budget=10240M peak=8000M held=- exact=yes exit=0")
 
     def test_a_run_that_does_not_measure_prints_no_row_line(self):
         self.run_bounded(["--memory", "2G"], [(0, 100)])
@@ -1892,9 +1985,9 @@ class MeasuredRowTest(unittest.TestCase):
         # The first row has no budget yet and no cap, so it holds the whole queue of 8192 MiB.
         self.assertEqual(self.runs, [(8, 8192), (4, 1536), (2, 768)])
         self.assertEqual(self.row_lines(), [
-            "row label=build cpus=8 budget=1536M peak=1000M exact=no exit=0",
-            "row label=build cpus=4 budget=768M peak=500M exact=no exit=0",
-            "row label=build cpus=2 budget=512M peak=200M exact=no exit=0",
+            "row label=build cpus=8 budget=1536M peak=1000M held=- exact=no exit=0",
+            "row label=build cpus=4 budget=768M peak=500M held=- exact=no exit=0",
+            "row label=build cpus=2 budget=512M peak=200M held=- exact=no exit=0",
         ])
 
     def test_the_largest_row_runs_with_the_given_memory(self):
@@ -2685,7 +2778,7 @@ class WrapperProcessTest(WrapperProcessCase):
     def test_each_run_reports_the_budget_and_the_peak(self):
         process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", "pass"])
         output, errors = process.communicate(timeout=60)
-        self.assertRegex(errors, r"bounded-run: budget 2048 MiB, peak \d+ MiB \(sampled, approximate\), exit 0\n")
+        self.assertRegex(errors, r"bounded-run: budget 2048 MiB, peak \d+ MiB \(sampled, approximate\), held -, exit 0\n")
         self.assertNotIn("suggested budget", errors)
 
     def test_the_default_budget_on_a_small_machine_is_not_more_than_its_memory(self):
@@ -2781,7 +2874,7 @@ class WrapperProcessTest(WrapperProcessCase):
         output, errors = process.communicate(timeout=60)
         self.assertEqual(process.returncode, 0, errors)
         self.assertEqual(output.split(), ["2", "1"])
-        rows = re.findall(r"^bounded-run: row label=lint cpus=(\d+) budget=\d+M peak=\d+M exact=no exit=0$", errors, re.MULTILINE)
+        rows = re.findall(r"^bounded-run: row label=lint cpus=(\d+) budget=\d+M peak=\d+M held=- exact=no exit=0$", errors, re.MULTILINE)
         self.assertEqual(rows, ["2", "1"], errors)
 
     def test_an_interrupt_in_the_queue_gives_130_and_no_traceback(self):
@@ -2927,7 +3020,7 @@ class HardCapTest(WrapperProcessCase):
                 process = self.wrapper(["--memory", "1G", "--cpus", "2"], [sys.executable, "-c", "print(1)"])
                 output, errors = process.communicate(timeout=60)
                 self.assertEqual((process.returncode, output), (0, "1\n"), errors)
-                self.assertRegex(errors, r"bounded-run: budget 1024 MiB, peak \d+ MiB \(cgroup\), exit 0\n")
+                self.assertRegex(errors, r"bounded-run: budget 1024 MiB, peak \d+ MiB \(cgroup\), held (\d+ MiB \(sampled\)|-), exit 0\n")
         locks = os.listdir(self.environ["BOUNDED_RUN_LOCK_DIR"])
         self.assertEqual([name for name in locks if name.startswith("peak-")], [])
 
@@ -2962,6 +3055,9 @@ class HardCapTest(WrapperProcessCase):
         peak = [line for line in errors.splitlines() if " peak " in line][0]
         self.assertIn("(cgroup)", peak)
         self.assertGreaterEqual(int(peak.split(" peak ")[1].split()[0]), 140)
+        held = re.search(r"^bounded-run: row .* held=(\d+)M exact=yes exit=0$", errors, re.MULTILINE)
+        self.assertIsNotNone(held, errors)
+        self.assertGreaterEqual(int(held.group(1)), 140)
 
     def test_no_peak_file_is_left_behind_after_a_failing_command(self):
         process = self.wrapper(["--memory", "1G"], [sys.executable, "-c", "import sys; sys.exit(9)"])

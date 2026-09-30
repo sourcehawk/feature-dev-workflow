@@ -10,9 +10,11 @@ script failed before the command gave a result.
 
 A measurement prints one row line on the error stream, in a fixed form:
 
-  bounded-run: row label=NAME cpus=N budget=<n>M peak=<n>M exact=yes|no exit=CODE
+  bounded-run: row label=NAME cpus=N budget=<n>M peak=<n>M held=<n>M|- exact=yes|no exit=CODE
 
-budget is the suggested budget. A '-' stands for an option that the call did
+budget is the suggested budget. held is the sampled peak of the memory that
+the kernel cannot take back at once under the hard cap, or '-' without it.
+A '-' in place of the label or of cpus stands for an option that the call did
 not give. --measure-rows measures the command at each processor limit of the
 list, the largest first. The largest runs with --memory. Without it, the
 largest runs with the default budget where the hard cap is available, and
@@ -93,6 +95,7 @@ SAMPLE_SECONDS = 1.0
 SCOPE_WAIT_SECONDS = 5.0
 MARGIN_EXACT = 0.25
 MARGIN_APPROXIMATE = 0.5
+CACHE_FLOOR_DIVISOR = 4
 BUDGET_STEP_MIB = 256
 HELD_COMMAND_CHARACTERS = 200
 PR_SET_PDEATHSIG = 1
@@ -841,6 +844,33 @@ def cgroup_peak_mib(directory: str, names: Sequence[str] = ("memory.peak", "memo
     return None
 
 
+# The kernel cannot take back these pages at once to keep a cgroup under its limit: dirty and writeback file pages
+# must reach the disk first. An older kernel has no 'kernel' line, and there its parts stand in for it.
+HELD_FIELDS = ("anon", "shmem", "file_dirty", "file_writeback")
+KERNEL_PARTS = ("kernel_stack", "pagetables", "sec_pagetables", "slab_unreclaimable", "sock", "percpu", "vmalloc")
+
+
+def cgroup_held_mib(directory: str) -> Optional[int]:
+    """Returns the memory of the cgroup that the kernel cannot take back at once, from its memory.stat.
+
+    Returns None when the file cannot be read or has none of the lines of that memory.
+    """
+    text = _read_text(os.path.join(directory, "memory.stat"))
+    if text is None:
+        return None
+    fields = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1].isdigit():
+            fields[parts[0]] = int(parts[1])
+    if "kernel" in fields:
+        # The 'kernel' line also counts the reclaimable slab, the cache of file names and inodes.
+        fields["kernel"] = max(0, fields["kernel"] - fields.get("slab_reclaimable", 0))
+    names = HELD_FIELDS + (("kernel",) if "kernel" in fields else KERNEL_PARTS)
+    found = [fields[name] for name in names if name in fields]
+    return math.ceil(sum(found) / (1024 * 1024)) if found else None
+
+
 def parse_group_rss_mib(text: str, group: int) -> Optional[int]:
     total = 0
     found = False
@@ -868,17 +898,51 @@ def rusage_peak_mib(maxrss: int, platform: str = sys.platform) -> int:
     return math.ceil(maxrss / 1024)
 
 
-def suggested_budget_mib(peak_mib: int, approximate: bool) -> int:
+def _with_margin(mib: int, approximate: bool) -> int:
     margin = MARGIN_APPROXIMATE if approximate else MARGIN_EXACT
-    return max(1, math.ceil(peak_mib * (1 + margin) / BUDGET_STEP_MIB)) * BUDGET_STEP_MIB
+    return max(1, math.ceil(mib * (1 + margin) / BUDGET_STEP_MIB)) * BUDGET_STEP_MIB
+
+
+def suggested_budget_mib(peak_mib: int, approximate: bool, held_mib: Optional[int] = None) -> int:
+    """Returns the suggested budget in MiB for a command with the peak. An approximate peak gets the larger margin.
+
+    held_mib is the sampled peak of the memory that the kernel cannot take back at once. With it, the budget
+    covers that memory and a quarter of the peak, and it is never more than the budget from the peak alone.
+    """
+    from_peak = _with_margin(peak_mib, approximate)
+    if held_mib is None:
+        return from_peak
+    # A command that reads the same files again and again slows down when the cap leaves no room for their cache.
+    cache_floor = _with_margin(math.ceil(peak_mib / CACHE_FLOOR_DIVISOR), approximate)
+    return min(from_peak, max(_with_margin(held_mib, True), cache_floor))
+
+
+def _larger(current: Optional[int], read: Callable[[], Optional[int]]) -> Optional[int]:
+    try:
+        value = read()
+    except Exception:
+        value = None
+    if value is not None and (current is None or value > current):
+        return value
+    return current
 
 
 class PeakTracker(threading.Thread):
-    def __init__(self, read_sample: Callable[[], Optional[int]], interval: float) -> None:
+    """Keeps the largest sample of read_sample in peak, and of read_held in held, until finish.
+
+    held stays None without read_held or when read_held gives no value.
+    """
+
+    def __init__(
+        self, read_sample: Callable[[], Optional[int]], interval: float,
+        read_held: Optional[Callable[[], Optional[int]]] = None,
+    ) -> None:
         super().__init__(daemon=True)
         self.read_sample = read_sample
+        self.read_held = read_held
         self.interval = interval
         self.peak: Optional[int] = None
+        self.held: Optional[int] = None
         self.done = threading.Event()
 
     def run(self) -> None:
@@ -888,12 +952,9 @@ class PeakTracker(threading.Thread):
                 return
 
     def sample(self) -> None:
-        try:
-            value = self.read_sample()
-        except Exception:
-            value = None
-        if value is not None and (self.peak is None or value > self.peak):
-            self.peak = value
+        self.peak = _larger(self.peak, self.read_sample)
+        if self.read_held is not None:
+            self.held = _larger(self.held, self.read_held)
 
     def finish(self) -> Optional[int]:
         self.done.set()
@@ -1263,12 +1324,17 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
             def read_sample() -> Optional[int]:
                 found = cgroup_directory(pid, unit)
                 return cgroup_peak_mib(found) if found is not None else None
+
+            def read_held() -> Optional[int]:
+                found = cgroup_directory(pid, unit)
+                return cgroup_held_mib(found) if found is not None else None
             interval = min(settings.sample_seconds, 0.5)
         else:
             def read_sample() -> Optional[int]:
                 return group_rss_mib(pid)
+            read_held = None
             interval = settings.sample_seconds
-        tracker = PeakTracker(read_sample, interval)
+        tracker = PeakTracker(read_sample, interval, read_held)
         tracker.start()
         trackers.append(tracker)
 
@@ -1303,6 +1369,7 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
         )
         code, maxrss = run_command(command, child_environ, on_start)
         tracked = trackers[0].finish() if trackers else None
+        held = trackers[0].held if trackers else None
     finally:
         unlock_memory()
         if capped:
@@ -1311,14 +1378,16 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
 
     exact = reported is not None
     peak = max(reported or tracked or 0, rusage_peak_mib(maxrss))
-    log("budget %d MiB, peak %d MiB (%s), exit %d" % (budget, peak, "cgroup" if exact else "sampled, approximate", code))
+    log("budget %d MiB, peak %d MiB (%s), held %s, exit %d" % (
+        budget, peak, "cgroup" if exact else "sampled, approximate", "-" if held is None else "%d MiB (sampled)" % held, code))
     if capped and code == 137:
         log("the command was killed; if the peak is near the budget, the hard cap stopped it")
-    suggested = suggested_budget_mib(peak, not exact)
+    suggested = suggested_budget_mib(peak, not exact, held)
     if options.measure:
         log("suggested budget %d MiB" % suggested)
-        log("row label=%s cpus=%s budget=%dM peak=%dM exact=%s exit=%d" % (
-            options.label or "-", options.cpus if options.cpus is not None else "-", suggested, peak, "yes" if exact else "no", code))
+        log("row label=%s cpus=%s budget=%dM peak=%dM held=%s exact=%s exit=%d" % (
+            options.label or "-", options.cpus if options.cpus is not None else "-", suggested, peak,
+            "-" if held is None else "%dM" % held, "yes" if exact else "no", code))
     return code, suggested
 
 
