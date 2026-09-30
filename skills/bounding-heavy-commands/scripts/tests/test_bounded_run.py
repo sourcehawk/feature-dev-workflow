@@ -60,6 +60,10 @@ class UsageTextTest(unittest.TestCase):
         self.assertIn("Values for the tests of this script, and for its maintainers:", text)
         self.assertNotIn("diagnosis", text)
 
+    def test_lists_the_free_memory_for_the_tests(self):
+        values = bounded_run.__doc__.split("Values for the tests of this script, and for its maintainers:")[1]
+        self.assertIn("BOUNDED_RUN_FREE_MIB", values)
+
 
 class SizeTest(unittest.TestCase):
     def test_reads_gibibytes(self):
@@ -228,6 +232,10 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(settings.poll_seconds, 2.0)
         self.assertEqual(settings.memory_wait_seconds, 300.0)
         self.assertFalse(settings.no_cap)
+        self.assertIsNone(settings.free_mib)
+
+    def test_a_set_free_memory(self):
+        self.assertEqual(bounded_run.Settings({"BOUNDED_RUN_FREE_MIB": "3000"}, read_total=lambda: 1).free_mib, 3000)
 
     def test_overrides(self):
         settings = bounded_run.Settings({
@@ -805,10 +813,16 @@ class MemoryWaitTest(unittest.TestCase):
 
 class HeadroomTest(unittest.TestCase):
     def test_a_tenth_of_the_memory(self):
-        self.assertEqual(bounded_run.headroom_mib(27703), 2770)
+        self.assertEqual(bounded_run.headroom_mib(27703, 2048, 20480), 2770)
 
     def test_never_less_than_the_minimum(self):
-        self.assertEqual(bounded_run.headroom_mib(4096), 1024)
+        self.assertEqual(bounded_run.headroom_mib(4096, 1024, 4096), 1024)
+
+    def test_no_headroom_for_a_budget_of_the_whole_queue(self):
+        self.assertEqual(bounded_run.headroom_mib(27703, 20480, 20480), 0)
+
+    def test_the_budget_and_the_headroom_never_need_more_than_the_queue(self):
+        self.assertEqual(bounded_run.headroom_mib(27703, 19000, 20480), 1480)
 
 
 class UnusedBudgetTest(unittest.TestCase):
@@ -1372,6 +1386,7 @@ class BoundedCleanupTest(unittest.TestCase):
             "BOUNDED_RUN_POLL_SECONDS": "0.05",
             "BOUNDED_RUN_MEMORY_WAIT_SECONDS": "0",
             "BOUNDED_RUN_SAMPLE_SECONDS": "0.1",
+            "BOUNDED_RUN_FREE_MIB": "1048576",
         })
 
     def test_the_peak_file_is_removed_when_the_run_fails_after_the_start(self):
@@ -1417,20 +1432,61 @@ class BoundedCleanupTest(unittest.TestCase):
         self.assertEqual(waits, [4096])
         self.assertIn("MemoryMax=4096M", commands[0])
 
-    def wait_arguments(self, probe_output):
+    def wait_arguments(self, probe_output, environ=None):
         waits = []
         options = bounded_run.Options()
         options.memory = "1G"
         options.command = [sys.executable, "-c", "pass"]
+        if environ is None:
+            environ = dict(self.environ)
+            del environ["BOUNDED_RUN_FREE_MIB"]
         with mock.patch.object(bounded_run, "probe_cap", return_value=probe_output), \
                 mock.patch.object(bounded_run, "own_scope_name", return_value="bounded-run-2-111111.scope"), \
                 mock.patch.object(bounded_run, "wait_for_memory", side_effect=lambda *arguments, **keywords: waits.append(keywords)), \
                 mock.patch.object(bounded_run, "run_command", return_value=(0, 0)):
-            self.assertEqual(bounded_run.bounded(options, self.environ), 0)
+            self.assertEqual(bounded_run.bounded(options, environ), 0)
         return waits[0]
 
     def test_the_wait_keeps_a_headroom_of_the_memory_of_the_machine(self):
-        self.assertEqual(self.wait_arguments(None)["headroom_mib"], bounded_run.headroom_mib(4096))
+        self.assertEqual(self.wait_arguments(None)["headroom_mib"], bounded_run.headroom_mib(4096, 1024, 4096))
+
+    def run_with_free_memory(self, memory, total, free):
+        options = bounded_run.Options()
+        options.memory = memory
+        options.command = [sys.executable, "-c", "pass"]
+        environ = dict(self.environ, BOUNDED_RUN_TOTAL_MIB=str(total), BOUNDED_RUN_RESERVE_MIB="", BOUNDED_RUN_FREE_MIB=str(free))
+
+        real_wait = bounded_run.wait_for_memory
+
+        def sleep(seconds):
+            raise AssertionError("the command waits")
+
+        def wait(*arguments, **keywords):
+            return real_wait(*arguments, sleep=sleep, **keywords)
+
+        with mock.patch.object(bounded_run, "probe_cap", return_value=None), \
+                mock.patch.object(bounded_run, "wait_for_memory", wait), \
+                mock.patch.object(bounded_run, "run_command", return_value=(0, 0)):
+            return bounded_run.bounded(options, environ)
+
+    def test_a_budget_of_the_whole_queue_starts_when_the_memory_of_the_queue_is_free(self):
+        queue = bounded_run.queue_mib(27703, 2048, bounded_run.default_reserve_mib(27703))
+        self.assertEqual(self.run_with_free_memory("%dM" % queue, 27703, queue), 0)
+
+    def test_a_small_budget_waits_for_its_headroom(self):
+        with self.assertRaisesRegex(AssertionError, "the command waits"):
+            self.run_with_free_memory("2G", 27703, 2048 + bounded_run.headroom_mib(27703, 2048, 20480) - 1)
+
+    def test_a_small_budget_starts_with_its_headroom_free(self):
+        self.assertEqual(self.run_with_free_memory("2G", 27703, 2048 + bounded_run.headroom_mib(27703, 2048, 20480)), 0)
+
+    def test_a_set_free_memory_replaces_the_free_memory_and_the_unused_budgets(self):
+        output = "0::/user.slice/app.slice/bounded-run-1-000000-probe.scope\n"
+        keywords = self.wait_arguments(output, dict(self.environ, BOUNDED_RUN_FREE_MIB="3000"))
+        with mock.patch.object(bounded_run, "unused_budget_mib", side_effect=AssertionError("unused")), \
+                mock.patch.object(bounded_run, "available_memory_mib", side_effect=AssertionError("available")):
+            self.assertEqual(keywords["read_available"](), 3000)
+            self.assertIsNone(keywords["read_outstanding"]())
 
     def test_the_wait_counts_the_unused_budgets_beside_the_scope_of_the_probe(self):
         calls = []
@@ -1473,6 +1529,7 @@ class WrapperProcessCase(unittest.TestCase):
             "BOUNDED_RUN_MEMORY_WAIT_SECONDS": "0",
             "BOUNDED_RUN_SAMPLE_SECONDS": "0.1",
             "BOUNDED_RUN_NO_CAP": "1",
+            "BOUNDED_RUN_FREE_MIB": "1048576",
             "EVENTS": self.events,
         })
         self.processes = []

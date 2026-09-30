@@ -25,6 +25,7 @@ Tuning values, with their defaults:
 Values for the tests of this script, and for its maintainers:
 
   BOUNDED_RUN_TOTAL_MIB            memory of the machine, in place of the measured value
+  BOUNDED_RUN_FREE_MIB             free memory for the wait, in place of the measured free memory less the unused budgets
   BOUNDED_RUN_POLL_SECONDS         time between two tries for the slots (default 2)
   BOUNDED_RUN_SAMPLE_SECONDS       time between two memory samples (default 1)
   BOUNDED_RUN_LOCK_DIR             directory of the lock files, as an absolute path
@@ -188,9 +189,13 @@ def default_reserve_mib(total_mib: int) -> int:
     return max(MINIMUM_RESERVE_MIB, total_mib // 4)
 
 
-def headroom_mib(total_mib: int) -> int:
-    """Returns the memory that the wait for free memory keeps free for the programs outside the queue."""
-    return max(MINIMUM_HEADROOM_MIB, total_mib // 10)
+def headroom_mib(total_mib: int, budget_mib: int, queue_mib: int) -> int:
+    """Returns the memory that the wait for free memory keeps free beside the budget for the programs outside the queue.
+
+    The budget and the headroom together never need more than queue_mib, so a budget of the whole queue gets no headroom.
+    """
+    # The reserve of the queue already keeps memory for the programs outside it.
+    return max(0, min(max(MINIMUM_HEADROOM_MIB, total_mib // 10), queue_mib - budget_mib))
 
 
 def slot_count(total_mib: int, slot_mib: int, reserve_mib: int) -> int:
@@ -225,6 +230,8 @@ class Settings:
         self.memory_wait_seconds = _number(environ, "BOUNDED_RUN_MEMORY_WAIT_SECONDS", MEMORY_WAIT_SECONDS)
         self.sample_seconds = _number(environ, "BOUNDED_RUN_SAMPLE_SECONDS", SAMPLE_SECONDS)
         self.no_cap = bool(environ.get("BOUNDED_RUN_NO_CAP"))
+        free = environ.get("BOUNDED_RUN_FREE_MIB")
+        self.free_mib = int(_number(environ, "BOUNDED_RUN_FREE_MIB", 0)) if free else None
         if self.slot_mib <= 0:
             raise WrapperError("BOUNDED_RUN_SLOT_MIB must be more than zero")
         # A loop that sleeps for zero seconds never ends its wait and takes a full processor.
@@ -903,8 +910,13 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
     # A wrapper that runs inside a bounded scope does its work in the budget of that scope.
     skip = [name for name in (unit + ".scope", own_scope_name()) if name is not None]
 
+    def read_available() -> Optional[int]:
+        return available_memory_mib() if settings.free_mib is None else settings.free_mib
+
     def read_outstanding() -> Optional[int]:
-        return None if scopes is None else unused_budget_mib(scopes, skip)
+        if settings.free_mib is not None or scopes is None:
+            return None
+        return unused_budget_mib(scopes, skip)
 
     peak_file = os.path.join(directory, "peak-%s" % unit)
     if prefix is not None:
@@ -939,7 +951,8 @@ def bounded(options: Options, environ: Mapping[str, str]) -> int:
     try:
         wait_for_memory(
             wait_budget, settings.memory_wait_seconds, settings.poll_seconds,
-            headroom_mib=headroom_mib(settings.total_mib), read_outstanding=read_outstanding,
+            headroom_mib=headroom_mib(settings.total_mib, wait_budget, most),
+            read_available=read_available, read_outstanding=read_outstanding,
         )
         code, maxrss = run_command(command, child_environ, start_tracker)
         tracked = trackers[0].finish() if trackers else None
