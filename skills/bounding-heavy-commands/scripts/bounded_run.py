@@ -1338,13 +1338,14 @@ def check(
     uid = os.getuid()
     directory = lock_directory(environ, uid)
     ensure_lock_directory(directory, uid)
+    unit = "%s-%d-%06x" % (PREFIX, os.getpid(), random.randrange(16 ** 6))
+    # The probe can take seconds, so the state of the queue is read after it.
+    choice = None if settings.no_cap else choose_cap_prefix(settings.slot_mib, None, unit, probe_cap)
     # A waiter tries for slots only while it holds the turn lock, so a count under that lock never makes a free slot look held to it.
     free_slots = _free_slots(directory, count, wait=False)
     line = _try_lock(os.path.join(directory, "line.lock"))
     if line is not None:
         os.close(line)
-    unit = "%s-%d-%06x" % (PREFIX, os.getpid(), random.randrange(16 ** 6))
-    choice = None if settings.no_cap else choose_cap_prefix(settings.slot_mib, None, unit, probe_cap)
     scopes = scope_parent_directory(choice[1]) if choice is not None else None
     skip = [name for name in (own_scope_name(),) if name is not None]
     if read_outstanding is None:

@@ -2120,6 +2120,25 @@ class CheckTest(unittest.TestCase):
             bounded_run.check(options.budgets, self.environ, read_available=lambda: 9000)
         self.assertEqual(skips, [[]])
 
+    def test_the_slots_and_the_line_are_read_after_the_cap_probe(self):
+        self.environ.pop("BOUNDED_RUN_NO_CAP")
+        events = []
+        real_free_slots = bounded_run._free_slots
+
+        def probe(prefix):
+            events.append("probe")
+            return None
+
+        def free_slots(*arguments, **keywords):
+            events.append("slots")
+            return real_free_slots(*arguments, **keywords)
+
+        options = bounded_run.parse_arguments(["--check"])
+        with mock.patch.object(bounded_run, "probe_cap", probe), mock.patch.object(bounded_run, "_free_slots", free_slots):
+            bounded_run.check(options.budgets, self.environ, read_available=lambda: 9000)
+        self.assertEqual(events[-1], "slots")
+        self.assertIn("probe", events)
+
     def test_no_held_line_without_a_cap(self):
         self.hold("slot-000.lock")
         self.assertFalse(any(line.startswith("check held") for line in self.check(["2G"])))
