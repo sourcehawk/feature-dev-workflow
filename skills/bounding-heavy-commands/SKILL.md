@@ -59,12 +59,12 @@ bounded-run: row label=<name> cpus=<n> budget=<n>M peak=<n>M exact=<yes|no> exit
 A check prints its lines in a fixed form too:
 
 ```
-bounded-run: check slots=<n> slot=<n>M free-slots=<n> free=<n>M unused=<n>M headroom=<n>M line=<free|busy>
+bounded-run: check slots=<n> slot=<n>M free-slots=<n> free=<n>M unused=<n>M line=<free|busy>
 bounded-run: check held unit=<name> budget=<n>M used=<n>M age=<n>s dir=<directory> command=<command>
-bounded-run: check budget=<n>M slots=<n> starts=<yes|no>
+bounded-run: check budget=<n>M slots=<n> headroom=<n>M starts=<yes|no>
 ```
 
-The first line gives the slots of the queue and their size, the slots that are free now, the free memory, the unused budgets of the running commands, and the headroom. `line=busy` means that a command waits in the line. Each `held` line is one bounded command that runs now: its budget, the memory it uses, how long it has run, its working directory, and its command. The held lines need the hard cap, so without it there are none. Each `budget` line is one `--memory`, in the order given: the slots that it needs, and `starts=yes` when a command of that budget would start now. A `-` means that the check cannot read or count the value at that moment.
+The first line gives the slots of the queue and their size, the slots that are free now, the free memory, and the unused budgets of the running commands. `line=busy` means that a command waits in the line. Each `held` line is one bounded command that runs now: its budget, the memory it uses, how long it has run, its working directory, and its command. The held lines need the hard cap, so without it there are none. Each `budget` line is one `--memory`, in the order given: the slots that it needs, the headroom that the wait keeps free beside that budget, and `starts=yes` when a command of that budget would start now. A `-` means that the check cannot read or count the value at that moment.
 
 The exit code of the wrapper is the command's exit code. Exit code 125, with a `bounded-run:` line that names a fault and with no line for the budget and the peak, means that the wrapper itself failed (see §When the wrapper cannot run).
 

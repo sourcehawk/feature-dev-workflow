@@ -1994,17 +1994,17 @@ class CheckTest(unittest.TestCase):
 
     def test_reports_the_slots_the_memory_and_the_line(self):
         self.assertEqual(self.check(), [
-            "check slots=4 slot=2048M free-slots=4 free=16384M unused=- headroom=1024M line=free",
+            "check slots=4 slot=2048M free-slots=4 free=16384M unused=- line=free",
         ])
 
     def test_a_budget_of_the_whole_queue_starts_when_the_memory_of_the_queue_is_free(self):
-        self.assertEqual(self.check(["8G"], available=8192)[-1], "check budget=8192M slots=4 starts=yes")
+        self.assertEqual(self.check(["8G"], available=8192)[-1], "check budget=8192M slots=4 headroom=0M starts=yes")
 
     def test_the_free_memory_for_the_tests_replaces_the_measured_one(self):
         self.environ["BOUNDED_RUN_FREE_MIB"] = "4096"
         lines = self.check(["2G"], available=0, outstanding=65536)
         self.assertIn(" free=4096M unused=- ", lines[0])
-        self.assertEqual(lines[-1], "check budget=2048M slots=1 starts=yes")
+        self.assertEqual(lines[-1], "check budget=2048M slots=1 headroom=1024M starts=yes")
 
     def test_counts_the_slots_that_running_commands_hold(self):
         self.hold("slot-000.lock")
@@ -2025,37 +2025,37 @@ class CheckTest(unittest.TestCase):
         self.hold("line.lock")
         lines = self.check(["2G"])
         self.assertTrue(lines[0].endswith(" line=busy"), lines)
-        self.assertEqual(lines[1], "check budget=2048M slots=1 starts=no")
+        self.assertEqual(lines[1], "check budget=2048M slots=1 headroom=1024M starts=no")
 
     def test_a_count_of_slots_that_another_command_takes_at_that_moment_is_not_given(self):
         self.hold("reserve.lock")
         lines = self.check(["2G"])
         self.assertIn(" free-slots=- ", lines[0])
-        self.assertEqual(lines[1], "check budget=2048M slots=1 starts=no")
+        self.assertEqual(lines[1], "check budget=2048M slots=1 headroom=1024M starts=no")
 
     def test_each_budget_gets_its_slots_and_its_answer_in_the_order_given(self):
         self.hold("slot-000.lock")
         self.hold("slot-001.lock")
         lines = self.check(["2G", "4096M", "5G"])
         self.assertEqual(lines[1:], [
-            "check budget=2048M slots=1 starts=yes",
-            "check budget=4096M slots=2 starts=yes",
-            "check budget=5120M slots=3 starts=no",
+            "check budget=2048M slots=1 headroom=1024M starts=yes",
+            "check budget=4096M slots=2 headroom=1024M starts=yes",
+            "check budget=5120M slots=3 headroom=1024M starts=no",
         ])
 
     def test_a_budget_starts_only_when_the_free_memory_less_the_unused_budgets_and_the_headroom_holds_it(self):
         lines = self.check(["2G", "4G"], available=6000, outstanding=900)
-        self.assertEqual(lines[0], "check slots=4 slot=2048M free-slots=4 free=6000M unused=900M headroom=1024M line=free")
-        self.assertEqual(lines[1:], ["check budget=2048M slots=1 starts=yes", "check budget=4096M slots=2 starts=no"])
+        self.assertEqual(lines[0], "check slots=4 slot=2048M free-slots=4 free=6000M unused=900M line=free")
+        self.assertEqual(lines[1:], ["check budget=2048M slots=1 headroom=1024M starts=yes", "check budget=4096M slots=2 headroom=1024M starts=no"])
 
     def test_a_budget_starts_when_the_free_memory_cannot_be_read_as_the_wait_does(self):
         lines = self.check(["2G"], available=None)
         self.assertIn(" free=- ", lines[0])
-        self.assertEqual(lines[1], "check budget=2048M slots=1 starts=yes")
+        self.assertEqual(lines[1], "check budget=2048M slots=1 headroom=1024M starts=yes")
 
     def test_a_budget_larger_than_the_queue_needs_every_slot_and_the_memory_of_the_queue(self):
         lines = self.check(["64G"], available=9300)
-        self.assertEqual(lines[1], "check budget=65536M slots=4 starts=yes")
+        self.assertEqual(lines[1], "check budget=65536M slots=4 headroom=0M starts=yes")
 
     def test_counts_the_unused_budgets_beside_the_scope_of_the_probe(self):
         self.environ.pop("BOUNDED_RUN_NO_CAP")
@@ -2766,8 +2766,8 @@ class CheckProcessTest(WrapperProcessCase):
         self.wait_for_event("start", "holder")
         code, output, errors = self.check(["--memory", "2G", "--memory", "4G"])
         self.assertEqual((code, output), (0, ""), errors)
-        self.assertRegex(errors, r"^bounded-run: check slots=2 slot=2048M free-slots=1 free=(\d+M|-) unused=- headroom=1024M line=free\n")
-        self.assertRegex(errors, r"\nbounded-run: check budget=2048M slots=1 starts=(yes|no)\nbounded-run: check budget=4096M slots=2 starts=no\n$")
+        self.assertRegex(errors, r"^bounded-run: check slots=2 slot=2048M free-slots=1 free=(\d+M|-) unused=- line=free\n")
+        self.assertRegex(errors, r"\nbounded-run: check budget=2048M slots=1 headroom=1024M starts=(yes|no)\nbounded-run: check budget=4096M slots=2 headroom=0M starts=no\n$")
         holder.kill()
 
     def test_a_command_starts_at_once_after_the_check(self):

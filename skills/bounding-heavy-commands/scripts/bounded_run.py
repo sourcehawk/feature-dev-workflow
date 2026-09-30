@@ -24,9 +24,9 @@ It prints the state of the queue at that moment, one held line for each
 running bounded command where the hard cap is available, and one line for
 each --memory, in the order given:
 
-  bounded-run: check slots=N slot=MIBM free-slots=N|- free=MIBM|- unused=MIBM|- headroom=MIBM line=free|busy
-  bounded-run: check held unit=NAME budget=MIBM|- used=MIBM|- age=Ns|- dir=PATH|- command=TEXT|-
-  bounded-run: check budget=MIBM slots=N starts=yes|no
+  bounded-run: check slots=N slot=<n>M free-slots=N|- free=<n>M|- unused=<n>M|- line=free|busy
+  bounded-run: check held unit=NAME budget=<n>M|- used=<n>M|- age=Ns|- dir=PATH|- command=TEXT|-
+  bounded-run: check budget=<n>M slots=N headroom=<n>M starts=yes|no
 
 A '-' stands for a value that the check cannot read or count here. starts=yes
 means that a run of that budget would start now. It is not a reservation.
@@ -1351,21 +1351,21 @@ def check(
         outstanding = read_outstanding()
     else:
         available, outstanding = settings.free_mib, None
-    headroom = headroom_mib(settings.total_mib, 0, most)
 
     def mib(value: Optional[int]) -> str:
         return "-" if value is None else "%dM" % value
 
-    log("check slots=%d slot=%dM free-slots=%s free=%s unused=%s headroom=%dM line=%s" % (
+    log("check slots=%d slot=%dM free-slots=%s free=%s unused=%s line=%s" % (
         count, settings.slot_mib, "-" if free_slots is None else free_slots, mib(available), mib(outstanding),
-        headroom, "free" if line is not None else "busy"))
+        "free" if line is not None else "busy"))
     for held in held_commands(scopes, skip) if scopes is not None else []:
         log("check held " + held)
     for budget in budgets:
         needed = slots_needed(budget, settings.slot_mib, count)
+        headroom = headroom_mib(settings.total_mib, min(budget, most), most)
         starts = (line is not None and free_slots is not None and free_slots >= needed
-                  and memory_fits(min(budget, most), available, outstanding, headroom_mib(settings.total_mib, min(budget, most), most)))
-        log("check budget=%dM slots=%d starts=%s" % (budget, needed, "yes" if starts else "no"))
+                  and memory_fits(min(budget, most), available, outstanding, headroom))
+        log("check budget=%dM slots=%d headroom=%dM starts=%s" % (budget, needed, headroom, "yes" if starts else "no"))
     return 0
 
 
