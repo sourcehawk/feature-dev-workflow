@@ -34,7 +34,7 @@ A server that a heavy command talks to is a part of that command: a development 
 
 ```
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/bounding-heavy-commands/scripts/bounded_run.py" --memory <budget> [--cpus <n>] [--exclusive <name>]... [--measure] [--label <name>] -- <command>
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/bounding-heavy-commands/scripts/bounded_run.py" --measure-rows <n>,<n>,... [--exclusive <name>]... [--label <name>] -- <command>
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/bounding-heavy-commands/scripts/bounded_run.py" --measure-rows <n>,<n>,... [--memory <budget>] [--exclusive <name>]... [--label <name>] -- <command>
 ```
 
 | Option | Meaning |
@@ -43,7 +43,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/bounding-heavy-commands/scripts/bounded_ru
 | `--cpus <n>` | Processor limit, as a whole number. Taken from the record. |
 | `--exclusive <name>` | A resource that only one command may hold at a time, such as a fixed port. You choose the name. The wrapper keeps the names of each repository apart, and all worktrees of one repository share them. Repeat the option for each resource. |
 | `--measure` | Also print a suggested budget. Discovery uses it. With no `--memory`, the command runs alone in the queue. |
-| `--measure-rows <n>,<n>,...` | Measure the command one time at each `--cpus` of the list, one after the other, the largest first. The largest runs with no `--memory`, so it runs alone in the queue. Each smaller one runs with `--memory` at the suggested budget of the one before it. When the one before it did not exit 0, the smaller one runs with the same `--memory` as that one. Use it in place of `--cpus` and `--measure`. A stop signal ends the list. The exit code is the first exit code of a row that is not 0. |
+| `--measure-rows <n>,<n>,...` | Measure the command one time at each `--cpus` of the list, one after the other, the largest first. The largest runs with the `--memory` of the call. With no `--memory`, it runs alone in the queue. Each smaller one runs with `--memory` at the suggested budget of the one before it. When the one before it did not exit 0, the smaller one runs with the same `--memory` as that one. Use it in place of `--cpus` and `--measure`. A stop signal ends the list. The exit code is the first exit code of a row that is not 0. |
 | `--label <name>` | A name for the row lines of a measurement, such as `unit-tests`. Use letters, digits, `.`, `_`, and `-`. It changes nothing else. |
 
 The wrapper does four things in sequence. It waits for its turn in the queue. It waits until the memory of its budget is free. It runs the command. It prints the budget and the measured peak on the error stream. For the wait, the free memory is the memory that the machine has free now, less the part of their budgets that the running bounded commands do not use yet, less a headroom for the programs outside the queue. The headroom is a tenth of the memory of the machine, and at least 1 GiB. The budget and the headroom together never need more than the memory of the queue, so a budget of the whole queue does not wait for a headroom. The wait has no time limit: the command does not start before its memory is free, and the wrapper prints a line at intervals while it waits. Each line that the wrapper prints starts with `bounded-run:`. A measurement also prints one row line, in a fixed form:
@@ -125,7 +125,7 @@ The measured run is a real run of the command. Its result counts, also when the 
 When the record does not exist (§The record, case 5), do steps 1 to 3 for every heavy command of the project. Then measure them all in one run, in place of steps 4 and 5. Do not measure only the command that you need now. A command that gets its entry later gets its first measurement in the middle of someone's work, and that measurement holds the whole queue while other sessions wait.
 
 1. Choose the rows. Measure each command at three `--cpus`: all the machine's processors, half of them, and a quarter of them. Round each one down, use at least 1, and drop a value that is the same as another. A command with `self-bound: none` gets the row at half only: nothing in it reads its `--cpus`, so each row would measure the same command.
-2. Write one command line. For each command, write one call of the wrapper with `--measure-rows <all>,<half>,<quarter>`, a `--label` that names the command, the `--exclusive` options of the command, and its bounded command line. Join the calls with `;`, so that a measurement that fails does not stop the others. Write the path of the wrapper in full, so that the line runs in any shell. Run it from the root of the project:
+2. Write one command line. For each command, write one call of the wrapper with `--measure-rows` and the rows that step 1 chose for it, a `--label` that names the command, the `--exclusive` options of the command, and its bounded command line. Join the calls with `;`, so that a measurement that fails does not stop the others. Write the path of the wrapper in full, so that the line runs in any shell. Run it from the root of the project:
 
    ```
    python3 "<path of the wrapper>" --measure-rows 16,8,4 --label unit-tests -- <bounded command> ; python3 "<path of the wrapper>" --measure-rows 16,8,4 --label lint -- <bounded command>
