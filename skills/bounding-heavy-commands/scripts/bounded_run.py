@@ -6,7 +6,10 @@ Usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measur
        bounded_run.py --check [--memory SIZE]...
 
 The exit code is the exit code of the command. Exit code 125 means that this
-script failed before the command gave a result.
+script failed before the command gave a result. A stop signal to this script
+(SIGHUP, SIGINT, SIGQUIT, or SIGTERM) stops the command, and then this script
+ends by the same signal, so that a shell stops a line of joined commands. A
+caller that reads the exit status reads 128 plus the signal.
 
 A measurement prints one row line on the error stream, in a fixed form:
 
@@ -67,6 +70,7 @@ import math
 import os
 import random
 import re
+import resource
 import shutil
 import signal
 import stat
@@ -106,6 +110,36 @@ USAGE = (
 )
 # The exit codes of a run that a stop signal to the wrapper ended: 128 plus SIGHUP, SIGINT, SIGQUIT, or SIGTERM.
 STOP_CODES = frozenset(128 + int(signum) for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGQUIT, signal.SIGTERM))
+
+
+# The first stop signal that reached the wrapper in this run of main.
+_stopped_by: List[int] = []
+
+
+def _note_stop(signum: int) -> None:
+    if not _stopped_by:
+        _stopped_by.append(int(signum))
+
+
+def exit_as(code: int) -> None:
+    """Ends the process with the exit code, or, when a stop signal reached the wrapper, by that signal.
+
+    A shell stops a line of joined commands only when the command that runs dies from the signal.
+    A caller that reads the status of a death by signal reads 128 plus the signal.
+    """
+    if _stopped_by:
+        signum = _stopped_by[0]
+        sys.stdout.flush()
+        sys.stderr.flush()
+        if signum == signal.SIGQUIT:
+            # The default action of SIGQUIT also writes a core file.
+            try:
+                resource.setrlimit(resource.RLIMIT_CORE, (0, resource.getrlimit(resource.RLIMIT_CORE)[1]))
+            except (ValueError, OSError):
+                pass
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+    sys.exit(code)
 
 
 class WrapperError(Exception):
@@ -1054,6 +1088,7 @@ def run_command(
         for signum, handler in previous.items():
             signal.signal(signum, handler)
     if received:
+        _note_stop(received[0])
         return 128 + received[0], usage.ru_maxrss
     return process.returncode, usage.ru_maxrss
 
@@ -1249,8 +1284,10 @@ def _bounded_rows(options: Options, environ: Mapping[str, str]) -> int:
                 result = result or code
     except (KeyboardInterrupt, _Stopped) as stop:
         # A signal while a row runs comes back as its exit code. A signal at any other time in the list raises.
+        signum = stop.signum if isinstance(stop, _Stopped) else int(signal.SIGINT)
+        _note_stop(signum)
         log("stopped by a signal; %d of %d rows are measured" % (measured, len(options.rows)))
-        return result or 128 + (stop.signum if isinstance(stop, _Stopped) else int(signal.SIGINT))
+        return result or 128 + signum
     return result
 
 
@@ -1449,6 +1486,7 @@ def check(
 def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, str]] = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     variables = os.environ if environ is None else environ
+    del _stopped_by[:]
     try:
         if len(arguments) > 4 and arguments[0] == "--inside-cap" and arguments[3] == "--":
             return inside_cap(arguments[1], arguments[2], arguments[4:])
@@ -1464,10 +1502,12 @@ def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, st
         try:
             return bounded(options, variables)
         except KeyboardInterrupt:
+            _note_stop(signal.SIGINT)
             log("interrupted while waiting")
             return 130
         except _Stopped as stop:
             # The handlers of --measure-rows can fire after its list ends, before they are put back.
+            _note_stop(stop.signum)
             log("stopped by a signal")
             return 128 + stop.signum
     except WrapperError as error:
@@ -1476,4 +1516,4 @@ def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, st
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit_as(main())

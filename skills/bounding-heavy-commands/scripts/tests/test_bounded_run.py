@@ -2565,13 +2565,13 @@ class WrapperProcessTest(WrapperProcessCase):
         self.assertNotIn("Traceback", errors)
 
     def test_a_stop_signal_stops_the_command(self):
-        for signum, code in ((signal.SIGTERM, 143), (signal.SIGINT, 130), (signal.SIGQUIT, 131)):
+        for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGQUIT):
             with self.subTest(signal=signum):
-                name = "stopped-%d" % code
+                name = "stopped-%d" % signum
                 process = self.worker(name, "2G", hold="300")
                 line = self.wait_for_event("start", name)
                 process.send_signal(signum)
-                self.assertEqual(process.wait(timeout=60), code)
+                self.assertEqual(process.wait(timeout=60), -signum)
                 child = int(line.split()[2])
                 deadline = time.time() + 5
                 alive = True
@@ -2583,12 +2583,12 @@ class WrapperProcessTest(WrapperProcessCase):
                         alive = False
                 self.assertFalse(alive, "the command still runs")
 
-    def test_a_hangup_stops_the_command_and_gives_129(self):
+    def test_a_hangup_stops_the_command_and_ends_the_wrapper_by_the_hangup(self):
         name = "hangup-129"
         process = self.worker(name, "2G", hold="300")
         line = self.wait_for_event("start", name)
         process.send_signal(signal.SIGHUP)
-        self.assertEqual(process.wait(timeout=60), 129)
+        self.assertEqual(process.wait(timeout=60), -signal.SIGHUP)
         child = int(line.split()[2])
         deadline = time.time() + 5
         alive = True
@@ -2619,7 +2619,7 @@ class WrapperProcessTest(WrapperProcessCase):
         self.wait_for_event("signaled", "stubborn", seconds=60.0)
         self.assertIsNone(process.poll())
         process.send_signal(signal.SIGTERM)
-        self.assertEqual(process.wait(timeout=60), 143)
+        self.assertEqual(process.wait(timeout=60), -signal.SIGTERM)
         child = int(line.split()[2])
         deadline = time.time() + 5
         alive = True
@@ -2877,7 +2877,7 @@ class WrapperProcessTest(WrapperProcessCase):
         rows = re.findall(r"^bounded-run: row label=lint cpus=(\d+) budget=\d+M peak=\d+M held=- exact=no exit=0$", errors, re.MULTILINE)
         self.assertEqual(rows, ["2", "1"], errors)
 
-    def test_an_interrupt_in_the_queue_gives_130_and_no_traceback(self):
+    def test_an_interrupt_in_the_queue_ends_the_wrapper_by_the_interrupt_with_no_traceback(self):
         holder = self.worker("holder", "4G", hold="300")
         self.wait_for_event("start", "holder")
         waiting = self.worker("waiting", "4G", hold="0")  # never reached; interrupted while still queued
@@ -2885,14 +2885,14 @@ class WrapperProcessTest(WrapperProcessCase):
         self.wait_for_stderr(waiting, "waiting for")
 
         waiting.send_signal(signal.SIGINT)
-        self.assertEqual(waiting.wait(timeout=60), 130)
+        self.assertEqual(waiting.wait(timeout=60), -signal.SIGINT)
         buffer = self.stderr_of(waiting)
         self.assertNotIn("Traceback", buffer)
         for line in buffer.splitlines():
             self.assertTrue(line.startswith("bounded-run: "), buffer)
 
         holder.send_signal(signal.SIGTERM)
-        self.assertEqual(holder.wait(timeout=60), 143)
+        self.assertEqual(holder.wait(timeout=60), -signal.SIGTERM)
 
     def hold_the_line(self):
         os.makedirs(self.environ["BOUNDED_RUN_LOCK_DIR"], exist_ok=True)
@@ -2900,13 +2900,13 @@ class WrapperProcessTest(WrapperProcessCase):
         bounded_run.fcntl.flock(descriptor, bounded_run.fcntl.LOCK_EX)
         return descriptor
 
-    def test_an_interrupt_behind_others_in_the_line_gives_130_and_no_traceback(self):
+    def test_an_interrupt_behind_others_in_the_line_ends_the_wrapper_by_the_interrupt_with_no_traceback(self):
         line = self.hold_the_line()
         self.addCleanup(os.close, line)
         waiting = self.worker("waiting", "2G", hold="0")  # never reached; interrupted while still in the line
         self.wait_for_stderr(waiting, "behind other commands")
         waiting.send_signal(signal.SIGINT)
-        self.assertEqual(waiting.wait(timeout=10), 130)
+        self.assertEqual(waiting.wait(timeout=10), -signal.SIGINT)
         buffer = self.stderr_of(waiting)
         self.assertNotIn("Traceback", buffer)
         self.assertIn("interrupted while waiting", buffer)
@@ -2993,6 +2993,97 @@ class CheckProcessTest(WrapperProcessCase):
         self.assertNotIn("check slots=", errors)
 
 
+# Writes the pid of its parent, the wrapper, to the file in PARENT, then holds until the wrapper stops it.
+PARENT_WRITER = "import os, time; open(os.environ['PARENT'], 'w').write(str(os.getppid())); time.sleep(300)"
+
+
+@unittest.skipIf(shutil.which("bash") is None, "needs bash")
+class JoinedLineTest(WrapperProcessCase):
+    """Runs the wrapper as the first call of a line of bash that joins its calls with ';'.
+
+    A terminal sends Ctrl-C to the whole process group of the line. Bash stops the line only when
+    the call that runs dies from the signal. A plain sh can end from the signal by itself, so it proves nothing.
+    """
+
+    def line(self, path, then, options, command, **environ):
+        """Starts `wrapper; <then> "$0"` with $0 set to path, in a new process group."""
+        variables = dict(self.environ)
+        variables.update(environ)
+        process = subprocess.Popen(
+            ["bash", "-c", '"$@"; ' + then + ' "$0"', path, sys.executable, WRAPPER] + options + ["--"] + command,
+            env=variables, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
+        )
+        self.processes.append(process)
+
+        def kill_group():
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        self.addCleanup(kill_group)
+        return process
+
+    def wait_for_file(self, path, seconds=60.0):
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            try:
+                text = Path(path).read_text()
+            except OSError:
+                text = ""
+            if text:
+                return text
+            time.sleep(0.02)
+        self.fail("no %s after %s seconds" % (path, seconds))
+
+    def test_an_interrupt_while_the_command_runs_stops_the_line(self):
+        marker = os.path.join(self.base.name, "next-ran")
+        process = self.line(marker, "touch", ["--memory", "2G"], [sys.executable, "-c", WORKER, "joined"], HOLD="300")
+        self.wait_for_event("start", "joined")
+        os.killpg(process.pid, signal.SIGINT)
+        self.assertEqual(process.wait(timeout=60), -signal.SIGINT, self.stderr_of(process))
+        self.assertFalse(os.path.exists(marker), "the next command of the line ran")
+
+    def test_an_interrupt_while_the_wrapper_waits_in_the_queue_stops_the_line(self):
+        holder = self.worker("holder", "4G", hold="300")  # holds every slot until the SIGTERM below
+        self.wait_for_event("start", "holder")
+        marker = os.path.join(self.base.name, "next-ran")
+        process = self.line(marker, "touch", ["--memory", "4G"], [sys.executable, "-c", WORKER, "queued"], HOLD="0")
+        self.wait_for_stderr(process, "waiting for")
+        os.killpg(process.pid, signal.SIGINT)
+        self.assertEqual(process.wait(timeout=60), -signal.SIGINT)
+        self.assertIn("interrupted while waiting", self.stderr_of(process))
+        self.assertFalse(os.path.exists(marker), "the next command of the line ran")
+        holder.send_signal(signal.SIGTERM)
+        holder.wait(timeout=60)
+
+    def test_an_interrupt_while_rows_are_measured_stops_the_rows_and_the_line(self):
+        marker = os.path.join(self.base.name, "next-ran")
+        process = self.line(marker, "touch", ["--measure-rows", "2,1"], [sys.executable, "-c", WORKER, "rows"], HOLD="300")
+        self.wait_for_event("start", "rows")
+        os.killpg(process.pid, signal.SIGINT)
+        self.assertEqual(process.wait(timeout=60), -signal.SIGINT)
+        errors = self.stderr_of(process)
+        self.assertIn("stopped by a signal; the rows after --cpus 2 are not measured", errors)
+        self.assertFalse(os.path.exists(marker), "the next command of the line ran")
+
+    def test_a_command_that_exits_130_by_itself_does_not_stop_the_line(self):
+        status = os.path.join(self.base.name, "status")
+        process = self.line(status, "echo $? >", ["--memory", "2G"], [sys.executable, "-c", "import sys; sys.exit(130)"])
+        self.assertEqual(process.wait(timeout=60), 0, self.stderr_of(process))
+        self.assertEqual(Path(status).read_text(), "130\n")
+
+    def test_the_caller_reads_128_plus_the_signal(self):
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            with self.subTest(signal=signum):
+                status = os.path.join(self.base.name, "status-%d" % signum)
+                parent = os.path.join(self.base.name, "parent-%d" % signum)
+                # Only the wrapper gets the signal, so bash itself does not stop and reads the status.
+                process = self.line(status, "echo $? >", ["--memory", "2G"], [sys.executable, "-c", PARENT_WRITER], PARENT=parent)
+                os.kill(int(self.wait_for_file(parent)), signum)
+                self.assertEqual(process.wait(timeout=60), 0, self.stderr_of(process))
+                self.assertEqual(Path(status).read_text(), "%d\n" % (128 + signum))
+
+
 @unittest.skipUnless(
     bounded_run.choose_cap_prefix(256, 1, "bounded-run-test-%d" % os.getpid(), bounded_run.probe_cap) is not None,
     "no hard cap on this machine",
@@ -3028,7 +3119,7 @@ class HardCapTest(WrapperProcessCase):
         process = self.worker("capped", "1G", hold="300")
         line = self.wait_for_event("start", "capped")
         process.send_signal(signal.SIGTERM)
-        self.assertEqual(process.wait(timeout=60), 143)
+        self.assertEqual(process.wait(timeout=60), -signal.SIGTERM)
         with self.assertRaises(ProcessLookupError):
             deadline = time.time() + 5
             while time.time() < deadline:
