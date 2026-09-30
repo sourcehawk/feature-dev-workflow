@@ -808,6 +808,22 @@ class MemoryWaitTest(unittest.TestCase):
         )
         self.assertEqual(events, ["lock", "read", "unlock", "sleep", "lock", "read"])
 
+    def test_reads_the_unused_budgets_before_the_free_memory(self):
+        events = []
+
+        def read_available():
+            events.append("free")
+            return 8000
+
+        def read_outstanding():
+            events.append("unused")
+            return 0
+
+        bounded_run.wait_for_memory(
+            4096, 300, 5.0, read_available=read_available, read_outstanding=read_outstanding, sleep=lambda seconds: None,
+        )
+        self.assertEqual(events, ["unused", "free"])
+
     def test_the_headroom_is_not_given_out(self):
         self.assertEqual(self.wait([5000, 5200], 300, headroom=1024), [5.0])
 
