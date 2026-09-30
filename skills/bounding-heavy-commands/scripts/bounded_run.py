@@ -8,8 +8,10 @@ Usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measur
 The exit code is the exit code of the command. Exit code 125 means that this
 script failed before the command gave a result. A stop signal to this script
 (SIGHUP, SIGINT, SIGQUIT, or SIGTERM) stops the command, and then this script
-ends by the same signal, so that a shell stops a line of joined commands. A
-caller that reads the exit status reads 128 plus the signal.
+ends by the same signal. So a Ctrl-C at the terminal, which reaches the shell
+too, stops a line of joined commands; a signal sent to this script alone does
+not stop the shell. A caller that reads the exit status reads 128 plus the
+signal.
 
 A measurement prints one row line on the error stream, in a fixed form:
 
