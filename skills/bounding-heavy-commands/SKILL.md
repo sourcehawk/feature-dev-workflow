@@ -47,7 +47,7 @@ The wrapper does four things in sequence. It waits for its turn in the queue. It
 
 The wrapper sets `BOUNDED_RUN_CPUS` and `BOUNDED_RUN_MEMORY_MIB` in the environment of the command, from `--cpus` and `--memory`. A recorded command line can read them and hand them to the toolchain's own parallelism and memory settings. You do not set them: you change them with the two options.
 
-On Linux the wrapper also puts a hard cap on the command where the system allows it: a command that passes its budget is stopped with exit code 137, and the machine does not swap. Elsewhere there is no hard cap, the wrapper says so in its output, and the queue and the wait are the whole protection. Without the cap, the wait does not count the unused budgets of the running commands. When a recorded command ends with exit code 137 and the wrapper reports a peak near the budget, the cap stopped it: the command grew. Measure it again with `--measure` and `--memory` at two times the budget, and correct the record.
+On Linux the wrapper also puts a hard cap on the command where the system allows it: a command that passes its budget is stopped with exit code 137, and the machine does not swap. Elsewhere there is no hard cap, the wrapper says so in its output, and the queue and the wait are the whole protection. Without the cap, and on a system with cgroup version 1, the wait does not count the unused budgets of the running commands. When a recorded command ends with exit code 137 and the wrapper reports a peak near the budget, the cap stopped it: the command grew. Measure it again with `--measure` and `--memory` at two times the budget, and correct the record.
 
 ## The record
 
