@@ -2747,10 +2747,6 @@ class WrapperProcessTest(WrapperProcessCase):
         )
 
 
-@unittest.skipUnless(
-    bounded_run.choose_cap_prefix(256, 1, "bounded-run-test-%d" % os.getpid(), bounded_run.probe_cap) is not None,
-    "no hard cap on this machine",
-)
 class CheckProcessTest(WrapperProcessCase):
     def check(self, arguments):
         process = subprocess.Popen(
@@ -2781,6 +2777,10 @@ class CheckProcessTest(WrapperProcessCase):
         self.assertNotIn("check slots=", errors)
 
 
+@unittest.skipUnless(
+    bounded_run.choose_cap_prefix(256, 1, "bounded-run-test-%d" % os.getpid(), bounded_run.probe_cap) is not None,
+    "no hard cap on this machine",
+)
 class HardCapTest(WrapperProcessCase):
     def setUp(self):
         super().setUp()
