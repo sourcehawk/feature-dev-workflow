@@ -41,7 +41,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/bounding-heavy-commands/scripts/bounded_ru
 | Option | Meaning |
 | --- | --- |
 | `--memory <budget>` | Memory the command may use, such as `6G` or `4096M`. Taken from the record. Without it the wrapper uses its default budget, a quarter of the machine's memory. A measurement without it takes the whole queue where there is no hard cap. |
-| `--cpus <n>` | Processor limit, as a whole number. Taken from the record. |
+| `--cpus <n>` | Processor limit, as a whole number. Taken from the record. Without it the wrapper uses half the machine's processors, rounded down, and at least 1. |
 | `--exclusive <name>` | A resource that only one command may hold at a time, such as a fixed port. You choose the name. The wrapper keeps the names of each repository apart, and all worktrees of one repository share them. Repeat the option for each resource. |
 | `--measure` | Also print a suggested budget. Discovery uses it. With no `--memory`, the command runs with the default budget where the hard cap is available, and alone in the queue where it is not. |
 | `--measure-rows <n>,<n>,...` | Measure the command one time at each `--cpus` of the list, one after the other, the largest first. The largest runs with the `--memory` of the call. With no `--memory`, it runs with the default budget where the hard cap is available, and alone in the queue where it is not. Each smaller one runs with `--memory` at the suggested budget of the one before it. When the one before it did not exit 0, the smaller one runs with the same `--memory` as that one. Use it in place of `--cpus` and `--measure`. A stop signal ends the list. A stop signal to the wrapper then ends the wrapper by that signal. So a Ctrl-C, which reaches the shell too, stops a line of joined calls; a signal sent to the wrapper alone does not stop the shell's line. Otherwise the exit code is the first exit code of a row that is not 0. |
@@ -59,12 +59,12 @@ bounded-run: row label=<name> cpus=<n> budget=<n>M peak=<n>M held=<n>M|- exact=<
 A check prints its lines in a fixed form too:
 
 ```
-bounded-run: check slots=<n> slot=<n>M free-slots=<n> free=<n>M unused=<n>M line=<free|busy>
-bounded-run: check held unit=<name> budget=<n>M used=<n>M age=<n>s dir=<directory> command=<command>
+bounded-run: check slots=<n> slot=<n>M free-slots=<n> free=<n>M unused=<n>M cpus=<n> cpus-used=<n> line=<free|busy>
+bounded-run: check held unit=<name> budget=<n>M used=<n>M cpus=<n> age=<n>s dir=<directory> command=<command>
 bounded-run: check budget=<n>M slots=<n> headroom=<n>M starts=<yes|no>
 ```
 
-The first line gives the slots of the queue and their size, the slots that are free now, the free memory, and the unused budgets of the running commands. `line=busy` means that a command waits in the line. Each `held` line is one bounded command that runs now: its budget, the memory it uses, how long it has run, its working directory, and its command. The held lines need the hard cap, so without it there are none. Each `budget` line is one `--memory`, in the order given: the slots that it needs, the headroom that the wait keeps free beside that budget, and `starts=yes` when a command of that budget would start now. A `-` means that the check cannot read or count the value at that moment.
+The first line gives the slots of the queue and their size, the slots that are free now, the free memory, the unused budgets of the running commands, the processors of the machine, and the processors that the running bounded commands can use together (`cpus-used`). `line=busy` means that a command waits in the line. Each `held` line is one bounded command that runs now: its budget, the memory it uses, the processors it can use, how long it has run, its working directory, and its command. The held lines and `cpus-used` need the hard cap, so without it there are no held lines and `cpus-used` is `-`. Each `budget` line is one `--memory`, in the order given: the slots that it needs, the headroom that the wait keeps free beside that budget, and `starts=yes` when a command of that budget would start now. A `-` means that the check cannot read or count the value at that moment.
 
 The exit code of the wrapper is the command's exit code. Exit code 125, with a `bounded-run:` line that names a fault and with no line for the budget and the peak, means that the wrapper itself failed (see §When the wrapper cannot run).
 
@@ -93,7 +93,7 @@ A budget is valid only at the `--cpus` of its row. The same command at more proc
 
 The table has one row for each `--cpus`. A measurement at a `--cpus` that has no row adds a row. A measurement at a `--cpus` that has a row replaces that row. Never delete a row because a different `--cpus` was measured. Two entries whose command lines differ only in the values of the wrapper's `--memory` and `--cpus`, before the `--`, are one entry: keep one, with the rows of both, and where both have a row at the same `--cpus`, keep the newer one. The row at the `--cpus` of the default row of the entry that you keep stays the default row, and no other row is marked as the default. Then write the `--cpus` and the budget of the default row into the command line. One row is the default row. A run uses it when nothing asks for a different one.
 
-Before a run of a command whose entry has more than one row, choose the row with the check. Run the wrapper with `--check` and one `--memory` for the budget of each row. Choose the largest row that would start now (`starts=yes`). When no row would start now, choose the default row and let it wait in the queue: the smallest row runs slowest, and the line keeps the wait fair. Then run the chosen row through the wrapper, with the `--cpus` and the `--memory` of that row. An entry with one row needs no check.
+Before a run of a command whose entry has more than one row, choose the row with the check. Run the wrapper with `--check` and one `--memory` for the budget of each row. Choose the largest row that would start now (`starts=yes`). A row whose `--cpus`, added to `cpus-used`, is more than `cpus` makes every running command slower, so when two rows would both start, prefer the largest one that fits in `cpus`. When no row would start now, choose the default row and let it wait in the queue: the smallest row runs slowest, and the line keeps the wait fair. Then run the chosen row through the wrapper, with the `--cpus` and the `--memory` of that row. An entry with one row needs no check.
 
 The check is a snapshot, not a reservation. Two sessions can see the same free slots at the same moment, so the chosen row still goes through the queue. A check never replaces the wrapper.
 
