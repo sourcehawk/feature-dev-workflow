@@ -126,8 +126,9 @@ def _note_stop(signum: int) -> None:
 def exit_as(code: int) -> None:
     """Ends the process with the exit code, or, when a stop signal reached the wrapper, by that signal.
 
-    A shell stops a line of joined commands only when the command that runs dies from the signal.
-    A caller that reads the status of a death by signal reads 128 plus the signal.
+    A shell stops a line of joined commands only when the command that runs dies from the signal and the shell
+    got the signal too, as with a Ctrl-C at the terminal. A caller that reads the status of a death by signal
+    reads 128 plus the signal.
     """
     if _stopped_by:
         signum = _stopped_by[0]
