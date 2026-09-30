@@ -13,6 +13,10 @@ too, stops a line of joined commands; a signal sent to this script alone does
 not stop the shell. A caller that reads the exit status reads 128 plus the
 signal.
 
+A run without --cpus gets half of the processors of the machine, rounded
+down and at least 1. The command reads its processors in BOUNDED_RUN_CPUS,
+and the hard cap, where it is available, holds the command to them.
+
 A measurement prints one row line on the error stream, in a fixed form:
 
   bounded-run: row label=NAME cpus=N budget=<n>M peak=<n>M held=<n>M|- exact=yes|no exit=CODE
@@ -32,12 +36,15 @@ It prints the state of the queue at that moment, one held line for each
 running bounded command where the hard cap is available, and one line for
 each --memory, in the order given:
 
-  bounded-run: check slots=N slot=<n>M free-slots=N|- free=<n>M|- unused=<n>M|- line=free|busy
-  bounded-run: check held unit=NAME budget=<n>M|- used=<n>M|- age=Ns|- dir=PATH|- command=TEXT|-
+  bounded-run: check slots=N slot=<n>M free-slots=N|- free=<n>M|- unused=<n>M|- cpus=N cpus-used=N|- line=free|busy
+  bounded-run: check held unit=NAME budget=<n>M|- used=<n>M|- cpus=N|- age=Ns|- dir=PATH|- command=TEXT|-
   bounded-run: check budget=<n>M slots=N headroom=<n>M starts=yes|no
 
-A '-' stands for a value that the check cannot read or count here. starts=yes
-means that a run of that budget would start now. It is not a reservation.
+A '-' stands for a value that the check cannot read or count here. cpus is
+the processors of the machine. cpus-used is the sum of the processors that
+the running bounded commands may use, and the cpus of a held line is the
+part of one command. starts=yes means that a run of that budget would start
+now. It is not a reservation.
 
 A normal call sets none of the environment variables below. A person can
 set the tuning values in the profile of the shell, so that every session
@@ -659,6 +666,15 @@ def wait_for_memory(
         sleep(poll_seconds)
 
 
+def machine_cpus() -> int:
+    return os.cpu_count() or 1
+
+
+def default_cpus(machine: int) -> int:
+    """Returns the processors of a run that gives no --cpus: half of the machine's, rounded down, and at least 1."""
+    return max(1, machine // 2)
+
+
 def cap_prefix(budget_mib: int, cpus: Optional[int], unit: str, oom_policy: bool = True) -> List[str]:
     prefix = [
         "systemd-run", "--user", "--scope", "--quiet", "--collect", "--unit", unit,
@@ -759,6 +775,40 @@ def unused_budget_mib(parent: str, skip: Sequence[str]) -> int:
     return unused // (1024 * 1024)
 
 
+def _scope_cpus(directory: str, machine: int) -> Optional[int]:
+    """Returns the processors that the quota of the scope in directory allows, rounded up, or None when it cannot be read.
+
+    A scope with no quota can use each processor of the machine.
+    """
+    try:
+        quota, period = (_read_text(os.path.join(directory, "cpu.max")) or "").split()
+        if quota == "max":
+            return machine
+        return -(-int(quota) // int(period)) if int(period) > 0 else None
+    except ValueError:
+        return None
+
+
+def cpus_in_use(parent: str, skip: Sequence[str], machine: Optional[int] = None) -> Optional[int]:
+    """Returns the sum of the processors that the quotas of the bounded commands whose scopes are in parent allow.
+
+    Probe scopes and the scopes named in skip add nothing. Returns None when the quota of a running scope cannot be read.
+    """
+    if machine is None:
+        machine = machine_cpus()
+    used = 0
+    for name in _bounded_scopes(parent, skip):
+        directory = os.path.join(parent, name)
+        cpus = _scope_cpus(directory, machine)
+        if not os.path.isdir(directory):
+            # The scope ended while it was read.
+            continue
+        if cpus is None:
+            return None
+        used += cpus
+    return used
+
+
 def _scope_counts(path: str) -> bool:
     try:
         with open(os.path.join(path, "memory.max")) as handle:
@@ -823,13 +873,17 @@ def _held_command(pid: int, proc_root: str) -> Optional[str]:
     return _one_line(" ".join(arguments))[:HELD_COMMAND_CHARACTERS]
 
 
-def held_commands(parent: str, skip: Sequence[str], proc_root: str = "/proc", ticks: Optional[int] = None) -> List[str]:
+def held_commands(
+    parent: str, skip: Sequence[str], proc_root: str = "/proc", ticks: Optional[int] = None, machine: Optional[int] = None,
+) -> List[str]:
     """Returns one text for each running bounded command whose scope is in parent, as the fields of a check line.
 
     A field that cannot be read is '-'. Probe scopes and the scopes named in skip give no text.
     """
     if ticks is None:
         ticks = os.sysconf("SC_CLK_TCK")
+    if machine is None:
+        machine = machine_cpus()
 
     def mib(text: Optional[str]) -> str:
         return "%dM" % (int(text) // (1024 * 1024)) if text is not None and text.strip().isdigit() else "-"
@@ -839,6 +893,7 @@ def held_commands(parent: str, skip: Sequence[str], proc_root: str = "/proc", ti
         directory = os.path.join(parent, name)
         limit = _read_text(os.path.join(directory, "memory.max"))
         current = _read_text(os.path.join(directory, "memory.current"))
+        cpus = _scope_cpus(directory, machine)
         pids = [int(line) for line in (_read_text(os.path.join(directory, "cgroup.procs")) or "").split() if line.isdigit()]
         if not os.path.isdir(directory):
             # The scope ended while it was read.
@@ -853,8 +908,8 @@ def held_commands(parent: str, skip: Sequence[str], proc_root: str = "/proc", ti
         if working is not None:
             working = _one_line(working)
         command = _held_command(pid, proc_root) if pid is not None else None
-        held.append("unit=%s budget=%s used=%s age=%s dir=%s command=%s" % (
-            name[:-len(".scope")], mib(limit), mib(current), "-" if age is None else "%ds" % age,
+        held.append("unit=%s budget=%s used=%s cpus=%s age=%s dir=%s command=%s" % (
+            name[:-len(".scope")], mib(limit), mib(current), "-" if cpus is None else cpus, "-" if age is None else "%ds" % age,
             working or "-", command or "-"))
     return held
 
@@ -1326,7 +1381,8 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
     exclusive_files = [exclusive_file_name(repository, name) for name in options.exclusive]
 
     unit = "%s-%d-%06x" % (PREFIX, os.getpid(), random.randrange(16 ** 6))
-    choice = None if settings.no_cap else choose_cap_prefix(budget, options.cpus, unit, probe_cap)
+    cpus = options.cpus if options.cpus is not None else default_cpus(machine_cpus())
+    choice = None if settings.no_cap else choose_cap_prefix(budget, cpus, unit, probe_cap)
     prefix = choice[0] if choice is not None else None
     capped = prefix is not None
     if options.measure and options.memory is None and not capped:
@@ -1355,7 +1411,7 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
     child_environ: Dict[str, str] = dict(environ)
     child_environ[ACTIVE_VARIABLE] = "1"
     child_environ["BOUNDED_RUN_MEMORY_MIB"] = str(budget)
-    child_environ["BOUNDED_RUN_CPUS"] = str(options.cpus if options.cpus is not None else (os.cpu_count() or 1))
+    child_environ["BOUNDED_RUN_CPUS"] = str(cpus)
 
     trackers: List[PeakTracker] = []
 
@@ -1469,12 +1525,15 @@ def check(
     else:
         available, outstanding = settings.free_mib, None
 
+    machine = machine_cpus()
+    used = None if scopes is None else cpus_in_use(scopes, ())
+
     def mib(value: Optional[int]) -> str:
         return "-" if value is None else "%dM" % value
 
-    log("check slots=%d slot=%dM free-slots=%s free=%s unused=%s line=%s" % (
+    log("check slots=%d slot=%dM free-slots=%s free=%s unused=%s cpus=%d cpus-used=%s line=%s" % (
         count, settings.slot_mib, "-" if free_slots is None else free_slots, mib(available), mib(outstanding),
-        "free" if line is not None else "busy"))
+        machine, "-" if used is None else used, "free" if line is not None else "busy"))
     for held in held_commands(scopes, ()) if scopes is not None else []:
         log("check held " + held)
     for budget in budgets:

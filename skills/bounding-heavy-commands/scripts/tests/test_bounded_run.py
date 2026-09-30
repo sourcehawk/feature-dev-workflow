@@ -1067,9 +1067,11 @@ class HeldCommandTest(unittest.TestCase):
         os.makedirs(self.proc)
         Path(self.proc, "uptime").write_text("170.52 300.00\n")
 
-    def scope(self, name, limit=str(4096 * 1024 ** 2), current=str(1024 * 1024 ** 2), pids=("100",)):
+    def scope(self, name, limit=str(4096 * 1024 ** 2), current=str(1024 * 1024 ** 2), pids=("100",), cpu_max="400000 100000"):
         directory = os.path.join(self.slice, name)
         os.makedirs(directory)
+        if cpu_max is not None:
+            Path(directory, "cpu.max").write_text(cpu_max + "\n")
         Path(directory, "memory.max").write_text(limit + "\n")
         Path(directory, "memory.current").write_text(current + "\n")
         Path(directory, "cgroup.procs").write_text("".join(pid + "\n" for pid in pids))
@@ -1082,7 +1084,7 @@ class HeldCommandTest(unittest.TestCase):
         os.symlink(cwd, os.path.join(directory, "cwd"))
 
     def held(self, skip=()):
-        return bounded_run.held_commands(self.slice, skip, proc_root=self.proc, ticks=100)
+        return bounded_run.held_commands(self.slice, skip, proc_root=self.proc, ticks=100, machine=16)
 
     def inside(self, *command):
         return ["python3", "/x/bounded_run.py", "--inside-cap", "/l/peak-u", "bounded-run-100-aaaaaa", "--"] + list(command)
@@ -1092,7 +1094,7 @@ class HeldCommandTest(unittest.TestCase):
         self.process(100, self.inside("sh", "-c", "make test"))
         self.process(105, ["make", "test"], start_ticks=9000, cwd="/elsewhere")
         self.assertEqual(self.held(), [
-            "unit=bounded-run-100-aaaaaa budget=4096M used=1024M age=120s dir=/work/project command=sh -c make test",
+            "unit=bounded-run-100-aaaaaa budget=4096M used=1024M cpus=4 age=120s dir=/work/project command=sh -c make test",
         ])
 
     def test_a_scope_with_no_budget_gives_a_dash(self):
@@ -1111,7 +1113,7 @@ class HeldCommandTest(unittest.TestCase):
 
     def test_a_process_that_cannot_be_read_gives_dashes(self):
         self.scope("bounded-run-100-aaaaaa.scope", pids=("999",))
-        self.assertEqual(self.held(), ["unit=bounded-run-100-aaaaaa budget=4096M used=1024M age=- dir=- command=-"])
+        self.assertEqual(self.held(), ["unit=bounded-run-100-aaaaaa budget=4096M used=1024M cpus=4 age=- dir=- command=-"])
 
     def test_a_scope_with_no_process_gives_dashes(self):
         self.scope("bounded-run-100-aaaaaa.scope", pids=())
@@ -1135,12 +1137,12 @@ class HeldCommandTest(unittest.TestCase):
     def test_a_directory_with_a_line_break_stays_on_one_line(self):
         self.scope("bounded-run-100-aaaaaa.scope")
         self.process(100, self.inside("tool"), cwd="/work/two\nlines")
-        self.assertEqual(self.held(), ["unit=bounded-run-100-aaaaaa budget=4096M used=1024M age=120s dir=/work/two lines command=tool"])
+        self.assertEqual(self.held(), ["unit=bounded-run-100-aaaaaa budget=4096M used=1024M cpus=4 age=120s dir=/work/two lines command=tool"])
 
     def test_control_characters_of_the_command_and_the_directory_become_question_marks(self):
         self.scope("bounded-run-100-aaaaaa.scope")
         self.process(100, self.inside("printf", "\x1b[2Jdone"), cwd="/work/\x1b[31mred")
-        self.assertEqual(self.held(), ["unit=bounded-run-100-aaaaaa budget=4096M used=1024M age=120s dir=/work/?[31mred command=printf ?[2Jdone"])
+        self.assertEqual(self.held(), ["unit=bounded-run-100-aaaaaa budget=4096M used=1024M cpus=4 age=120s dir=/work/?[31mred command=printf ?[2Jdone"])
 
     def test_a_command_without_the_prefix_of_the_wrapper_is_given_whole(self):
         self.scope("bounded-run-100-aaaaaa.scope")
@@ -1149,6 +1151,71 @@ class HeldCommandTest(unittest.TestCase):
 
     def test_no_slice_gives_no_line(self):
         self.assertEqual(bounded_run.held_commands(os.path.join(self.base.name, "gone"), (), proc_root=self.proc), [])
+
+    def test_a_part_of_a_processor_counts_as_a_whole_one(self):
+        self.scope("bounded-run-100-aaaaaa.scope", cpu_max="150000 100000")
+        self.process(100, self.inside("tool"))
+        self.assertIn(" cpus=2 ", self.held()[0])
+
+    def test_a_scope_with_no_quota_holds_every_processor(self):
+        self.scope("bounded-run-100-aaaaaa.scope", cpu_max="max 100000")
+        self.process(100, self.inside("tool"))
+        self.assertIn(" cpus=16 ", self.held()[0])
+
+    def test_a_quota_that_cannot_be_read_gives_a_dash(self):
+        self.scope("bounded-run-100-aaaaaa.scope", cpu_max=None)
+        self.process(100, self.inside("tool"))
+        self.assertIn(" cpus=- ", self.held()[0])
+
+
+class CpusInUseTest(unittest.TestCase):
+    """Gives cpus_in_use a slice of the cgroup filesystem in a temporary directory, on a machine of 16 processors."""
+
+    def setUp(self):
+        self.base = tempfile.TemporaryDirectory()
+        self.addCleanup(self.base.cleanup)
+        self.slice = os.path.join(self.base.name, "app.slice")
+        os.makedirs(self.slice)
+
+    def scope(self, name, cpu_max):
+        directory = os.path.join(self.slice, name)
+        os.makedirs(directory)
+        if cpu_max is not None:
+            Path(directory, "cpu.max").write_text(cpu_max + "\n")
+
+    def used(self, skip=()):
+        return bounded_run.cpus_in_use(self.slice, skip, machine=16)
+
+    def test_adds_the_quotas_of_the_bounded_scopes_each_rounded_up(self):
+        self.scope("bounded-run-1-aaaaaa.scope", "800000 100000")
+        self.scope("bounded-run-2-bbbbbb.scope", "150000 100000")
+        self.assertEqual(self.used(), 10)
+
+    def test_a_scope_with_no_quota_counts_every_processor(self):
+        self.scope("bounded-run-1-aaaaaa.scope", "max 100000")
+        self.scope("bounded-run-2-bbbbbb.scope", "200000 100000")
+        self.assertEqual(self.used(), 18)
+
+    def test_skips_probe_scopes_named_scopes_and_other_units(self):
+        self.scope("bounded-run-1-aaaaaa-probe.scope", "800000 100000")
+        self.scope("bounded-run-2-bbbbbb.scope", "800000 100000")
+        self.scope("editor-1.scope", "800000 100000")
+        self.scope("bounded-run-3-cccccc.scope", "300000 100000")
+        self.assertEqual(self.used(skip=["bounded-run-2-bbbbbb.scope"]), 3)
+
+    def test_no_running_scope_uses_no_processor(self):
+        self.assertEqual(self.used(), 0)
+
+    def test_a_scope_that_ends_while_it_is_read_is_skipped(self):
+        self.scope("bounded-run-1-aaaaaa.scope", "200000 100000")
+        listing = os.listdir(self.slice) + ["bounded-run-9-dddddd.scope"]
+        with mock.patch.object(bounded_run.os, "listdir", return_value=listing):
+            self.assertEqual(self.used(), 2)
+
+    def test_a_running_scope_whose_quota_cannot_be_read_makes_the_sum_unknown(self):
+        self.scope("bounded-run-1-aaaaaa.scope", "200000 100000")
+        self.scope("bounded-run-2-bbbbbb.scope", None)
+        self.assertIsNone(self.used())
 
 
 class CapTest(unittest.TestCase):
@@ -1750,6 +1817,29 @@ class BoundedCleanupTest(unittest.TestCase):
         self.assertEqual(waits, [4096])
         self.assertIn("MemoryMax=4096M", commands[0])
 
+    def capped_command(self, cpus):
+        commands = []
+
+        def fake_run_command(command, environ, on_start=None):
+            commands.append(list(command))
+            return 0, 0
+
+        options = bounded_run.Options()
+        options.memory = "1G"
+        options.cpus = cpus
+        options.command = [sys.executable, "-c", "pass"]
+        with mock.patch.object(bounded_run, "probe_cap", return_value=""), \
+                mock.patch.object(bounded_run, "machine_cpus", return_value=16), \
+                mock.patch.object(bounded_run, "run_command", fake_run_command):
+            self.assertEqual(bounded_run.bounded(options, self.environ), 0)
+        return commands[0]
+
+    def test_the_cap_of_a_run_without_cpus_holds_half_the_processors(self):
+        self.assertIn("CPUQuota=800%", self.capped_command(None))
+
+    def test_the_cap_of_a_run_with_cpus_holds_them(self):
+        self.assertIn("CPUQuota=300%", self.capped_command(3))
+
     def wait_arguments(self, probe_output, environ=None):
         waits = []
         options = bounded_run.Options()
@@ -1938,6 +2028,18 @@ class MeasuredRowTest(unittest.TestCase):
         self.assertEqual(self.run_bounded(["--measure", "--cpus", "4", "--label", "unit-tests"], [(0, 1000)]), 0)
         self.assertEqual(self.row_lines(), ["row label=unit-tests cpus=4 budget=1536M peak=1000M held=- exact=no exit=0"])
 
+    def test_a_run_without_cpus_gets_half_the_processors_rounded_down_and_at_least_one(self):
+        for machine, expected in ((16, 8), (7, 3), (1, 1)):
+            self.runs = []
+            with mock.patch.object(bounded_run, "machine_cpus", return_value=machine):
+                self.run_bounded(["--memory", "1G"], [(0, 100)])
+            self.assertEqual(self.runs, [(expected, 1024)], machine)
+
+    def test_a_run_with_cpus_gets_them_on_any_machine(self):
+        with mock.patch.object(bounded_run, "machine_cpus", return_value=16):
+            self.run_bounded(["--memory", "1G", "--cpus", "12"], [(0, 100)])
+        self.assertEqual(self.runs, [(12, 1024)])
+
     def test_a_row_line_marks_the_options_that_were_not_given(self):
         self.run_bounded(["--measure"], [(3, 100)])
         self.assertEqual(self.row_lines(), ["row label=- cpus=- budget=256M peak=100M held=- exact=no exit=3"])
@@ -2113,7 +2215,7 @@ class FirstMeasurementTest(unittest.TestCase):
 
 
 class CheckTest(unittest.TestCase):
-    """Calls check() in this process with four slots of 2 GiB, a headroom of 1024 MiB, and no hard cap.
+    """Calls check() in this process with four slots of 2 GiB, a headroom of 1024 MiB, 16 processors, and no hard cap.
 
     The test holds lock files of the queue itself, as a running command and a waiter hold them.
     """
@@ -2121,6 +2223,9 @@ class CheckTest(unittest.TestCase):
     def setUp(self):
         self.lines = []
         patcher = mock.patch.object(bounded_run, "log", side_effect=self.lines.append)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(bounded_run, "machine_cpus", return_value=16)
         patcher.start()
         self.addCleanup(patcher.stop)
         self.base = tempfile.TemporaryDirectory()
@@ -2151,7 +2256,7 @@ class CheckTest(unittest.TestCase):
 
     def test_reports_the_slots_the_memory_and_the_line(self):
         self.assertEqual(self.check(), [
-            "check slots=4 slot=2048M free-slots=4 free=16384M unused=- line=free",
+            "check slots=4 slot=2048M free-slots=4 free=16384M unused=- cpus=16 cpus-used=- line=free",
         ])
 
     def test_a_budget_of_the_whole_queue_starts_when_the_memory_of_the_queue_is_free(self):
@@ -2202,7 +2307,7 @@ class CheckTest(unittest.TestCase):
 
     def test_a_budget_starts_only_when_the_free_memory_less_the_unused_budgets_and_the_headroom_holds_it(self):
         lines = self.check(["2G", "4G"], available=6000, outstanding=900)
-        self.assertEqual(lines[0], "check slots=4 slot=2048M free-slots=4 free=6000M unused=900M line=free")
+        self.assertEqual(lines[0], "check slots=4 slot=2048M free-slots=4 free=6000M unused=900M cpus=16 cpus-used=- line=free")
         self.assertEqual(lines[1:], ["check budget=2048M slots=1 headroom=1024M starts=yes", "check budget=4096M slots=2 headroom=1024M starts=no"])
 
     def test_a_budget_starts_when_the_free_memory_cannot_be_read_as_the_wait_does(self):
@@ -2236,6 +2341,32 @@ class CheckTest(unittest.TestCase):
             self.assertEqual(bounded_run.check(options.budgets, self.environ, read_available=lambda: 9000), 0)
         self.assertEqual(set(calls), {"/sys/fs/cgroup/user.slice/app.slice"})
         self.assertIn(" unused=700M ", self.lines[0])
+
+    def check_with_cap(self, cpus_in_use):
+        self.environ.pop("BOUNDED_RUN_NO_CAP")
+        output = "0::/user.slice/app.slice/bounded-run-1-000000-probe.scope\n"
+        options = bounded_run.parse_arguments(["--check", "--memory", "2G"])
+        with mock.patch.object(bounded_run, "probe_cap", return_value=output), \
+                mock.patch.object(bounded_run, "unused_budget_mib", return_value=0), \
+                mock.patch.object(bounded_run, "cpus_in_use", cpus_in_use), \
+                mock.patch.object(bounded_run, "held_commands", return_value=[]):
+            bounded_run.check(options.budgets, self.environ, read_available=lambda: 9000)
+        return self.lines
+
+    def test_counts_the_processors_of_the_running_commands_beside_the_scope_of_the_probe(self):
+        calls = []
+
+        def cpus_in_use(parent, skip):
+            calls.append((parent, list(skip)))
+            return 12
+
+        lines = self.check_with_cap(cpus_in_use)
+        self.assertEqual(calls, [("/sys/fs/cgroup/user.slice/app.slice", [])])
+        self.assertIn(" cpus=16 cpus-used=12 line=free", lines[0])
+        self.assertEqual(lines[1], "check budget=2048M slots=1 headroom=1024M starts=yes")
+
+    def test_processors_that_cannot_be_counted_give_a_dash(self):
+        self.assertIn(" cpus=16 cpus-used=- ", self.check_with_cap(lambda parent, skip: None)[0])
 
     def test_names_each_held_command_after_the_state_line(self):
         self.environ.pop("BOUNDED_RUN_NO_CAP")
@@ -2540,6 +2671,12 @@ class WrapperProcessTest(WrapperProcessCase):
         process = self.wrapper(["--memory", "2G", "--cpus", "3"], [sys.executable, "-c", script])
         output, errors = process.communicate(timeout=60)
         self.assertEqual(output, "1 2048 3\n")
+
+    def test_a_command_without_cpus_gets_half_the_processors_of_the_machine(self):
+        script = "import os; print(os.environ['BOUNDED_RUN_CPUS'])"
+        process = self.wrapper(["--memory", "2G"], [sys.executable, "-c", script])
+        output, errors = process.communicate(timeout=60)
+        self.assertEqual(output, "%d\n" % max(1, (os.cpu_count() or 1) // 2), errors)
 
     def test_the_command_reads_the_input_of_the_wrapper(self):
         variables = dict(self.environ)
@@ -2978,7 +3115,7 @@ class CheckProcessTest(WrapperProcessCase):
         self.wait_for_event("start", "holder")
         code, output, errors = self.check(["--memory", "2G", "--memory", "4G"])
         self.assertEqual((code, output), (0, ""), errors)
-        self.assertRegex(errors, r"^bounded-run: check slots=2 slot=2048M free-slots=1 free=(\d+M|-) unused=- line=free\n")
+        self.assertRegex(errors, r"^bounded-run: check slots=2 slot=2048M free-slots=1 free=(\d+M|-) unused=- cpus=\d+ cpus-used=- line=free\n")
         self.assertRegex(errors, r"\nbounded-run: check budget=2048M slots=1 headroom=1024M starts=(yes|no)\nbounded-run: check budget=4096M slots=2 headroom=0M starts=no\n$")
         holder.kill()
 
