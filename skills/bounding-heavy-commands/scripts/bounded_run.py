@@ -3,6 +3,7 @@
 
 Usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measure] [--label NAME] -- COMMAND...
        bounded_run.py --measure-rows N,N,... [--memory SIZE] [--exclusive NAME]... [--label NAME] -- COMMAND...
+       bounded_run.py --check [--memory SIZE]...
 
 The exit code is the exit code of the command. Exit code 125 means that this
 script failed before the command gave a result.
@@ -17,6 +18,16 @@ list, the largest first. The largest runs with --memory, or alone in the queue.
 Each smaller one runs with the suggested budget of the one before it, or with
 the budget of the one before it when that run did not exit 0. The exit code
 is the first exit code that is not 0.
+
+--check runs no command and holds no lock when it returns. Its exit code is 0.
+It prints the state of the queue at that moment, and one line for each
+--memory, in the order given:
+
+  bounded-run: check slots=N slot=MIBM free-slots=N|- free=MIBM|- unused=MIBM|- headroom=MIBM line=free|busy
+  bounded-run: check budget=MIBM slots=N starts=yes|no
+
+A '-' stands for a value that the check cannot read or count here. starts=yes
+means that a run of that budget would start now. It is not a reservation.
 
 A normal call sets none of the environment variables below. A person can
 set the tuning values in the profile of the shell, so that every session
@@ -82,7 +93,8 @@ BUDGET_STEP_MIB = 256
 PR_SET_PDEATHSIG = 1
 USAGE = (
     "usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measure] [--label NAME] -- COMMAND...\n"
-    "       bounded_run.py --measure-rows N,N,... [--memory SIZE] [--exclusive NAME]... [--label NAME] -- COMMAND..."
+    "       bounded_run.py --measure-rows N,N,... [--memory SIZE] [--exclusive NAME]... [--label NAME] -- COMMAND...\n"
+    "       bounded_run.py --check [--memory SIZE]..."
 )
 # The exit codes of a run that a stop signal to the wrapper ended: 128 plus SIGHUP, SIGINT, SIGQUIT, or SIGTERM.
 STOP_CODES = frozenset(128 + int(signum) for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGQUIT, signal.SIGTERM))
@@ -441,8 +453,11 @@ def _names_free(directory: str, exclusive_files: Sequence[str]) -> bool:
     return True
 
 
-def _free_slots(directory: str, count: int) -> int:
-    turn = _lock(os.path.join(directory, "reserve.lock"), wait=True)
+def _free_slots(directory: str, count: int, wait: bool = True) -> Optional[int]:
+    """Returns the number of free slots, or None when wait is false and a waiter holds the turn lock."""
+    turn = _lock(os.path.join(directory, "reserve.lock"), wait=wait)
+    if turn is None:
+        return None
     try:
         free = 0
         for index in range(count):
@@ -553,6 +568,11 @@ def available_memory_mib(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/c
     return min(found) if found else None
 
 
+def memory_fits(budget_mib: int, available: Optional[int], outstanding: Optional[int], headroom_mib: int) -> bool:
+    """Returns whether a command of the budget may start. True when the free memory is not known."""
+    return available is None or available - (outstanding or 0) - headroom_mib >= budget_mib
+
+
 def wait_for_memory(
     budget_mib: int, interval_seconds: float, poll_seconds: float, headroom_mib: int = 0,
     read_available: Callable[[], Optional[int]] = available_memory_mib,
@@ -583,7 +603,7 @@ def wait_for_memory(
         outstanding = None if before is None or after is None else max(before, after)
         counted = "unused running budgets not counted here" if outstanding is None else "%d MiB of running budgets unused" % outstanding
         state = "%d MiB free, %s, %d MiB headroom, budget %d MiB" % (available, counted, headroom_mib, budget_mib)
-        if available - (outstanding or 0) - headroom_mib >= budget_mib:
+        if memory_fits(budget_mib, available, outstanding, headroom_mib):
             log(state + "; starting")
             return
         waited = clock() - started
@@ -959,14 +979,36 @@ class Options:
         self.rows: List[int] = []
         self.label: Optional[str] = None
         self.command: List[str] = []
+        self.check = False
+        self.budgets: List[int] = []
+
+
+def _parse_check(flags: Sequence[str], has_command: bool) -> Options:
+    options = Options()
+    options.check = True
+    if has_command:
+        raise WrapperError("--check runs no command; remove the '--' and the command\n" + USAGE)
+    remaining = list(flags)
+    while remaining:
+        flag = remaining.pop(0)
+        if flag == "--check":
+            continue
+        if flag != "--memory":
+            raise WrapperError("--check takes only --memory, not '%s'\n%s" % (flag, USAGE))
+        if not remaining:
+            raise WrapperError("the option '--memory' needs a value\n" + USAGE)
+        options.budgets.append(parse_size_mib(remaining.pop(0)))
+    return options
 
 
 def parse_arguments(argv: Sequence[str]) -> Options:
     options = Options()
     arguments = list(argv)
+    split = arguments.index("--") if "--" in arguments else len(arguments)
+    if "--check" in arguments[:split]:
+        return _parse_check(arguments[:split], split < len(arguments))
     if "--" not in arguments:
         raise WrapperError("the '--' before the command is missing\n" + USAGE)
-    split = arguments.index("--")
     options.command = arguments[split + 1:]
     if not options.command:
         raise WrapperError("the command is missing\n" + USAGE)
@@ -1188,6 +1230,57 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
     return code, suggested
 
 
+def check(
+    budgets: Sequence[int], environ: Mapping[str, str],
+    read_available: Callable[[], Optional[int]] = available_memory_mib,
+    read_outstanding: Optional[Callable[[], Optional[int]]] = None,
+) -> int:
+    """Prints the state of the queue and, for each budget in MiB, whether a run of that budget would start now.
+
+    Takes no reservation and holds no lock when it returns. read_outstanding gives the unused budgets of the
+    running commands, or None where they cannot be counted; by default the check finds them as a run does.
+    """
+    settings = Settings(environ)
+    count = slot_count(settings.total_mib, settings.slot_mib, settings.reserve_mib)
+    most = queue_mib(settings.total_mib, settings.slot_mib, settings.reserve_mib)
+    uid = os.getuid()
+    directory = lock_directory(environ, uid)
+    ensure_lock_directory(directory, uid)
+    # A waiter tries for slots only while it holds the turn lock, so a count under that lock never makes a free slot look held to it.
+    free_slots = _free_slots(directory, count, wait=False)
+    line = _try_lock(os.path.join(directory, "line.lock"))
+    if line is not None:
+        os.close(line)
+    if read_outstanding is None:
+        unit = "%s-%d-%06x" % (PREFIX, os.getpid(), random.randrange(16 ** 6))
+        choice = None if settings.no_cap else choose_cap_prefix(settings.slot_mib, None, unit, probe_cap)
+        scopes = scope_parent_directory(choice[1]) if choice is not None else None
+        skip = [name for name in (own_scope_name(),) if name is not None]
+
+        def read_outstanding() -> Optional[int]:
+            return None if scopes is None else unused_budget_mib(scopes, skip)
+
+    if settings.free_mib is None:
+        available = read_available()
+        outstanding = read_outstanding()
+    else:
+        available, outstanding = settings.free_mib, None
+    headroom = headroom_mib(settings.total_mib, 0, most)
+
+    def mib(value: Optional[int]) -> str:
+        return "-" if value is None else "%dM" % value
+
+    log("check slots=%d slot=%dM free-slots=%s free=%s unused=%s headroom=%dM line=%s" % (
+        count, settings.slot_mib, "-" if free_slots is None else free_slots, mib(available), mib(outstanding),
+        headroom, "free" if line is not None else "busy"))
+    for budget in budgets:
+        needed = slots_needed(budget, settings.slot_mib, count)
+        starts = (line is not None and free_slots is not None and free_slots >= needed
+                  and memory_fits(min(budget, most), available, outstanding, headroom_mib(settings.total_mib, min(budget, most), most)))
+        log("check budget=%dM slots=%d starts=%s" % (budget, needed, "yes" if starts else "no"))
+    return 0
+
+
 def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, str]] = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     variables = os.environ if environ is None else environ
@@ -1195,6 +1288,8 @@ def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, st
         if len(arguments) > 4 and arguments[0] == "--inside-cap" and arguments[3] == "--":
             return inside_cap(arguments[1], arguments[2], arguments[4:])
         options = parse_arguments(arguments)
+        if options.check:
+            return check(options.budgets, variables)
         if variables.get(ACTIVE_VARIABLE):
             log("nested call; running the command directly")
             try:

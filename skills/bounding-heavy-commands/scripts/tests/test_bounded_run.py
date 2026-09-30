@@ -1864,6 +1864,164 @@ class MeasuredRowTest(unittest.TestCase):
         self.assertEqual(calls, [8, 4])
 
 
+class CheckTest(unittest.TestCase):
+    """Calls check() in this process with four slots of 2 GiB, a headroom of 1024 MiB, and no hard cap.
+
+    The test holds lock files of the queue itself, as a running command and a waiter hold them.
+    """
+
+    def setUp(self):
+        self.lines = []
+        patcher = mock.patch.object(bounded_run, "log", side_effect=self.lines.append)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.base = tempfile.TemporaryDirectory()
+        self.addCleanup(self.base.cleanup)
+        self.directory = os.path.join(self.base.name, "locks")
+        os.mkdir(self.directory, 0o700)
+        self.environ = dict(os.environ)
+        self.environ.pop("BOUNDED_RUN_ACTIVE", None)
+        self.environ.update({
+            "BOUNDED_RUN_LOCK_DIR": self.directory,
+            "BOUNDED_RUN_TOTAL_MIB": "8192",
+            "BOUNDED_RUN_RESERVE_MIB": "0",
+            "BOUNDED_RUN_SLOT_MIB": "2048",
+            "BOUNDED_RUN_NO_CAP": "1",
+        })
+
+    def hold(self, name):
+        descriptor = bounded_run._try_lock(os.path.join(self.directory, name))
+        self.assertIsNotNone(descriptor)
+        self.addCleanup(os.close, descriptor)
+        return descriptor
+
+    def check(self, budgets=(), available=16384, outstanding=None):
+        options = bounded_run.parse_arguments(["--check"] + [part for budget in budgets for part in ("--memory", budget)])
+        code = bounded_run.check(options.budgets, self.environ, read_available=lambda: available, read_outstanding=lambda: outstanding)
+        self.assertEqual(code, 0)
+        return self.lines
+
+    def test_reports_the_slots_the_memory_and_the_line(self):
+        self.assertEqual(self.check(), [
+            "check slots=4 slot=2048M free-slots=4 free=16384M unused=- headroom=1024M line=free",
+        ])
+
+    def test_a_budget_of_the_whole_queue_starts_when_the_memory_of_the_queue_is_free(self):
+        self.assertEqual(self.check(["8G"], available=8192)[-1], "check budget=8192M slots=4 starts=yes")
+
+    def test_the_free_memory_for_the_tests_replaces_the_measured_one(self):
+        self.environ["BOUNDED_RUN_FREE_MIB"] = "4096"
+        lines = self.check(["2G"], available=0, outstanding=65536)
+        self.assertIn(" free=4096M unused=- ", lines[0])
+        self.assertEqual(lines[-1], "check budget=2048M slots=1 starts=yes")
+
+    def test_counts_the_slots_that_running_commands_hold(self):
+        self.hold("slot-000.lock")
+        self.hold("slot-002.lock")
+        self.assertIn(" free-slots=2 ", self.check()[0])
+
+    def test_a_command_can_take_every_free_slot_after_the_check(self):
+        self.hold("slot-001.lock")
+        self.check(["2G"])
+        reservation = bounded_run.try_reserve(self.directory, 4, 3, [])
+        self.assertIsNotNone(reservation, "the check still holds a slot")
+        reservation.release()
+        line = bounded_run._try_lock(os.path.join(self.directory, "line.lock"))
+        self.assertIsNotNone(line, "the check still holds the line")
+        os.close(line)
+
+    def test_a_waiter_in_the_line_makes_the_line_busy_and_no_budget_starts(self):
+        self.hold("line.lock")
+        lines = self.check(["2G"])
+        self.assertTrue(lines[0].endswith(" line=busy"), lines)
+        self.assertEqual(lines[1], "check budget=2048M slots=1 starts=no")
+
+    def test_a_count_of_slots_that_another_command_takes_at_that_moment_is_not_given(self):
+        self.hold("reserve.lock")
+        lines = self.check(["2G"])
+        self.assertIn(" free-slots=- ", lines[0])
+        self.assertEqual(lines[1], "check budget=2048M slots=1 starts=no")
+
+    def test_each_budget_gets_its_slots_and_its_answer_in_the_order_given(self):
+        self.hold("slot-000.lock")
+        self.hold("slot-001.lock")
+        lines = self.check(["2G", "4096M", "5G"])
+        self.assertEqual(lines[1:], [
+            "check budget=2048M slots=1 starts=yes",
+            "check budget=4096M slots=2 starts=yes",
+            "check budget=5120M slots=3 starts=no",
+        ])
+
+    def test_a_budget_starts_only_when_the_free_memory_less_the_unused_budgets_and_the_headroom_holds_it(self):
+        lines = self.check(["2G", "4G"], available=6000, outstanding=900)
+        self.assertEqual(lines[0], "check slots=4 slot=2048M free-slots=4 free=6000M unused=900M headroom=1024M line=free")
+        self.assertEqual(lines[1:], ["check budget=2048M slots=1 starts=yes", "check budget=4096M slots=2 starts=no"])
+
+    def test_a_budget_starts_when_the_free_memory_cannot_be_read_as_the_wait_does(self):
+        lines = self.check(["2G"], available=None)
+        self.assertIn(" free=- ", lines[0])
+        self.assertEqual(lines[1], "check budget=2048M slots=1 starts=yes")
+
+    def test_a_budget_larger_than_the_queue_needs_every_slot_and_the_memory_of_the_queue(self):
+        lines = self.check(["64G"], available=9300)
+        self.assertEqual(lines[1], "check budget=65536M slots=4 starts=yes")
+
+    def test_counts_the_unused_budgets_beside_the_scope_of_the_probe(self):
+        self.environ.pop("BOUNDED_RUN_NO_CAP")
+        output = "0::/user.slice/app.slice/bounded-run-1-000000-probe.scope\n"
+        calls = []
+
+        def unused(parent, skip):
+            calls.append(parent)
+            return 700
+
+        options = bounded_run.parse_arguments(["--check"])
+        with mock.patch.object(bounded_run, "probe_cap", return_value=output), \
+                mock.patch.object(bounded_run, "unused_budget_mib", unused):
+            self.assertEqual(bounded_run.check(options.budgets, self.environ, read_available=lambda: 9000), 0)
+        self.assertEqual(calls, ["/sys/fs/cgroup/user.slice/app.slice"])
+        self.assertIn(" unused=700M ", self.lines[0])
+
+    def test_counts_no_unused_budget_without_a_cap(self):
+        options = bounded_run.parse_arguments(["--check"])
+        with mock.patch.object(bounded_run, "probe_cap") as probe:
+            bounded_run.check(options.budgets, self.environ, read_available=lambda: 9000)
+        probe.assert_not_called()
+        self.assertIn(" unused=- ", self.lines[0])
+
+
+class CheckArgumentTest(unittest.TestCase):
+    def test_reads_each_budget_in_order(self):
+        options = bounded_run.parse_arguments(["--check", "--memory", "6G", "--memory", "512M"])
+        self.assertEqual((options.check, options.budgets), (True, [6144, 512]))
+
+    def test_the_check_option_can_come_after_a_budget(self):
+        self.assertEqual(bounded_run.parse_arguments(["--memory", "2G", "--check"]).budgets, [2048])
+
+    def test_needs_no_budget(self):
+        self.assertEqual(bounded_run.parse_arguments(["--check"]).budgets, [])
+
+    def test_a_command_after_the_check_option_is_a_command_of_a_run(self):
+        options = bounded_run.parse_arguments(["--memory", "2G", "--", "tool", "--check"])
+        self.assertEqual((options.check, options.command), (False, ["tool", "--check"]))
+
+    def test_rejects_a_command_and_the_other_options(self):
+        for arguments in (
+            ["--check", "--", "tool"],
+            ["--check", "--memory", "2G", "--", "tool"],
+            ["--check", "--cpus", "2"],
+            ["--check", "--exclusive", "port"],
+            ["--check", "--measure"],
+            ["--check", "--measure-rows", "4,2"],
+            ["--check", "--label", "lint"],
+            ["--check", "--memory"],
+            ["--check", "--memory", "six"],
+        ):
+            with self.subTest(arguments=arguments):
+                with self.assertRaises(bounded_run.WrapperError):
+                    bounded_run.parse_arguments(arguments)
+
+
 class WrapperProcessCase(unittest.TestCase):
     """Runs the script as a process, with two slots of 2 GiB and no hard cap."""
 
@@ -2475,6 +2633,36 @@ class WrapperProcessTest(WrapperProcessCase):
     bounded_run.choose_cap_prefix(256, 1, "bounded-run-test-%d" % os.getpid(), bounded_run.probe_cap) is not None,
     "no hard cap on this machine",
 )
+class CheckProcessTest(WrapperProcessCase):
+    def check(self, arguments):
+        process = subprocess.Popen(
+            [sys.executable, WRAPPER, "--check"] + arguments, env=self.environ,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        self.processes.append(process)
+        output, errors = process.communicate(timeout=60)
+        return process.returncode, output, errors
+
+    def test_prints_the_check_lines_on_the_error_stream_and_exits_0(self):
+        holder = self.worker("holder", "2G", hold="300")
+        self.wait_for_event("start", "holder")
+        code, output, errors = self.check(["--memory", "2G", "--memory", "4G"])
+        self.assertEqual((code, output), (0, ""), errors)
+        self.assertRegex(errors, r"^bounded-run: check slots=2 slot=2048M free-slots=1 free=(\d+M|-) unused=- headroom=1024M line=free\n")
+        self.assertRegex(errors, r"\nbounded-run: check budget=2048M slots=1 starts=(yes|no)\nbounded-run: check budget=4096M slots=2 starts=no\n$")
+        holder.kill()
+
+    def test_a_command_starts_at_once_after_the_check(self):
+        self.assertEqual(self.check([])[0], 0)
+        self.assertEqual(self.worker("after", "4G", hold="0").wait(timeout=60), 0)
+
+    def test_a_fault_of_the_call_gives_125(self):
+        code, output, errors = self.check(["--cpus", "2"])
+        self.assertEqual(code, 125)
+        self.assertTrue(errors.startswith("bounded-run: "), errors)
+        self.assertNotIn("check slots=", errors)
+
+
 class HardCapTest(WrapperProcessCase):
     def setUp(self):
         super().setUp()
