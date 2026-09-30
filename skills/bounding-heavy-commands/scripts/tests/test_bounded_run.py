@@ -3066,6 +3066,17 @@ class JoinedLineTest(WrapperProcessCase):
         self.assertIn("stopped by a signal; the rows after --cpus 2 are not measured", errors)
         self.assertFalse(os.path.exists(marker), "the next command of the line ran")
 
+    def test_an_interrupt_after_a_failed_row_still_stops_the_line(self):
+        marker = os.path.join(self.base.name, "next-ran")
+        fail_then_hold = "import os, sys\nif os.environ['BOUNDED_RUN_CPUS'] == '2':\n    sys.exit(3)\n" + WORKER
+        process = self.line(marker, "touch", ["--measure-rows", "2,1"], [sys.executable, "-c", fail_then_hold, "rows"], HOLD="300")
+        self.wait_for_event("start", "rows")
+        os.killpg(process.pid, signal.SIGINT)
+        self.assertEqual(process.wait(timeout=60), -signal.SIGINT)
+        errors = self.stderr_of(process)
+        self.assertRegex(errors, r"row label=- cpus=2 .* exit=3")
+        self.assertFalse(os.path.exists(marker), "the next command of the line ran")
+
     def test_a_command_that_exits_130_by_itself_does_not_stop_the_line(self):
         status = os.path.join(self.base.name, "status")
         process = self.line(status, "echo $? >", ["--memory", "2G"], [sys.executable, "-c", "import sys; sys.exit(130)"])
