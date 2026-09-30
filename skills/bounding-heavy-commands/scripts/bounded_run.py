@@ -3,6 +3,7 @@
 
 Usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measure] [--label NAME] -- COMMAND...
        bounded_run.py --measure-rows N,N,... [--memory SIZE] [--exclusive NAME]... [--label NAME] -- COMMAND...
+       bounded_run.py --check [--memory SIZE]...
 
 The exit code is the exit code of the command. Exit code 125 means that this
 script failed before the command gave a result.
@@ -17,6 +18,18 @@ list, the largest first. The largest runs with --memory, or alone in the queue.
 Each smaller one runs with the suggested budget of the one before it, or with
 the budget of the one before it when that run did not exit 0. The exit code
 is the first exit code that is not 0.
+
+--check runs no command and holds no lock when it returns. Its exit code is 0.
+It prints the state of the queue at that moment, one held line for each
+running bounded command where the hard cap is available, and one line for
+each --memory, in the order given:
+
+  bounded-run: check slots=N slot=<n>M free-slots=N|- free=<n>M|- unused=<n>M|- line=free|busy
+  bounded-run: check held unit=NAME budget=<n>M|- used=<n>M|- age=Ns|- dir=PATH|- command=TEXT|-
+  bounded-run: check budget=<n>M slots=N headroom=<n>M starts=yes|no
+
+A '-' stands for a value that the check cannot read or count here. starts=yes
+means that a run of that budget would start now. It is not a reservation.
 
 A normal call sets none of the environment variables below. A person can
 set the tuning values in the profile of the shell, so that every session
@@ -68,6 +81,7 @@ except ImportError:
 PREFIX = "bounded-run"
 EXIT_WRAPPER = 125
 ACTIVE_VARIABLE = "BOUNDED_RUN_ACTIVE"
+VALUE_OPTIONS = ("--memory", "--cpus", "--exclusive", "--measure-rows", "--label")
 SLOT_MIB = 2048
 MINIMUM_RESERVE_MIB = 2048
 MINIMUM_HEADROOM_MIB = 1024
@@ -79,10 +93,12 @@ SCOPE_WAIT_SECONDS = 5.0
 MARGIN_EXACT = 0.25
 MARGIN_APPROXIMATE = 0.5
 BUDGET_STEP_MIB = 256
+HELD_COMMAND_CHARACTERS = 200
 PR_SET_PDEATHSIG = 1
 USAGE = (
     "usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measure] [--label NAME] -- COMMAND...\n"
-    "       bounded_run.py --measure-rows N,N,... [--memory SIZE] [--exclusive NAME]... [--label NAME] -- COMMAND..."
+    "       bounded_run.py --measure-rows N,N,... [--memory SIZE] [--exclusive NAME]... [--label NAME] -- COMMAND...\n"
+    "       bounded_run.py --check [--memory SIZE]..."
 )
 # The exit codes of a run that a stop signal to the wrapper ended: 128 plus SIGHUP, SIGINT, SIGQUIT, or SIGTERM.
 STOP_CODES = frozenset(128 + int(signum) for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGQUIT, signal.SIGTERM))
@@ -441,8 +457,11 @@ def _names_free(directory: str, exclusive_files: Sequence[str]) -> bool:
     return True
 
 
-def _free_slots(directory: str, count: int) -> int:
-    turn = _lock(os.path.join(directory, "reserve.lock"), wait=True)
+def _free_slots(directory: str, count: int, wait: bool = True) -> Optional[int]:
+    """Returns the number of free slots, or None when wait is false and a waiter holds the turn lock."""
+    turn = _lock(os.path.join(directory, "reserve.lock"), wait=wait)
+    if turn is None:
+        return None
     try:
         free = 0
         for index in range(count):
@@ -553,6 +572,11 @@ def available_memory_mib(proc_root: str = "/proc", cgroup_root: str = "/sys/fs/c
     return min(found) if found else None
 
 
+def memory_fits(budget_mib: int, available: Optional[int], outstanding: Optional[int], headroom_mib: int) -> bool:
+    """Returns whether a command of the budget may start. True when the free memory is not known."""
+    return available is None or available - (outstanding or 0) - headroom_mib >= budget_mib
+
+
 def wait_for_memory(
     budget_mib: int, interval_seconds: float, poll_seconds: float, headroom_mib: int = 0,
     read_available: Callable[[], Optional[int]] = available_memory_mib,
@@ -583,7 +607,7 @@ def wait_for_memory(
         outstanding = None if before is None or after is None else max(before, after)
         counted = "unused running budgets not counted here" if outstanding is None else "%d MiB of running budgets unused" % outstanding
         state = "%d MiB free, %s, %d MiB headroom, budget %d MiB" % (available, counted, headroom_mib, budget_mib)
-        if available - (outstanding or 0) - headroom_mib >= budget_mib:
+        if memory_fits(budget_mib, available, outstanding, headroom_mib):
             log(state + "; starting")
             return
         waited = clock() - started
@@ -661,19 +685,25 @@ def own_scope_name(proc_root: str = "/proc") -> Optional[str]:
     return None if path is None else os.path.basename(path)
 
 
+def _bounded_scopes(parent: str, skip: Sequence[str]) -> List[str]:
+    """Returns the names of the scopes of bounded commands in parent, less the probe scopes and the names in skip."""
+    try:
+        names = os.listdir(parent)
+    except OSError:
+        return []
+    return sorted(
+        name for name in names
+        if name.startswith(PREFIX + "-") and name.endswith(".scope") and not name.endswith("-probe.scope") and name not in skip
+    )
+
+
 def unused_budget_mib(parent: str, skip: Sequence[str]) -> int:
     """Returns the part of their budgets that the bounded commands whose scopes are in parent do not use yet.
 
     Probe scopes, the scopes named in skip, and scopes with no memory limit add nothing.
     """
-    try:
-        names = os.listdir(parent)
-    except OSError:
-        return 0
     unused = 0
-    for name in names:
-        if not name.startswith(PREFIX + "-") or not name.endswith(".scope") or name.endswith("-probe.scope") or name in skip:
-            continue
+    for name in _bounded_scopes(parent, skip):
         try:
             with open(os.path.join(parent, name, "memory.max")) as handle:
                 limit = handle.read().strip()
@@ -713,6 +743,79 @@ def wait_for_scope(
             return False
         sleep(0.02)
     return True
+
+
+def _read_text(path: str) -> Optional[str]:
+    try:
+        with open(path, "rb") as handle:
+            return handle.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+
+
+def _process_age_seconds(pid: int, proc_root: str, ticks: int) -> Optional[int]:
+    stat_text = _read_text(os.path.join(proc_root, str(pid), "stat"))
+    uptime = _read_text(os.path.join(proc_root, "uptime"))
+    try:
+        # The name of the process can hold spaces and ')', so the fields are counted from its last ')'.
+        start = int(stat_text.rsplit(")", 1)[1].split()[19])
+        return max(0, int(float(uptime.split()[0]) - start / ticks))
+    except (AttributeError, IndexError, ValueError):
+        return None
+
+
+def _one_line(text: str) -> str:
+    # The check prints one line for each command: a line break in an argument or a path would split the line,
+    # and a control character would act on the terminal.
+    return "".join(character if character.isprintable() else "?" for character in " ".join(text.split()))
+
+
+def _held_command(pid: int, proc_root: str) -> Optional[str]:
+    text = _read_text(os.path.join(proc_root, str(pid), "cmdline"))
+    if not text:
+        return None
+    arguments = text.rstrip("\0").split("\0")
+    if "--inside-cap" in arguments:
+        at = arguments.index("--inside-cap")
+        if arguments[at + 3:at + 4] == ["--"]:
+            arguments = arguments[at + 4:]
+    return _one_line(" ".join(arguments))[:HELD_COMMAND_CHARACTERS]
+
+
+def held_commands(parent: str, skip: Sequence[str], proc_root: str = "/proc", ticks: Optional[int] = None) -> List[str]:
+    """Returns one text for each running bounded command whose scope is in parent, as the fields of a check line.
+
+    A field that cannot be read is '-'. Probe scopes and the scopes named in skip give no text.
+    """
+    if ticks is None:
+        ticks = os.sysconf("SC_CLK_TCK")
+
+    def mib(text: Optional[str]) -> str:
+        return "%dM" % (int(text) // (1024 * 1024)) if text is not None and text.strip().isdigit() else "-"
+
+    held = []
+    for name in _bounded_scopes(parent, skip):
+        directory = os.path.join(parent, name)
+        limit = _read_text(os.path.join(directory, "memory.max"))
+        current = _read_text(os.path.join(directory, "memory.current"))
+        pids = [int(line) for line in (_read_text(os.path.join(directory, "cgroup.procs")) or "").split() if line.isdigit()]
+        if not os.path.isdir(directory):
+            # The scope ended while it was read.
+            continue
+        # The wrapper starts the first process of the scope, and that process starts the command.
+        pid = min(pids) if pids else None
+        age = _process_age_seconds(pid, proc_root, ticks) if pid is not None else None
+        try:
+            working = os.readlink(os.path.join(proc_root, str(pid), "cwd")) if pid is not None else None
+        except OSError:
+            working = None
+        if working is not None:
+            working = _one_line(working)
+        command = _held_command(pid, proc_root) if pid is not None else None
+        held.append("unit=%s budget=%s used=%s age=%s dir=%s command=%s" % (
+            name[:-len(".scope")], mib(limit), mib(current), "-" if age is None else "%ds" % age,
+            working or "-", command or "-"))
+    return held
 
 
 def cgroup_directory(pid: int, unit: str, proc_root: str = "/proc", cgroup_root: str = "/sys/fs/cgroup") -> Optional[str]:
@@ -959,14 +1062,45 @@ class Options:
         self.rows: List[int] = []
         self.label: Optional[str] = None
         self.command: List[str] = []
+        self.check = False
+        self.budgets: List[int] = []
+
+
+def _check_option_given(flags: Sequence[str]) -> bool:
+    position = 0
+    while position < len(flags):
+        if flags[position] == "--check":
+            return True
+        position += 2 if flags[position] in VALUE_OPTIONS else 1
+    return False
+
+
+def _parse_check(flags: Sequence[str], has_command: bool) -> Options:
+    options = Options()
+    options.check = True
+    if has_command:
+        raise WrapperError("--check runs no command; remove the '--' and the command\n" + USAGE)
+    remaining = list(flags)
+    while remaining:
+        flag = remaining.pop(0)
+        if flag == "--check":
+            continue
+        if flag != "--memory":
+            raise WrapperError("--check takes only --memory, not '%s'\n%s" % (flag, USAGE))
+        if not remaining:
+            raise WrapperError("the option '--memory' needs a value\n" + USAGE)
+        options.budgets.append(parse_size_mib(remaining.pop(0)))
+    return options
 
 
 def parse_arguments(argv: Sequence[str]) -> Options:
     options = Options()
     arguments = list(argv)
+    split = arguments.index("--") if "--" in arguments else len(arguments)
+    if _check_option_given(arguments[:split]):
+        return _parse_check(arguments[:split], split < len(arguments))
     if "--" not in arguments:
         raise WrapperError("the '--' before the command is missing\n" + USAGE)
-    split = arguments.index("--")
     options.command = arguments[split + 1:]
     if not options.command:
         raise WrapperError("the command is missing\n" + USAGE)
@@ -976,7 +1110,7 @@ def parse_arguments(argv: Sequence[str]) -> Options:
         if flag == "--measure":
             options.measure = True
             continue
-        if flag not in ("--memory", "--cpus", "--exclusive", "--measure-rows", "--label"):
+        if flag not in VALUE_OPTIONS:
             raise WrapperError("cannot read the option '%s'\n%s" % (flag, USAGE))
         if not flags:
             raise WrapperError("the option '%s' needs a value\n%s" % (flag, USAGE))
@@ -1188,6 +1322,61 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
     return code, suggested
 
 
+def check(
+    budgets: Sequence[int], environ: Mapping[str, str],
+    read_available: Callable[[], Optional[int]] = available_memory_mib,
+    read_outstanding: Optional[Callable[[], Optional[int]]] = None,
+) -> int:
+    """Prints the state of the queue and, for each budget in MiB, whether a run of that budget would start now.
+
+    Takes no reservation and holds no lock when it returns. read_outstanding gives the unused budgets of the
+    running commands, or None where they cannot be counted; by default the check finds them as a run does.
+    """
+    settings = Settings(environ)
+    count = slot_count(settings.total_mib, settings.slot_mib, settings.reserve_mib)
+    most = queue_mib(settings.total_mib, settings.slot_mib, settings.reserve_mib)
+    uid = os.getuid()
+    directory = lock_directory(environ, uid)
+    ensure_lock_directory(directory, uid)
+    unit = "%s-%d-%06x" % (PREFIX, os.getpid(), random.randrange(16 ** 6))
+    # The probe can take seconds, so the state of the queue is read after it.
+    choice = None if settings.no_cap else choose_cap_prefix(settings.slot_mib, None, unit, probe_cap)
+    # A waiter tries for slots only while it holds the turn lock, so a count under that lock never makes a free slot look held to it.
+    free_slots = _free_slots(directory, count, wait=False)
+    line = _try_lock(os.path.join(directory, "line.lock"))
+    if line is not None:
+        os.close(line)
+    scopes = scope_parent_directory(choice[1]) if choice is not None else None
+    if read_outstanding is None:
+        # A wrapper that starts on its own counts every bounded scope, also the one that this check runs in.
+        def read_outstanding() -> Optional[int]:
+            return None if scopes is None else unused_budget_mib(scopes, ())
+
+    if settings.free_mib is None:
+        before = read_outstanding()
+        available = read_available()
+        after = read_outstanding()
+        outstanding = None if before is None or after is None else max(before, after)
+    else:
+        available, outstanding = settings.free_mib, None
+
+    def mib(value: Optional[int]) -> str:
+        return "-" if value is None else "%dM" % value
+
+    log("check slots=%d slot=%dM free-slots=%s free=%s unused=%s line=%s" % (
+        count, settings.slot_mib, "-" if free_slots is None else free_slots, mib(available), mib(outstanding),
+        "free" if line is not None else "busy"))
+    for held in held_commands(scopes, ()) if scopes is not None else []:
+        log("check held " + held)
+    for budget in budgets:
+        needed = slots_needed(budget, settings.slot_mib, count)
+        headroom = headroom_mib(settings.total_mib, min(budget, most), most)
+        starts = (line is not None and free_slots is not None and free_slots >= needed
+                  and memory_fits(min(budget, most), available, outstanding, headroom))
+        log("check budget=%dM slots=%d headroom=%dM starts=%s" % (budget, needed, headroom, "yes" if starts else "no"))
+    return 0
+
+
 def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, str]] = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     variables = os.environ if environ is None else environ
@@ -1195,6 +1384,8 @@ def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, st
         if len(arguments) > 4 and arguments[0] == "--inside-cap" and arguments[3] == "--":
             return inside_cap(arguments[1], arguments[2], arguments[4:])
         options = parse_arguments(arguments)
+        if options.check:
+            return check(options.budgets, variables)
         if variables.get(ACTIVE_VARIABLE):
             log("nested call; running the command directly")
             try:
