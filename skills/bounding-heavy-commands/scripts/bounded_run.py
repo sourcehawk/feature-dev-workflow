@@ -485,12 +485,15 @@ def wait_for_memory(
     next_line = 0.0
     while True:
         lock()
-        # A running command that grows between the two reads lowers both values. In this order the growth can only make the free memory look smaller.
-        outstanding = read_outstanding()
+        # A running command that grows or shrinks during the reads moves both values. The larger of the two unused
+        # counts around the free memory is the one that matches it or errs on the safe side.
+        before = read_outstanding()
         available = read_available()
         if available is None:
             log("cannot read the free memory; starting")
             return
+        after = read_outstanding()
+        outstanding = None if before is None or after is None else max(before, after)
         counted = "unused running budgets not counted here" if outstanding is None else "%d MiB of running budgets unused" % outstanding
         state = "%d MiB free, %s, %d MiB headroom, budget %d MiB" % (available, counted, headroom_mib, budget_mib)
         if available - (outstanding or 0) - headroom_mib >= budget_mib:
