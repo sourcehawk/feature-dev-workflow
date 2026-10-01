@@ -115,6 +115,10 @@ This repo is both a plugin and its own single-plugin marketplace:
 
 A local path also works for development: `/plugin marketplace add /path/to/feature-dev-workflow`.
 
+Install it at user scope, so its skills are available in every project, not only in repos that list the plugin in their settings.
+
+We recommend pasting [`templates/user-CLAUDE.md`](templates/user-CLAUDE.md) into your user `CLAUDE.md` (`~/.claude/CLAUDE.md`). It maps each kind of work to the skill to load first, so the skills trigger in every project, including projects whose own `CLAUDE.md` never mentions them. A project's `CLAUDE.md` still comes first where it names a different skill for the same work.
+
 No further setup is required; the skills derive your repo and build commands from context. Optionally, paste [`templates/project-CLAUDE.md`](templates/project-CLAUDE.md) into your project's `CLAUDE.md` to give every session the workflow overview and the operational rules (commit conventions, safe git staging, GitHub-mutation confirmation).
 
 Keep project memory on to get the most from `bounding-heavy-commands`. In Claude Code that is auto memory, which is on by default. The skill saves the measured memory budget and the bounded command line of each heavy command there, so a later session starts with them. With memory off, each session measures the commands again, and each first measurement holds the default budget, or runs alone in the queue where there is no hard cap, so the sessions wait for each other more often. A command that a session did not measure runs under the default budget, which can be less than the command needs.
