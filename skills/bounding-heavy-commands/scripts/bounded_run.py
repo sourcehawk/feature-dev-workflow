@@ -36,15 +36,17 @@ It prints the state of the queue at that moment, one held line for each
 running bounded command where the hard cap is available, and one line for
 each --memory, in the order given:
 
-  bounded-run: check slots=N slot=<n>M free-slots=N|- free=<n>M|- unused=<n>M|- cpus=N cpus-used=N|- line=free|busy
+  bounded-run: check slots=N slot=<n>M free-slots=N|- free=<n>M|- unused=<n>M|- cpus=N cpus-used=N|- cpus-headroom=N cpus-free=N|- line=free|busy
   bounded-run: check held unit=NAME budget=<n>M|- used=<n>M|- cpus=N|- age=Ns|- dir=PATH|- command=TEXT|-
   bounded-run: check budget=<n>M slots=N headroom=<n>M starts=yes|no
 
 A '-' stands for a value that the check cannot read or count here. cpus is
 the processors of the machine. cpus-used is the sum of the processors that
 the running bounded commands may use, and the cpus of a held line is the
-part of one command. starts=yes means that a run of that budget would start
-now. It is not a reservation.
+part of one command. cpus-headroom is the processors kept for the programs
+outside the queue, a tenth of cpus rounded up. cpus-free is cpus less
+cpus-headroom and cpus-used, and at least 0. starts=yes means that a run of
+that budget would start now. It is not a reservation.
 
 A normal call sets none of the environment variables below. A person can
 set the tuning values in the profile of the shell, so that every session
@@ -673,6 +675,11 @@ def machine_cpus() -> int:
 def default_cpus(machine: int) -> int:
     """Returns the processors of a run that gives no --cpus: half of the machine's, rounded down, and at least 1."""
     return max(1, machine // 2)
+
+
+def cpu_headroom(machine: int) -> int:
+    """Returns the processors that a check keeps free for the programs outside the queue: a tenth of the machine's, rounded up."""
+    return -(-machine // 10)
 
 
 def cap_prefix(budget_mib: int, cpus: Optional[int], unit: str, oom_policy: bool = True) -> List[str]:
@@ -1531,9 +1538,11 @@ def check(
     def mib(value: Optional[int]) -> str:
         return "-" if value is None else "%dM" % value
 
-    log("check slots=%d slot=%dM free-slots=%s free=%s unused=%s cpus=%d cpus-used=%s line=%s" % (
+    spare = cpu_headroom(machine)
+    log("check slots=%d slot=%dM free-slots=%s free=%s unused=%s cpus=%d cpus-used=%s cpus-headroom=%d cpus-free=%s line=%s" % (
         count, settings.slot_mib, "-" if free_slots is None else free_slots, mib(available), mib(outstanding),
-        machine, "-" if used is None else used, "free" if line is not None else "busy"))
+        machine, "-" if used is None else used, spare, "-" if used is None else max(0, machine - spare - used),
+        "free" if line is not None else "busy"))
     for held in held_commands(scopes, ()) if scopes is not None else []:
         log("check held " + held)
     for budget in budgets:

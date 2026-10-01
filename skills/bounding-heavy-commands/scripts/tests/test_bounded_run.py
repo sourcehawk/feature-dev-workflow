@@ -2035,6 +2035,10 @@ class MeasuredRowTest(unittest.TestCase):
                 self.run_bounded(["--memory", "1G"], [(0, 100)])
             self.assertEqual(self.runs, [(expected, 1024)], machine)
 
+    def test_the_processor_headroom_is_a_tenth_of_the_machine_rounded_up(self):
+        for machine, expected in ((16, 2), (10, 1), (8, 1), (32, 4), (64, 7), (1, 1)):
+            self.assertEqual(bounded_run.cpu_headroom(machine), expected, machine)
+
     def test_a_run_with_cpus_gets_them_on_any_machine(self):
         with mock.patch.object(bounded_run, "machine_cpus", return_value=16):
             self.run_bounded(["--memory", "1G", "--cpus", "12"], [(0, 100)])
@@ -2256,7 +2260,7 @@ class CheckTest(unittest.TestCase):
 
     def test_reports_the_slots_the_memory_and_the_line(self):
         self.assertEqual(self.check(), [
-            "check slots=4 slot=2048M free-slots=4 free=16384M unused=- cpus=16 cpus-used=- line=free",
+            "check slots=4 slot=2048M free-slots=4 free=16384M unused=- cpus=16 cpus-used=- cpus-headroom=2 cpus-free=- line=free",
         ])
 
     def test_a_budget_of_the_whole_queue_starts_when_the_memory_of_the_queue_is_free(self):
@@ -2307,7 +2311,7 @@ class CheckTest(unittest.TestCase):
 
     def test_a_budget_starts_only_when_the_free_memory_less_the_unused_budgets_and_the_headroom_holds_it(self):
         lines = self.check(["2G", "4G"], available=6000, outstanding=900)
-        self.assertEqual(lines[0], "check slots=4 slot=2048M free-slots=4 free=6000M unused=900M cpus=16 cpus-used=- line=free")
+        self.assertEqual(lines[0], "check slots=4 slot=2048M free-slots=4 free=6000M unused=900M cpus=16 cpus-used=- cpus-headroom=2 cpus-free=- line=free")
         self.assertEqual(lines[1:], ["check budget=2048M slots=1 headroom=1024M starts=yes", "check budget=4096M slots=2 headroom=1024M starts=no"])
 
     def test_a_budget_starts_when_the_free_memory_cannot_be_read_as_the_wait_does(self):
@@ -2362,11 +2366,14 @@ class CheckTest(unittest.TestCase):
 
         lines = self.check_with_cap(cpus_in_use)
         self.assertEqual(calls, [("/sys/fs/cgroup/user.slice/app.slice", [])])
-        self.assertIn(" cpus=16 cpus-used=12 line=free", lines[0])
+        self.assertIn(" cpus=16 cpus-used=12 cpus-headroom=2 cpus-free=2 line=free", lines[0])
         self.assertEqual(lines[1], "check budget=2048M slots=1 headroom=1024M starts=yes")
 
     def test_processors_that_cannot_be_counted_give_a_dash(self):
-        self.assertIn(" cpus=16 cpus-used=- ", self.check_with_cap(lambda parent, skip: None)[0])
+        self.assertIn(" cpus=16 cpus-used=- cpus-headroom=2 cpus-free=- ", self.check_with_cap(lambda parent, skip: None)[0])
+
+    def test_no_processor_is_free_when_the_running_commands_use_the_headroom(self):
+        self.assertIn(" cpus-used=16 cpus-headroom=2 cpus-free=0 ", self.check_with_cap(lambda parent, skip: 16)[0])
 
     def test_names_each_held_command_after_the_state_line(self):
         self.environ.pop("BOUNDED_RUN_NO_CAP")
@@ -3115,7 +3122,7 @@ class CheckProcessTest(WrapperProcessCase):
         self.wait_for_event("start", "holder")
         code, output, errors = self.check(["--memory", "2G", "--memory", "4G"])
         self.assertEqual((code, output), (0, ""), errors)
-        self.assertRegex(errors, r"^bounded-run: check slots=2 slot=2048M free-slots=1 free=(\d+M|-) unused=- cpus=\d+ cpus-used=- line=free\n")
+        self.assertRegex(errors, r"^bounded-run: check slots=2 slot=2048M free-slots=1 free=(\d+M|-) unused=- cpus=\d+ cpus-used=- cpus-headroom=\d+ cpus-free=- line=free\n")
         self.assertRegex(errors, r"\nbounded-run: check budget=2048M slots=1 headroom=1024M starts=(yes|no)\nbounded-run: check budget=4096M slots=2 headroom=0M starts=no\n$")
         holder.kill()
 
