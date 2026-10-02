@@ -42,6 +42,7 @@ It is also the faster path. Breaking the feature into independent PRs lets the m
 | `maintaining-architectural-coherence` | Work split across PRs/agents/waves must read as one author. Invoked when agreeing conventions before parallel work, and when reviewing the merged union for structural, interface, naming, and vocabulary drift. |
 | `product-epic` | Standalone, upstream of the flow. A product manager has a rough epic — an idea, a few bullets, a draft — that must be scoped and clarified before an engineer can design against it. Surfaces the gaps with a fresh-reader test, refines them with the PM (challenging scope and feasibility), and files the result. |
 | `drafting-a-release` | Standalone (not part of the feature flow). About to cut a release: drafts curated release notes that explain the why, proposes the version, and gates `gh release create` on the user. |
+| `reporting-a-skill-gap` | Standalone (not part of the feature flow). A skill in this plugin let the work down: the user had to add an instruction by hand, a skill gave wrong or missing guidance, or it did not trigger. Files the gap as an issue on this plugin's repository, with a reproduction a maintainer can replay as a test, and with the user's project details removed. |
 
 ## How it works
 
