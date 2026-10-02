@@ -73,7 +73,7 @@ Read the draft once against this table before you show it. A quoted instruction 
 
 ## Step 5: land it
 
-**REQUIRED SUB-SKILL:** `feature-dev-workflow:writing-github-issues` to create the issue or post the comment. That skill owns the confirmation gate. Three points apply on top of it:
+**REQUIRED SUB-SKILL:** `feature-dev-workflow:writing-github-issues` to create the issue (its Step 2A) or post the comment. That skill owns the confirmation gate. It has no step that only comments, so post a comment on an existing issue with `gh issue comment <num> --repo OWNER/REPO --body-file <file>`, under the same gate, and do not edit the issue's body: a second occurrence adds evidence, it does not change what the issue states. Three points apply on top of it:
 
 - The confirmation names the target as the plugin's `OWNER/REPO` from Step 1, so the user sees that the report leaves their project.
 - Say which sanitizing reductions you made, in one line, so the user can check that nothing private is left.
