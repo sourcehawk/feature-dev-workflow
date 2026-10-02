@@ -6,6 +6,7 @@
     "name": "Ægir Máni Hauksson",
     "email": "agir96@gmail.com"
   },
+  "repository": "https://github.com/sourcehawk/feature-dev-workflow",
   "license": "MIT",
   "keywords": [
     "workflow",
