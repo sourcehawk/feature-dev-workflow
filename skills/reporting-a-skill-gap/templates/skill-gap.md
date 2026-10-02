@@ -7,7 +7,7 @@ Everything in this body is public. Describe the generic shape of the failure. Do
 
 Label: `bug`, only when the user can push to the plugin's repository (see the skill's Step 5).
 
-When you comment on an existing issue instead of filing a new one, the comment holds `## What happened`, `## Instruction added by hand` (when there is one), `## Reproduction`, and `## Evidence`, under the heading `## Another occurrence`. Leave out the sections the issue already states.
+When you comment on an existing issue instead of filing a new one, the comment holds `## What happened`, `## Where in the plugin` (with the version and section of this occurrence), `## Instruction added by hand` (when there is one), `## Reproduction`, and `## Evidence`, under the heading `## Another occurrence`. Leave out the other sections the issue already states. Keep `## Where in the plugin` even when the issue has one: the version tells a maintainer whether this occurrence is on a version that has the fix.
 -->
 
 # <plain-english-title>
