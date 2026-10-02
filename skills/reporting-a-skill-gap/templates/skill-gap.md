@@ -5,7 +5,7 @@ The reader is a maintainer of this plugin who was not in the session. They will 
 
 Everything in this body is public. Describe the generic shape of the failure. Do not name the user's project, company, repository, people, paths, issue numbers, or any secret. Use neutral stand-ins instead (`a service repository`, `<scratch-dir>`, `the user`).
 
-Label: `bug`.
+Label: `bug`, only when the user can push to the plugin's repository (see the skill's Step 5).
 
 When you comment on an existing issue instead of filing a new one, the comment holds `## What happened`, `## Instruction added by hand` (when there is one), `## Reproduction`, and `## Evidence`, under the heading `## Another occurrence`. Leave out the sections the issue already states.
 -->
