@@ -39,7 +39,7 @@ Open the installed skill, `${CLAUDE_PLUGIN_ROOT}/skills/<name>/SKILL.md`, and fi
 gh issue list --repo OWNER/REPO --state all --search "<skill-name> <two or three words for the failure>" --limit 20
 ```
 
-Run a second search with other words if the first finds nothing. Then:
+Run a second search with other words if the first finds nothing. The list shows titles only, so open each plausible match with `gh issue view <num> --repo OWNER/REPO --comments` before you pick a branch below. Then:
 
 - **An open issue covers the same gap:** comment on it instead of filing a new one. The comment adds your reproduction and evidence (see the template's comment form). If the issue already has a reproduction of the same case, tell the user and stop.
 - **A closed issue covers it, fixed in a version newer than the installed one:** tell the user to update the plugin. File nothing.
