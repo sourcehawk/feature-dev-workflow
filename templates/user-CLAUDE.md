@@ -28,5 +28,6 @@ This file applies to every project. A project's own `CLAUDE.md` comes first wher
 | Act on review feedback (Copilot, a person, or a local review), and again before every push of a review fix | `feature-dev-workflow:addressing-review-feedback` |
 | Run a review loop on a PR until it is clean | `feature-dev-workflow:copilot-review-loop` |
 | Cut, draft, tag, or publish a release | `feature-dev-workflow:drafting-a-release` |
+| Report a feature-dev-workflow skill that let the work down: an instruction you had to add by hand, wrong or missing guidance, or a skill that did not trigger | `feature-dev-workflow:reporting-a-skill-gap` |
 | Write prose that people read: PR and issue bodies, review replies, docs, release notes, commit bodies | `simple-english:simple-english` |
 | Say that work is complete, fixed, or passing | `superpowers:verification-before-completion` |
