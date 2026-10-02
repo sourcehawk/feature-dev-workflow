@@ -38,7 +38,7 @@ When the failure is that a skill did not trigger, the section is `description` (
 
 ## Instruction added by hand
 
-<!-- Include when the user, or the agent, had to add an instruction that the skill should have carried. Quote it word for word in a blockquote, then say in one sentence what changed after it was added. Omit the section when nobody added one. -->
+<!-- Include when the user, or the agent, had to add an instruction that the skill should have carried. Quote it in a blockquote, word for word except for the reductions of the skill's sanitizing table, then say in one sentence what changed after it was added. Omit the section when nobody added one. -->
 
 ## Reproduction
 
