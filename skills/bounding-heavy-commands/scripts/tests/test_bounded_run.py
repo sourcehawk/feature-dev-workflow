@@ -2150,6 +2150,13 @@ class BoundedCleanupTest(unittest.TestCase):
         os.rmdir(os.path.join(scopes, "bounded-run-7-abcdef.scope"))
         self.assertEqual(keywords["read_running"](), 0)
 
+    def test_a_scope_listing_that_fails_gives_no_count_when_no_run_file_shows_a_command(self):
+        scopes = os.path.join(self.base.name, "missing-slice")
+        output = "0::/missing-slice/bounded-run-1-000000-probe.scope\n"
+        with mock.patch.object(bounded_run, "scope_parent_directory", return_value=scopes):
+            keywords = self.wait_arguments(output)
+        self.assertIsNone(keywords["read_running"]())
+
 
 class MeasuredRowTest(unittest.TestCase):
     """Calls bounded() in this process, with run_command replaced by a stub and no hard cap.

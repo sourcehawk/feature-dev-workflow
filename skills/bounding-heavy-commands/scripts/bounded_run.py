@@ -837,12 +837,22 @@ def own_scope_name(proc_root: str = "/proc") -> Optional[str]:
     return None if path is None else os.path.basename(path)
 
 
+def bounded_scope_count(parent: str, skip: Sequence[str]) -> Optional[int]:
+    """Returns the number of scopes that _bounded_scopes names, or None when parent cannot be listed."""
+    names = _listed_scopes(parent, skip)
+    return None if names is None else len(names)
+
+
 def _bounded_scopes(parent: str, skip: Sequence[str]) -> List[str]:
     """Returns the names of the scopes of bounded commands in parent, less the probe scopes and the names in skip."""
+    return _listed_scopes(parent, skip) or []
+
+
+def _listed_scopes(parent: str, skip: Sequence[str]) -> Optional[List[str]]:
     try:
         names = os.listdir(parent)
     except OSError:
-        return []
+        return None
     return sorted(
         name for name in names
         if name.startswith(PREFIX + "-") and name.endswith(".scope") and not name.endswith("-probe.scope") and name not in skip
@@ -1570,7 +1580,10 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
         running = running_commands(directory)
         # A command of an older wrapper holds no run file, but under the hard cap it runs in a bounded scope.
         if scopes is not None:
-            found = len(_bounded_scopes(scopes, skip))
+            found = bounded_scope_count(scopes, skip)
+            if found is None:
+                # Without the scopes, a command of an older wrapper cannot be seen, so only a run file proves a count.
+                return running or None
             if found:
                 return max(running or 0, found)
         return running
