@@ -485,15 +485,16 @@ def _try_lock(path: str) -> Optional[int]:
     return _lock(path, wait=False)
 
 
-def running_commands(directory: str) -> int:
+def running_commands(directory: str) -> Optional[int]:
     """Returns the number of bounded commands that run now: the run files that a process holds locked.
 
-    A run file that no process holds is left over from a wrapper that was killed, and is removed.
+    Returns None when the directory cannot be read. A run file that no process holds is left over from a
+    wrapper that was killed, and is removed.
     """
     try:
         names = os.listdir(directory)
     except OSError:
-        return 0
+        return None
     running = 0
     for name in names:
         if not (name.startswith("run-") and name.endswith(".lock")):
@@ -1565,11 +1566,13 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
                 log("the scope of the command did not appear after %ds; the next command may not count its budget" % SCOPE_WAIT_SECONDS)
         unlock_memory()
 
-    def read_running() -> int:
+    def read_running() -> Optional[int]:
         running = running_commands(directory)
         # A command of an older wrapper holds no run file, but under the hard cap it runs in a bounded scope.
         if scopes is not None:
-            running = max(running, len(_bounded_scopes(scopes, skip)))
+            found = len(_bounded_scopes(scopes, skip))
+            if found:
+                return max(running or 0, found)
         return running
 
     reported: Optional[int] = None

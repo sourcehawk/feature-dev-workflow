@@ -705,6 +705,9 @@ class RunningCountTest(unittest.TestCase):
     def test_counts_no_command_in_an_empty_directory(self):
         self.assertEqual(bounded_run.running_commands(self.directory), 0)
 
+    def test_a_directory_that_cannot_be_read_gives_no_count(self):
+        self.assertIsNone(bounded_run.running_commands(os.path.join(self.directory, "missing")))
+
     def test_counts_each_run_file_that_a_process_holds(self):
         self.hold(bounded_run.run_file_name("bounded-run-1-000001"))
         self.hold(bounded_run.run_file_name("bounded-run-2-000002"))
