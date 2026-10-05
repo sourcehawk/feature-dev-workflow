@@ -692,6 +692,35 @@ class ExclusiveNameTest(unittest.TestCase):
             self.assertNotEqual(bounded_run.repository_id(first), bounded_run.repository_id(second))
 
 
+class RunningCountTest(unittest.TestCase):
+    def setUp(self):
+        self.base = tempfile.TemporaryDirectory()
+        self.addCleanup(self.base.cleanup)
+        self.directory = self.base.name
+
+    def hold(self, name):
+        descriptor = bounded_run._try_lock(os.path.join(self.directory, name))
+        self.addCleanup(os.close, descriptor)
+
+    def test_counts_no_command_in_an_empty_directory(self):
+        self.assertEqual(bounded_run.running_commands(self.directory), 0)
+
+    def test_counts_each_run_file_that_a_process_holds(self):
+        self.hold(bounded_run.run_file_name("bounded-run-1-000001"))
+        self.hold(bounded_run.run_file_name("bounded-run-2-000002"))
+        self.assertEqual(bounded_run.running_commands(self.directory), 2)
+
+    def test_slot_files_are_not_running_commands(self):
+        self.hold("slot-000.lock")
+        self.assertEqual(bounded_run.running_commands(self.directory), 0)
+
+    def test_a_run_file_that_no_process_holds_is_removed_and_not_counted(self):
+        path = os.path.join(self.directory, bounded_run.run_file_name("bounded-run-3-000003"))
+        open(path, "w").close()
+        self.assertEqual(bounded_run.running_commands(self.directory), 0)
+        self.assertFalse(os.path.exists(path))
+
+
 class MemoryReadTest(unittest.TestCase):
     def test_reads_the_available_memory_of_meminfo(self):
         text = "MemTotal:       32000000 kB\nMemFree:         1000000 kB\nMemAvailable:    8388608 kB\n"
@@ -1979,6 +2008,24 @@ class BoundedCleanupTest(unittest.TestCase):
         self.assertIsNone(self.wait_arguments("")["read_outstanding"]())
 
 
+    def test_the_command_holds_a_run_file_while_it_runs_and_removes_it_after(self):
+        seen = []
+
+        def fake_run_command(command, environ, on_start=None):
+            on_start(os.getpid())
+            seen.append(bounded_run.running_commands(self.directory))
+            return 0, 0
+
+        options = bounded_run.Options()
+        options.memory = "1G"
+        options.command = [sys.executable, "-c", "pass"]
+        with mock.patch.object(bounded_run, "probe_cap", return_value=None), \
+                mock.patch.object(bounded_run, "run_command", fake_run_command):
+            self.assertEqual(bounded_run.bounded(options, self.environ), 0)
+        self.assertEqual(seen, [1])
+        self.assertEqual([name for name in os.listdir(self.directory) if name.startswith("run-")], [])
+
+
 class MeasuredRowTest(unittest.TestCase):
     """Calls bounded() in this process, with run_command replaced by a stub and no hard cap.
 
@@ -2846,7 +2893,7 @@ class WrapperProcessTest(WrapperProcessCase):
         )
         process = self.wrapper(["--memory", "4G", "--exclusive", "port"], [sys.executable, "-c", script])
         output, errors = process.communicate(timeout=60)
-        self.assertEqual(output, "locks 6 inherited 0\n", errors)
+        self.assertEqual(output, "locks 7 inherited 0\n", errors)
 
     def test_commands_with_the_same_exclusive_name_take_turns(self):
         workers = [self.worker("w%d" % index, "2G", hold="0.3", options=["--exclusive", "port-8080"]) for index in range(3)]  # brief; the test waits for each to end

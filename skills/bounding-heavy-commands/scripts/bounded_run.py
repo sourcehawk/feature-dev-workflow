@@ -405,6 +405,11 @@ def exclusive_file_name(repository: str, name: str) -> str:
     return "exclusive-%s-%s.lock" % (repository, name)
 
 
+def run_file_name(unit: str) -> str:
+    """Returns the name of the file that a bounded command holds locked while it runs."""
+    return "run-%s.lock" % unit
+
+
 class Reservation:
     def __init__(self, descriptors: Sequence[int]) -> None:
         self.descriptors = list(descriptors)
@@ -461,6 +466,32 @@ def _lock(path: str, wait: bool) -> Optional[int]:
 
 def _try_lock(path: str) -> Optional[int]:
     return _lock(path, wait=False)
+
+
+def running_commands(directory: str) -> int:
+    """Returns the number of bounded commands that run now: the run files that a process holds locked.
+
+    A run file that no process holds is left over from a wrapper that was killed, and is removed.
+    """
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return 0
+    running = 0
+    for name in names:
+        if not (name.startswith("run-") and name.endswith(".lock")):
+            continue
+        path = os.path.join(directory, name)
+        descriptor = _try_lock(path)
+        if descriptor is None:
+            running += 1
+            continue
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        os.close(descriptor)
+    return running
 
 
 def _lock_error(path: str, error: OSError) -> WrapperError:
@@ -1454,7 +1485,14 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
         while memory_lock:
             os.close(memory_lock.pop())
 
+    run_path = os.path.join(directory, run_file_name(unit))
+    run_lock: List[int] = []
+
     def on_start(pid: int) -> None:
+        # Taken before the memory lock is released, so a waiter that counts under that lock sees this command.
+        descriptor = _try_lock(run_path)
+        if descriptor is not None:
+            run_lock.append(descriptor)
         start_tracker(pid)
         if scopes is not None and memory_lock:
             if not wait_for_scope(scopes, unit, SCOPE_WAIT_SECONDS):
@@ -1475,6 +1513,13 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
         held = trackers[0].held if trackers else None
     finally:
         unlock_memory()
+        if run_lock:
+            try:
+                os.unlink(run_path)
+            except OSError:
+                pass
+        while run_lock:
+            os.close(run_lock.pop())
         if capped:
             reported = read_peak_file(peak_file)
         reservation.release()
