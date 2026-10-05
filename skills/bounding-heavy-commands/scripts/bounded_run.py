@@ -6,12 +6,24 @@ Usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measur
        bounded_run.py --check [--memory SIZE]...
 
 The exit code is the exit code of the command. Exit code 125 means that this
-script failed before the command gave a result. A stop signal to this script
-(SIGHUP, SIGINT, SIGQUIT, or SIGTERM) stops the command, and then this script
-ends by the same signal. So a Ctrl-C at the terminal, which reaches the shell
-too, stops a line of joined commands; a signal sent to this script alone does
-not stop the shell. A caller that reads the exit status reads 128 plus the
-signal.
+script failed before the command gave a result. Exit code 75 with the line
+below means that the budget did not fit in the free memory while the script
+found no other bounded command running, so nothing in the queue could free
+it, and the command did not start. The script printed one line in a fixed form:
+
+  bounded-run: no-memory budget=<n>M free=<n>M headroom=<n>M fits=<n>M
+
+A command can also exit 75 by itself, without the line.
+
+free is the free memory less the unused budgets of the running commands.
+fits is the largest budget whose memory, with its own headroom, is free now,
+or 0M. It does not count slots or the line.
+
+A stop signal to this script (SIGHUP, SIGINT, SIGQUIT, or SIGTERM) stops the
+command, and then this script ends by the same signal. So a Ctrl-C at the
+terminal, which reaches the shell too, stops a line of joined commands; a
+signal sent to this script alone does not stop the shell. A caller that reads
+the exit status reads 128 plus the signal.
 
 A run without --cpus gets half of the processors of the machine, rounded
 down and at least 1. The command reads its processors in BOUNDED_RUN_CPUS,
@@ -29,14 +41,16 @@ list, the largest first. The largest runs with --memory. Without it, the
 largest runs with the default budget where the hard cap is available, and
 alone in the queue where it is not. Each smaller one runs with the suggested
 budget of the one before it, or with the budget of the one before it when that
-run did not exit 0. The exit code is the first exit code that is not 0.
+run did not exit 0. A row that stops with the no-memory line ends the list
+with exit code 75. Otherwise the exit code is the first exit code that is not
+0.
 
 --check runs no command and holds no lock when it returns. Its exit code is 0.
 It prints the state of the queue at that moment, one held line for each
 running bounded command where the hard cap is available, and one line for
 each --memory, in the order given:
 
-  bounded-run: check slots=N slot=<n>M free-slots=N|- free=<n>M|- unused=<n>M|- cpus=N cpus-used=N|- cpus-headroom=N cpus-free=N|- line=free|busy
+  bounded-run: check slots=N slot=<n>M free-slots=N|- free=<n>M|- unused=<n>M|- cpus=N cpus-used=N|- cpus-headroom=N cpus-free=N|- line=free|busy fits=<n>M|-
   bounded-run: check held unit=NAME budget=<n>M|- used=<n>M|- cpus=N|- age=Ns|- dir=PATH|- command=TEXT|-
   bounded-run: check budget=<n>M slots=N headroom=<n>M starts=yes|no
 
@@ -46,7 +60,9 @@ the running bounded commands may use, and the cpus of a held line is the
 part of one command. cpus-headroom is the processors kept for the programs
 outside the queue, a tenth of cpus rounded up. cpus-free is cpus less
 cpus-headroom and cpus-used, and at least 0. starts=yes means that a run of
-that budget would start now. It is not a reservation.
+that budget would start now. It is not a reservation. fits is the largest
+budget whose memory, with its own headroom, is free now, in steps of 256M,
+or 0M when none is; it does not count slots or the line.
 
 A normal call sets none of the environment variables below. A person can
 set the tuning values in the profile of the shell, so that every session
@@ -98,6 +114,7 @@ except ImportError:
 
 PREFIX = "bounded-run"
 EXIT_WRAPPER = 125
+EXIT_NO_MEMORY = 75
 ACTIVE_VARIABLE = "BOUNDED_RUN_ACTIVE"
 VALUE_OPTIONS = ("--memory", "--cpus", "--exclusive", "--measure-rows", "--label")
 SLOT_MIB = 2048
@@ -405,6 +422,11 @@ def exclusive_file_name(repository: str, name: str) -> str:
     return "exclusive-%s-%s.lock" % (repository, name)
 
 
+def run_file_name(unit: str) -> str:
+    """Returns the name of the file that a bounded command holds locked while it runs."""
+    return "run-%s.lock" % unit
+
+
 class Reservation:
     def __init__(self, descriptors: Sequence[int]) -> None:
         self.descriptors = list(descriptors)
@@ -461,6 +483,33 @@ def _lock(path: str, wait: bool) -> Optional[int]:
 
 def _try_lock(path: str) -> Optional[int]:
     return _lock(path, wait=False)
+
+
+def running_commands(directory: str) -> Optional[int]:
+    """Returns the number of bounded commands that run now: the run files that a process holds locked.
+
+    Returns None when the directory cannot be read. A run file that no process holds is left over from a
+    wrapper that was killed, and is removed.
+    """
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return None
+    running = 0
+    for name in names:
+        if not (name.startswith("run-") and name.endswith(".lock")):
+            continue
+        path = os.path.join(directory, name)
+        descriptor = _try_lock(path)
+        if descriptor is None:
+            running += 1
+            continue
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        os.close(descriptor)
+    return running
 
 
 def _lock_error(path: str, error: OSError) -> WrapperError:
@@ -627,10 +676,29 @@ def memory_fits(budget_mib: int, available: Optional[int], outstanding: Optional
     return available is None or available - (outstanding or 0) - headroom_mib >= budget_mib
 
 
+def largest_fit_mib(available: int, outstanding: Optional[int], total_mib: int, queue_mib: int) -> int:
+    """Returns the largest budget, in steps of BUDGET_STEP_MIB, whose memory with its own headroom is free, or 0."""
+    free = available - (outstanding or 0)
+    budget = min(queue_mib, max(0, free)) // BUDGET_STEP_MIB * BUDGET_STEP_MIB
+    while budget > 0 and not memory_fits(budget, free, None, headroom_mib(total_mib, budget, queue_mib)):
+        budget -= BUDGET_STEP_MIB
+    return budget
+
+
+class NoMemory(Exception):
+    """The budget does not fit in the free memory, and no bounded command runs that can free it."""
+
+    def __init__(self, available: int, outstanding: Optional[int]) -> None:
+        super().__init__("no memory")
+        self.available = available
+        self.outstanding = outstanding
+
+
 def wait_for_memory(
     budget_mib: int, interval_seconds: float, poll_seconds: float, headroom_mib: int = 0,
     read_available: Callable[[], Optional[int]] = available_memory_mib,
     read_outstanding: Callable[[], Optional[int]] = lambda: None,
+    read_running: Callable[[], Optional[int]] = lambda: None,
     sleep: Callable[[float], None] = time.sleep,
     lock: Callable[[], None] = lambda: None,
     unlock: Callable[[], None] = lambda: None,
@@ -638,31 +706,51 @@ def wait_for_memory(
 ) -> None:
     """Returns when the free memory, less the unused budgets of running commands and the headroom, holds the budget.
 
-    There is no time limit, so the call can block for as long as the machine is full. Returns at once when
-    the free memory cannot be read. read_outstanding gives None where the unused budgets cannot be counted.
+    There is no time limit while another bounded command runs, so the call can block for as long as the machine
+    is full. Raises NoMemory, with lock released, when none runs, because then nothing in the queue frees memory.
+    read_running gives the number of bounded commands that run, or None where it is not known: the call waits.
+    Returns at once when the free memory cannot be read. read_outstanding gives None where the unused budgets cannot be counted.
     The call returns with lock held: the caller calls unlock once the new command counts in read_outstanding.
     """
-    started = clock()
-    next_line: Optional[float] = None
-    while True:
-        lock()
+    def read() -> Tuple[Optional[int], Optional[int]]:
         # A running command that grows or shrinks during the reads moves both values. The larger of the two unused
         # counts around the free memory is the one that matches it or errs on the safe side.
         before = read_outstanding()
         available = read_available()
         if available is None:
+            return None, None
+        after = read_outstanding()
+        return available, None if before is None or after is None else max(before, after)
+
+    def state(available: int, outstanding: Optional[int]) -> str:
+        counted = "unused running budgets not counted here" if outstanding is None else "%d MiB of running budgets unused" % outstanding
+        return "%d MiB free, %s, %d MiB headroom, budget %d MiB" % (available, counted, headroom_mib, budget_mib)
+
+    started = clock()
+    next_line: Optional[float] = None
+    while True:
+        lock()
+        available, outstanding = read()
+        if available is None:
             log("cannot read the free memory; starting")
             return
-        after = read_outstanding()
-        outstanding = None if before is None or after is None else max(before, after)
-        counted = "unused running budgets not counted here" if outstanding is None else "%d MiB of running budgets unused" % outstanding
-        state = "%d MiB free, %s, %d MiB headroom, budget %d MiB" % (available, counted, headroom_mib, budget_mib)
         if memory_fits(budget_mib, available, outstanding, headroom_mib):
-            log(state + "; starting")
+            log(state(available, outstanding) + "; starting")
             return
+        if read_running() == 0:
+            # A command ends without the memory lock, so the last one can free its memory after the reads above.
+            available, outstanding = read()
+            if available is None:
+                log("cannot read the free memory; starting")
+                return
+            if memory_fits(budget_mib, available, outstanding, headroom_mib):
+                log(state(available, outstanding) + "; starting")
+                return
+            unlock()
+            raise NoMemory(available, outstanding)
         waited = clock() - started
         if next_line is None or waited >= next_line:
-            log(state + ("; waiting" if next_line is None else "; still waiting after %ds" % waited))
+            log(state(available, outstanding) + ("; waiting" if next_line is None else "; still waiting after %ds" % waited))
             next_line = waited + interval_seconds
         unlock()
         sleep(poll_seconds)
@@ -749,12 +837,22 @@ def own_scope_name(proc_root: str = "/proc") -> Optional[str]:
     return None if path is None else os.path.basename(path)
 
 
+def bounded_scope_count(parent: str, skip: Sequence[str]) -> Optional[int]:
+    """Returns the number of scopes that _bounded_scopes names, or None when parent cannot be listed."""
+    names = _listed_scopes(parent, skip)
+    return None if names is None else len(names)
+
+
 def _bounded_scopes(parent: str, skip: Sequence[str]) -> List[str]:
     """Returns the names of the scopes of bounded commands in parent, less the probe scopes and the names in skip."""
+    return _listed_scopes(parent, skip) or []
+
+
+def _listed_scopes(parent: str, skip: Sequence[str]) -> Optional[List[str]]:
     try:
         names = os.listdir(parent)
     except OSError:
-        return []
+        return None
     return sorted(
         name for name in names
         if name.startswith(PREFIX + "-") and name.endswith(".scope") and not name.endswith("-probe.scope") and name not in skip
@@ -1318,7 +1416,10 @@ def _raise_stopped(signum: int, frame: object) -> None:
 
 def bounded(options: Options, environ: Mapping[str, str]) -> int:
     if not options.rows:
-        return bounded_once(options, environ)[0]
+        try:
+            return bounded_once(options, environ)[0]
+        except NoMemory:
+            return EXIT_NO_MEMORY
     # run_command sets its own handlers while a row runs and puts these back after it.
     previous = {signum: signal.signal(signum, _raise_stopped) for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)}
     try:
@@ -1337,7 +1438,11 @@ def _bounded_rows(options: Options, environ: Mapping[str, str]) -> int:
             row = Options()
             row.memory, row.cpus, row.exclusive, row.measure, row.label, row.command = (
                 memory, cpus, options.exclusive, True, options.label, options.command)
-            code, suggested = bounded_once(row, environ)
+            try:
+                code, suggested = bounded_once(row, environ)
+            except NoMemory:
+                log("no memory for the row at --cpus %d; the rows after it are not measured" % cpus)
+                return EXIT_NO_MEMORY
             measured += 1
             if code in STOP_CODES:
                 log("stopped by a signal; the rows after --cpus %d are not measured" % cpus)
@@ -1357,7 +1462,10 @@ def _bounded_rows(options: Options, environ: Mapping[str, str]) -> int:
 
 
 def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int]:
-    """Runs the command one time. Returns the exit code and the suggested budget in MiB."""
+    """Runs the command one time. Returns the exit code and the suggested budget in MiB.
+
+    Raises NoMemory, after the line of the stop, when the budget does not fit and no bounded command runs.
+    """
     settings = Settings(environ)
     if options.memory is not None:
         budget = parse_size_mib(options.memory)
@@ -1454,27 +1562,59 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
         while memory_lock:
             os.close(memory_lock.pop())
 
+    run_path = os.path.join(directory, run_file_name(unit))
+    run_lock: List[int] = []
+
     def on_start(pid: int) -> None:
+        # Taken before the memory lock is released, so a waiter that counts under that lock sees this command.
+        descriptor = _try_lock(run_path)
+        if descriptor is not None:
+            run_lock.append(descriptor)
         start_tracker(pid)
         if scopes is not None and memory_lock:
             if not wait_for_scope(scopes, unit, SCOPE_WAIT_SECONDS):
                 log("the scope of the command did not appear after %ds; the next command may not count its budget" % SCOPE_WAIT_SECONDS)
         unlock_memory()
 
+    def read_running() -> Optional[int]:
+        running = running_commands(directory)
+        # A command of an older wrapper holds no run file, but under the hard cap it runs in a bounded scope.
+        if scopes is not None:
+            found = bounded_scope_count(scopes, skip)
+            if found is None:
+                # Without the scopes, a command of an older wrapper cannot be seen, so only a run file proves a count.
+                return running or None
+            if found:
+                return max(running or 0, found)
+        return running
+
     reported: Optional[int] = None
     reservation = reserve(directory, count, needed, exclusive_files, settings.poll_seconds)
     try:
-        wait_for_memory(
-            wait_budget, settings.memory_wait_seconds, settings.poll_seconds,
-            headroom_mib=headroom_mib(settings.total_mib, wait_budget, most),
-            read_available=read_available, read_outstanding=read_outstanding,
-            lock=lock_memory, unlock=unlock_memory,
-        )
+        try:
+            wait_for_memory(
+                wait_budget, settings.memory_wait_seconds, settings.poll_seconds,
+                headroom_mib=headroom_mib(settings.total_mib, wait_budget, most),
+                read_available=read_available, read_outstanding=read_outstanding,
+                read_running=read_running, lock=lock_memory, unlock=unlock_memory,
+            )
+        except NoMemory as stop:
+            log("no-memory budget=%dM free=%dM headroom=%dM fits=%dM" % (
+                wait_budget, stop.available - (stop.outstanding or 0), headroom_mib(settings.total_mib, wait_budget, most),
+                largest_fit_mib(stop.available, stop.outstanding, settings.total_mib, most)))
+            raise
         code, maxrss = run_command(command, child_environ, on_start)
         tracked = trackers[0].finish() if trackers else None
         held = trackers[0].held if trackers else None
     finally:
         unlock_memory()
+        if run_lock:
+            try:
+                os.unlink(run_path)
+            except OSError:
+                pass
+        while run_lock:
+            os.close(run_lock.pop())
         if capped:
             reported = read_peak_file(peak_file)
         reservation.release()
@@ -1539,10 +1679,11 @@ def check(
         return "-" if value is None else "%dM" % value
 
     spare = cpu_headroom(machine)
-    log("check slots=%d slot=%dM free-slots=%s free=%s unused=%s cpus=%d cpus-used=%s cpus-headroom=%d cpus-free=%s line=%s" % (
+    log("check slots=%d slot=%dM free-slots=%s free=%s unused=%s cpus=%d cpus-used=%s cpus-headroom=%d cpus-free=%s line=%s fits=%s" % (
         count, settings.slot_mib, "-" if free_slots is None else free_slots, mib(available), mib(outstanding),
         machine, "-" if used is None else used, spare, "-" if used is None else max(0, machine - spare - used),
-        "free" if line is not None else "busy"))
+        "free" if line is not None else "busy",
+        "-" if available is None else "%dM" % largest_fit_mib(available, outstanding, settings.total_mib, most)))
     for held in held_commands(scopes, ()) if scopes is not None else []:
         log("check held " + held)
     for budget in budgets:
