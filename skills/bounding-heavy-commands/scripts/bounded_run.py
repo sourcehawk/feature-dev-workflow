@@ -658,6 +658,15 @@ def memory_fits(budget_mib: int, available: Optional[int], outstanding: Optional
     return available is None or available - (outstanding or 0) - headroom_mib >= budget_mib
 
 
+def largest_fit_mib(available: int, outstanding: Optional[int], total_mib: int, queue_mib: int) -> int:
+    """Returns the largest budget, in steps of BUDGET_STEP_MIB, that would start now with its own headroom, or 0."""
+    free = available - (outstanding or 0)
+    budget = min(queue_mib, max(0, free)) // BUDGET_STEP_MIB * BUDGET_STEP_MIB
+    while budget > 0 and not memory_fits(budget, free, None, headroom_mib(total_mib, budget, queue_mib)):
+        budget -= BUDGET_STEP_MIB
+    return budget
+
+
 def wait_for_memory(
     budget_mib: int, interval_seconds: float, poll_seconds: float, headroom_mib: int = 0,
     read_available: Callable[[], Optional[int]] = available_memory_mib,

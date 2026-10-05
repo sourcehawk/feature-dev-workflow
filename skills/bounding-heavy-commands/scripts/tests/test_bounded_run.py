@@ -984,6 +984,33 @@ class HeadroomTest(unittest.TestCase):
         self.assertEqual(bounded_run.headroom_mib(27703, 19000, 20480), 1480)
 
 
+class FitTest(unittest.TestCase):
+    # 28000 MiB machine: reserve 7000, queue 20480, headroom 2800 below the queue.
+    def fit(self, available, outstanding=None):
+        return bounded_run.largest_fit_mib(available, outstanding, 28000, 20480)
+
+    def test_the_budget_and_its_headroom_fit_in_the_free_memory(self):
+        self.assertEqual(self.fit(14000), 11008)
+
+    def test_each_value_starts_and_the_next_step_does_not(self):
+        for available in (1500, 4000, 14000, 21000):
+            with self.subTest(available=available):
+                fits = self.fit(available)
+                headroom = bounded_run.headroom_mib(28000, fits, 20480)
+                self.assertTrue(fits == 0 or bounded_run.memory_fits(fits, available, None, headroom))
+                larger = fits + bounded_run.BUDGET_STEP_MIB
+                self.assertFalse(larger <= 20480 and bounded_run.memory_fits(larger, available, None, bounded_run.headroom_mib(28000, larger, 20480)))
+
+    def test_nothing_fits_below_the_headroom(self):
+        self.assertEqual(self.fit(2000), 0)
+
+    def test_the_whole_queue_needs_no_headroom(self):
+        self.assertEqual(self.fit(20480), 20480)
+
+    def test_the_unused_budgets_are_not_free(self):
+        self.assertEqual(self.fit(14000, outstanding=4000), self.fit(10000))
+
+
 class UnusedBudgetTest(unittest.TestCase):
     """Gives unused_budget_mib a slice of the cgroup filesystem in a temporary directory."""
 
