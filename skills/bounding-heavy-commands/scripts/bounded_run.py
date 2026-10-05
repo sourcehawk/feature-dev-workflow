@@ -18,10 +18,10 @@ fits is the largest budget whose memory, with its own headroom, is free now,
 or 0M. It does not count slots or the line.
 
 A stop signal to this script (SIGHUP, SIGINT, SIGQUIT, or SIGTERM) stops the
-command, and then this script ends by the same signal. So a Ctrl-C at the terminal, which reaches the shell
-too, stops a line of joined commands; a signal sent to this script alone does
-not stop the shell. A caller that reads the exit status reads 128 plus the
-signal.
+command, and then this script ends by the same signal. So a Ctrl-C at the
+terminal, which reaches the shell too, stops a line of joined commands; a
+signal sent to this script alone does not stop the shell. A caller that reads
+the exit status reads 128 plus the signal.
 
 A run without --cpus gets half of the processors of the machine, rounded
 down and at least 1. The command reads its processors in BOUNDED_RUN_CPUS,
@@ -57,7 +57,8 @@ part of one command. cpus-headroom is the processors kept for the programs
 outside the queue, a tenth of cpus rounded up. cpus-free is cpus less
 cpus-headroom and cpus-used, and at least 0. starts=yes means that a run of
 that budget would start now. It is not a reservation. fits is the largest
-budget that would start now, in steps of 256M, or 0M when none does.
+budget whose memory, with its own headroom, is free now, in steps of 256M,
+or 0M when none is; it does not count slots or the line.
 
 A normal call sets none of the environment variables below. A person can
 set the tuning values in the profile of the shell, so that every session
@@ -671,7 +672,7 @@ def memory_fits(budget_mib: int, available: Optional[int], outstanding: Optional
 
 
 def largest_fit_mib(available: int, outstanding: Optional[int], total_mib: int, queue_mib: int) -> int:
-    """Returns the largest budget, in steps of BUDGET_STEP_MIB, that would start now with its own headroom, or 0."""
+    """Returns the largest budget, in steps of BUDGET_STEP_MIB, whose memory with its own headroom is free, or 0."""
     free = available - (outstanding or 0)
     budget = min(queue_mib, max(0, free)) // BUDGET_STEP_MIB * BUDGET_STEP_MIB
     while budget > 0 and not memory_fits(budget, free, None, headroom_mib(total_mib, budget, queue_mib)):
