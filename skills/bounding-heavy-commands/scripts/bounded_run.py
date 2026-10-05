@@ -667,10 +667,20 @@ def largest_fit_mib(available: int, outstanding: Optional[int], total_mib: int, 
     return budget
 
 
+class NoMemory(Exception):
+    """The budget does not fit in the free memory, and no bounded command runs that can free it."""
+
+    def __init__(self, available: int, outstanding: Optional[int]) -> None:
+        super().__init__("no memory")
+        self.available = available
+        self.outstanding = outstanding
+
+
 def wait_for_memory(
     budget_mib: int, interval_seconds: float, poll_seconds: float, headroom_mib: int = 0,
     read_available: Callable[[], Optional[int]] = available_memory_mib,
     read_outstanding: Callable[[], Optional[int]] = lambda: None,
+    read_running: Callable[[], Optional[int]] = lambda: None,
     sleep: Callable[[float], None] = time.sleep,
     lock: Callable[[], None] = lambda: None,
     unlock: Callable[[], None] = lambda: None,
@@ -678,8 +688,10 @@ def wait_for_memory(
 ) -> None:
     """Returns when the free memory, less the unused budgets of running commands and the headroom, holds the budget.
 
-    There is no time limit, so the call can block for as long as the machine is full. Returns at once when
-    the free memory cannot be read. read_outstanding gives None where the unused budgets cannot be counted.
+    There is no time limit while another bounded command runs, so the call can block for as long as the machine
+    is full. Raises NoMemory, with lock released, when none runs, because then nothing in the queue frees memory.
+    read_running gives the number of bounded commands that run, or None where it is not known: the call waits.
+    Returns at once when the free memory cannot be read. read_outstanding gives None where the unused budgets cannot be counted.
     The call returns with lock held: the caller calls unlock once the new command counts in read_outstanding.
     """
     started = clock()
@@ -700,6 +712,9 @@ def wait_for_memory(
         if memory_fits(budget_mib, available, outstanding, headroom_mib):
             log(state + "; starting")
             return
+        if read_running() == 0:
+            unlock()
+            raise NoMemory(available, outstanding)
         waited = clock() - started
         if next_line is None or waited >= next_line:
             log(state + ("; waiting" if next_line is None else "; still waiting after %ds" % waited))

@@ -970,6 +970,35 @@ class MemoryWaitTest(unittest.TestCase):
         )
 
 
+    def test_stops_when_the_memory_is_not_free_and_no_bounded_command_runs(self):
+        with self.assertRaises(bounded_run.NoMemory) as raised:
+            bounded_run.wait_for_memory(4096, 300, 5.0, read_available=lambda: 1000, read_running=lambda: 0,
+                                        sleep=lambda seconds: self.fail("waits"))
+        self.assertEqual(raised.exception.available, 1000)
+
+    def test_waits_while_another_bounded_command_runs(self):
+        readings = [1000, 5000]
+        sleeps = []
+        bounded_run.wait_for_memory(4096, 300, 5.0, read_available=lambda: readings.pop(0), read_running=lambda: 1,
+                                    sleep=sleeps.append)
+        self.assertEqual(sleeps, [5.0])
+
+    def test_starts_when_the_memory_is_free_and_no_bounded_command_runs(self):
+        bounded_run.wait_for_memory(4096, 300, 5.0, read_available=lambda: 8000, read_running=lambda: 0,
+                                    sleep=lambda seconds: self.fail("waits"))
+
+    def test_starts_when_the_memory_is_not_readable_and_no_bounded_command_runs(self):
+        bounded_run.wait_for_memory(4096, 300, 5.0, read_available=lambda: None, read_running=lambda: 0,
+                                    sleep=lambda seconds: self.fail("waits"))
+
+    def test_stops_with_the_lock_released(self):
+        events = []
+        with self.assertRaises(bounded_run.NoMemory):
+            bounded_run.wait_for_memory(4096, 300, 5.0, read_available=lambda: 1000, read_running=lambda: 0,
+                                        lock=lambda: events.append("lock"), unlock=lambda: events.append("unlock"))
+        self.assertEqual(events, ["lock", "unlock"])
+
+
 class HeadroomTest(unittest.TestCase):
     def test_a_tenth_of_the_memory(self):
         self.assertEqual(bounded_run.headroom_mib(27703, 2048, 20480), 2770)
