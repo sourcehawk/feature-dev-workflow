@@ -7,9 +7,9 @@ Usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measur
 
 The exit code is the exit code of the command. Exit code 125 means that this
 script failed before the command gave a result. Exit code 75 with the line
-below means that the budget did not fit in the free memory while no other
-bounded command ran, so nothing in the queue could free it, and the command
-did not start. The script printed one line in a fixed form:
+below means that the budget did not fit in the free memory while the script
+found no other bounded command running, so nothing in the queue could free
+it, and the command did not start. The script printed one line in a fixed form:
 
   bounded-run: no-memory budget=<n>M free=<n>M headroom=<n>M fits=<n>M
 
