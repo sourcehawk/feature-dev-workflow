@@ -13,10 +13,12 @@ printed one line in a fixed form:
 
   bounded-run: no-memory budget=<n>M free=<n>M headroom=<n>M fits=<n>M
 
-free is the free memory less the unused budgets of the running commands,
-and fits is the largest budget that would start now, or 0M. A stop signal to this script
-(SIGHUP, SIGINT, SIGQUIT, or SIGTERM) stops the command, and then this script
-ends by the same signal. So a Ctrl-C at the terminal, which reaches the shell
+free is the free memory less the unused budgets of the running commands.
+fits is the largest budget whose memory, with its own headroom, is free now,
+or 0M. It does not count slots or the line.
+
+A stop signal to this script (SIGHUP, SIGINT, SIGQUIT, or SIGTERM) stops the
+command, and then this script ends by the same signal. So a Ctrl-C at the terminal, which reaches the shell
 too, stops a line of joined commands; a signal sent to this script alone does
 not stop the shell. A caller that reads the exit status reads 128 plus the
 signal.
@@ -1383,7 +1385,10 @@ def _raise_stopped(signum: int, frame: object) -> None:
 
 def bounded(options: Options, environ: Mapping[str, str]) -> int:
     if not options.rows:
-        return bounded_once(options, environ)[0]
+        try:
+            return bounded_once(options, environ)[0]
+        except NoMemory:
+            return EXIT_NO_MEMORY
     # run_command sets its own handlers while a row runs and puts these back after it.
     previous = {signum: signal.signal(signum, _raise_stopped) for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)}
     try:
@@ -1402,13 +1407,14 @@ def _bounded_rows(options: Options, environ: Mapping[str, str]) -> int:
             row = Options()
             row.memory, row.cpus, row.exclusive, row.measure, row.label, row.command = (
                 memory, cpus, options.exclusive, True, options.label, options.command)
-            code, suggested = bounded_once(row, environ)
+            try:
+                code, suggested = bounded_once(row, environ)
+            except NoMemory:
+                log("no memory for the row at --cpus %d; the rows after it are not measured" % cpus)
+                return result or EXIT_NO_MEMORY
             measured += 1
             if code in STOP_CODES:
                 log("stopped by a signal; the rows after --cpus %d are not measured" % cpus)
-                return result or code
-            if code == EXIT_NO_MEMORY:
-                log("no memory for the row at --cpus %d; the rows after it are not measured" % cpus)
                 return result or code
             if code == 0:
                 memory = "%dM" % suggested
@@ -1425,7 +1431,10 @@ def _bounded_rows(options: Options, environ: Mapping[str, str]) -> int:
 
 
 def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int]:
-    """Runs the command one time. Returns the exit code and the suggested budget in MiB."""
+    """Runs the command one time. Returns the exit code and the suggested budget in MiB.
+
+    Raises NoMemory, after the line of the stop, when the budget does not fit and no bounded command runs.
+    """
     settings = Settings(environ)
     if options.memory is not None:
         budget = parse_size_mib(options.memory)
@@ -1557,7 +1566,7 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
             log("no-memory budget=%dM free=%dM headroom=%dM fits=%dM" % (
                 wait_budget, stop.available - (stop.outstanding or 0), headroom_mib(settings.total_mib, wait_budget, most),
                 largest_fit_mib(stop.available, stop.outstanding, settings.total_mib, most)))
-            return EXIT_NO_MEMORY, 0
+            raise
         code, maxrss = run_command(command, child_environ, on_start)
         tracked = trackers[0].finish() if trackers else None
         held = trackers[0].held if trackers else None

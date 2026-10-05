@@ -2090,17 +2090,40 @@ class BoundedCleanupTest(unittest.TestCase):
 
 
     def test_a_row_that_stops_for_memory_ends_the_rows(self):
-        codes = iter([(bounded_run.EXIT_NO_MEMORY, 0)])
         calls = []
 
         def once(row, environ):
             calls.append(row.cpus)
-            return next(codes)
+            raise bounded_run.NoMemory(0, None)
 
         options = bounded_run.parse_arguments(["--measure-rows", "8,4", "--", "true"])
         with mock.patch.object(bounded_run, "bounded_once", once):
             self.assertEqual(bounded_run.bounded(options, self.environ), bounded_run.EXIT_NO_MEMORY)
         self.assertEqual(calls, [8])
+
+    def test_a_row_whose_command_exits_75_by_itself_does_not_end_the_rows(self):
+        answers = iter([(bounded_run.EXIT_NO_MEMORY, 100), (0, 50)])
+        calls = []
+
+        def once(row, environ):
+            calls.append(row.cpus)
+            return next(answers)
+
+        options = bounded_run.parse_arguments(["--measure-rows", "8,4", "--", "true"])
+        with mock.patch.object(bounded_run, "bounded_once", once):
+            self.assertEqual(bounded_run.bounded(options, self.environ), bounded_run.EXIT_NO_MEMORY)
+        self.assertEqual(calls, [8, 4])
+
+    def test_the_wait_counts_a_scope_of_an_older_wrapper_as_a_running_command(self):
+        scopes = os.path.join(self.base.name, "slice")
+        os.makedirs(os.path.join(scopes, "bounded-run-7-abcdef.scope"))
+        os.makedirs(os.path.join(scopes, "bounded-run-2-111111.scope"))
+        output = "0::/slice/bounded-run-1-000000-probe.scope\n"
+        with mock.patch.object(bounded_run, "scope_parent_directory", return_value=scopes):
+            keywords = self.wait_arguments(output)
+        self.assertGreaterEqual(keywords["read_running"](), 1)
+        os.rmdir(os.path.join(scopes, "bounded-run-7-abcdef.scope"))
+        self.assertEqual(keywords["read_running"](), 0)
 
 
 class MeasuredRowTest(unittest.TestCase):
@@ -2420,7 +2443,7 @@ class CheckTest(unittest.TestCase):
     def test_a_waiter_in_the_line_makes_the_line_busy_and_no_budget_starts(self):
         self.hold("line.lock")
         lines = self.check(["2G"])
-        self.assertTrue(" line=busy " in lines[0], lines)
+        self.assertTrue(" line=busy fits=" in lines[0], lines)
         self.assertEqual(lines[1], "check budget=2048M slots=1 headroom=1024M starts=no")
 
     def test_a_count_of_slots_that_another_command_takes_at_that_moment_is_not_given(self):
