@@ -998,6 +998,19 @@ class MemoryWaitTest(unittest.TestCase):
                                         lock=lambda: events.append("lock"), unlock=lambda: events.append("unlock"))
         self.assertEqual(events, ["lock", "unlock"])
 
+    def test_starts_when_the_last_bounded_command_ends_between_the_reads(self):
+        readings = [1000, 8000]
+        bounded_run.wait_for_memory(4096, 300, 5.0, read_available=lambda: readings.pop(0), read_running=lambda: 0,
+                                    sleep=lambda seconds: self.fail("waits"))
+        self.assertEqual(readings, [])
+
+    def test_a_stop_gives_the_free_memory_read_after_the_count(self):
+        readings = [1000, 2000]
+        with self.assertRaises(bounded_run.NoMemory) as raised:
+            bounded_run.wait_for_memory(4096, 300, 5.0, read_available=lambda: readings.pop(0), read_running=lambda: 0,
+                                        sleep=lambda seconds: self.fail("waits"))
+        self.assertEqual(raised.exception.available, 2000)
+
 
 class HeadroomTest(unittest.TestCase):
     def test_a_tenth_of_the_memory(self):
@@ -2088,7 +2101,6 @@ class BoundedCleanupTest(unittest.TestCase):
         self.assertEqual(seen, [1])
         self.assertEqual([name for name in os.listdir(self.directory) if name.startswith("run-")], [])
 
-
     def test_a_row_that_stops_for_memory_ends_the_rows(self):
         calls = []
 
@@ -2100,6 +2112,16 @@ class BoundedCleanupTest(unittest.TestCase):
         with mock.patch.object(bounded_run, "bounded_once", once):
             self.assertEqual(bounded_run.bounded(options, self.environ), bounded_run.EXIT_NO_MEMORY)
         self.assertEqual(calls, [8])
+
+    def test_a_row_that_stops_for_memory_after_a_failed_row_exits_75(self):
+        def once(row, environ):
+            if row.cpus == 8:
+                return 1, 100
+            raise bounded_run.NoMemory(0, None)
+
+        options = bounded_run.parse_arguments(["--measure-rows", "8,4", "--", "true"])
+        with mock.patch.object(bounded_run, "bounded_once", once):
+            self.assertEqual(bounded_run.bounded(options, self.environ), bounded_run.EXIT_NO_MEMORY)
 
     def test_a_row_whose_command_exits_75_by_itself_does_not_end_the_rows(self):
         answers = iter([(bounded_run.EXIT_NO_MEMORY, 100), (0, 50)])
@@ -3010,7 +3032,8 @@ class WrapperProcessTest(WrapperProcessCase):
         )
         process = self.wrapper(["--memory", "4G", "--exclusive", "port"], [sys.executable, "-c", script])
         output, errors = process.communicate(timeout=60)
-        self.assertEqual(output, "locks 7 inherited 0\n", errors)
+        # The command can list the lock directory before the wrapper makes its run file.
+        self.assertIn(output, ("locks 6 inherited 0\n", "locks 7 inherited 0\n"), errors)
 
     def test_commands_with_the_same_exclusive_name_take_turns(self):
         workers = [self.worker("w%d" % index, "2G", hold="0.3", options=["--exclusive", "port-8080"]) for index in range(3)]  # brief; the test waits for each to end

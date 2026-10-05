@@ -6,12 +6,14 @@ Usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measur
        bounded_run.py --check [--memory SIZE]...
 
 The exit code is the exit code of the command. Exit code 125 means that this
-script failed before the command gave a result. Exit code 75 means that the
-budget did not fit in the free memory while no other bounded command ran, so
-nothing in the queue could free it. The command did not start, and the script
-printed one line in a fixed form:
+script failed before the command gave a result. Exit code 75 with the line
+below means that the budget did not fit in the free memory while no other
+bounded command ran, so nothing in the queue could free it, and the command
+did not start. The script printed one line in a fixed form:
 
   bounded-run: no-memory budget=<n>M free=<n>M headroom=<n>M fits=<n>M
+
+A command can also exit 75 by itself, without the line.
 
 free is the free memory less the unused budgets of the running commands.
 fits is the largest budget whose memory, with its own headroom, is free now,
@@ -39,7 +41,9 @@ list, the largest first. The largest runs with --memory. Without it, the
 largest runs with the default budget where the hard cap is available, and
 alone in the queue where it is not. Each smaller one runs with the suggested
 budget of the one before it, or with the budget of the one before it when that
-run did not exit 0. The exit code is the first exit code that is not 0.
+run did not exit 0. A row that stops with the no-memory line ends the list
+with exit code 75. Otherwise the exit code is the first exit code that is not
+0.
 
 --check runs no command and holds no lock when it returns. Its exit code is 0.
 It prints the state of the queue at that moment, one held line for each
@@ -707,30 +711,45 @@ def wait_for_memory(
     Returns at once when the free memory cannot be read. read_outstanding gives None where the unused budgets cannot be counted.
     The call returns with lock held: the caller calls unlock once the new command counts in read_outstanding.
     """
-    started = clock()
-    next_line: Optional[float] = None
-    while True:
-        lock()
+    def read() -> Tuple[Optional[int], Optional[int]]:
         # A running command that grows or shrinks during the reads moves both values. The larger of the two unused
         # counts around the free memory is the one that matches it or errs on the safe side.
         before = read_outstanding()
         available = read_available()
         if available is None:
+            return None, None
+        after = read_outstanding()
+        return available, None if before is None or after is None else max(before, after)
+
+    def state(available: int, outstanding: Optional[int]) -> str:
+        counted = "unused running budgets not counted here" if outstanding is None else "%d MiB of running budgets unused" % outstanding
+        return "%d MiB free, %s, %d MiB headroom, budget %d MiB" % (available, counted, headroom_mib, budget_mib)
+
+    started = clock()
+    next_line: Optional[float] = None
+    while True:
+        lock()
+        available, outstanding = read()
+        if available is None:
             log("cannot read the free memory; starting")
             return
-        after = read_outstanding()
-        outstanding = None if before is None or after is None else max(before, after)
-        counted = "unused running budgets not counted here" if outstanding is None else "%d MiB of running budgets unused" % outstanding
-        state = "%d MiB free, %s, %d MiB headroom, budget %d MiB" % (available, counted, headroom_mib, budget_mib)
         if memory_fits(budget_mib, available, outstanding, headroom_mib):
-            log(state + "; starting")
+            log(state(available, outstanding) + "; starting")
             return
         if read_running() == 0:
+            # A command ends without the memory lock, so the last one can free its memory after the reads above.
+            available, outstanding = read()
+            if available is None:
+                log("cannot read the free memory; starting")
+                return
+            if memory_fits(budget_mib, available, outstanding, headroom_mib):
+                log(state(available, outstanding) + "; starting")
+                return
             unlock()
             raise NoMemory(available, outstanding)
         waited = clock() - started
         if next_line is None or waited >= next_line:
-            log(state + ("; waiting" if next_line is None else "; still waiting after %ds" % waited))
+            log(state(available, outstanding) + ("; waiting" if next_line is None else "; still waiting after %ds" % waited))
             next_line = waited + interval_seconds
         unlock()
         sleep(poll_seconds)
@@ -1412,7 +1431,7 @@ def _bounded_rows(options: Options, environ: Mapping[str, str]) -> int:
                 code, suggested = bounded_once(row, environ)
             except NoMemory:
                 log("no memory for the row at --cpus %d; the rows after it are not measured" % cpus)
-                return result or EXIT_NO_MEMORY
+                return EXIT_NO_MEMORY
             measured += 1
             if code in STOP_CODES:
                 log("stopped by a signal; the rows after --cpus %d are not measured" % cpus)
