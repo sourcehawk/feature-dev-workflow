@@ -44,7 +44,7 @@ It prints the state of the queue at that moment, one held line for each
 running bounded command where the hard cap is available, and one line for
 each --memory, in the order given:
 
-  bounded-run: check slots=N slot=<n>M free-slots=N|- free=<n>M|- unused=<n>M|- cpus=N cpus-used=N|- cpus-headroom=N cpus-free=N|- line=free|busy
+  bounded-run: check slots=N slot=<n>M free-slots=N|- free=<n>M|- unused=<n>M|- cpus=N cpus-used=N|- cpus-headroom=N cpus-free=N|- line=free|busy fits=<n>M|-
   bounded-run: check held unit=NAME budget=<n>M|- used=<n>M|- cpus=N|- age=Ns|- dir=PATH|- command=TEXT|-
   bounded-run: check budget=<n>M slots=N headroom=<n>M starts=yes|no
 
@@ -54,7 +54,8 @@ the running bounded commands may use, and the cpus of a held line is the
 part of one command. cpus-headroom is the processors kept for the programs
 outside the queue, a tenth of cpus rounded up. cpus-free is cpus less
 cpus-headroom and cpus-used, and at least 0. starts=yes means that a run of
-that budget would start now. It is not a reservation.
+that budget would start now. It is not a reservation. fits is the largest
+budget that would start now, in steps of 256M, or 0M when none does.
 
 A normal call sets none of the environment variables below. A person can
 set the tuning values in the profile of the shell, so that every session
@@ -1633,10 +1634,11 @@ def check(
         return "-" if value is None else "%dM" % value
 
     spare = cpu_headroom(machine)
-    log("check slots=%d slot=%dM free-slots=%s free=%s unused=%s cpus=%d cpus-used=%s cpus-headroom=%d cpus-free=%s line=%s" % (
+    log("check slots=%d slot=%dM free-slots=%s free=%s unused=%s cpus=%d cpus-used=%s cpus-headroom=%d cpus-free=%s line=%s fits=%s" % (
         count, settings.slot_mib, "-" if free_slots is None else free_slots, mib(available), mib(outstanding),
         machine, "-" if used is None else used, spare, "-" if used is None else max(0, machine - spare - used),
-        "free" if line is not None else "busy"))
+        "free" if line is not None else "busy",
+        "-" if available is None else "%dM" % largest_fit_mib(available, outstanding, settings.total_mib, most)))
     for held in held_commands(scopes, ()) if scopes is not None else []:
         log("check held " + held)
     for budget in budgets:
