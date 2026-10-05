@@ -6,7 +6,15 @@ Usage: bounded_run.py [--memory SIZE] [--cpus N] [--exclusive NAME]... [--measur
        bounded_run.py --check [--memory SIZE]...
 
 The exit code is the exit code of the command. Exit code 125 means that this
-script failed before the command gave a result. A stop signal to this script
+script failed before the command gave a result. Exit code 75 means that the
+budget did not fit in the free memory while no other bounded command ran, so
+nothing in the queue could free it. The command did not start, and the script
+printed one line in a fixed form:
+
+  bounded-run: no-memory budget=<n>M free=<n>M headroom=<n>M fits=<n>M
+
+free is the free memory less the unused budgets of the running commands,
+and fits is the largest budget that would start now, or 0M. A stop signal to this script
 (SIGHUP, SIGINT, SIGQUIT, or SIGTERM) stops the command, and then this script
 ends by the same signal. So a Ctrl-C at the terminal, which reaches the shell
 too, stops a line of joined commands; a signal sent to this script alone does
@@ -98,6 +106,7 @@ except ImportError:
 
 PREFIX = "bounded-run"
 EXIT_WRAPPER = 125
+EXIT_NO_MEMORY = 75
 ACTIVE_VARIABLE = "BOUNDED_RUN_ACTIVE"
 VALUE_OPTIONS = ("--memory", "--cpus", "--exclusive", "--measure-rows", "--label")
 SLOT_MIB = 2048
@@ -1397,6 +1406,9 @@ def _bounded_rows(options: Options, environ: Mapping[str, str]) -> int:
             if code in STOP_CODES:
                 log("stopped by a signal; the rows after --cpus %d are not measured" % cpus)
                 return result or code
+            if code == EXIT_NO_MEMORY:
+                log("no memory for the row at --cpus %d; the rows after it are not measured" % cpus)
+                return result or code
             if code == 0:
                 memory = "%dM" % suggested
             else:
@@ -1523,15 +1535,28 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
                 log("the scope of the command did not appear after %ds; the next command may not count its budget" % SCOPE_WAIT_SECONDS)
         unlock_memory()
 
+    def read_running() -> int:
+        running = running_commands(directory)
+        # A command of an older wrapper holds no run file, but under the hard cap it runs in a bounded scope.
+        if scopes is not None:
+            running = max(running, len(_bounded_scopes(scopes, skip)))
+        return running
+
     reported: Optional[int] = None
     reservation = reserve(directory, count, needed, exclusive_files, settings.poll_seconds)
     try:
-        wait_for_memory(
-            wait_budget, settings.memory_wait_seconds, settings.poll_seconds,
-            headroom_mib=headroom_mib(settings.total_mib, wait_budget, most),
-            read_available=read_available, read_outstanding=read_outstanding,
-            lock=lock_memory, unlock=unlock_memory,
-        )
+        try:
+            wait_for_memory(
+                wait_budget, settings.memory_wait_seconds, settings.poll_seconds,
+                headroom_mib=headroom_mib(settings.total_mib, wait_budget, most),
+                read_available=read_available, read_outstanding=read_outstanding,
+                read_running=read_running, lock=lock_memory, unlock=unlock_memory,
+            )
+        except NoMemory as stop:
+            log("no-memory budget=%dM free=%dM headroom=%dM fits=%dM" % (
+                wait_budget, stop.available - (stop.outstanding or 0), headroom_mib(settings.total_mib, wait_budget, most),
+                largest_fit_mib(stop.available, stop.outstanding, settings.total_mib, most)))
+            return EXIT_NO_MEMORY, 0
         code, maxrss = run_command(command, child_environ, on_start)
         tracked = trackers[0].finish() if trackers else None
         held = trackers[0].held if trackers else None
