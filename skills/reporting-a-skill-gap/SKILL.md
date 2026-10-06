@@ -39,11 +39,19 @@ Open the installed skill, `${CLAUDE_PLUGIN_ROOT}/skills/<name>/SKILL.md`, and fi
 gh issue list --repo OWNER/REPO --state all --search "<skill-name> <two or three words for the failure>" --limit 20
 ```
 
-Run a second search with other words if the first finds nothing. The list shows titles only, so open each plausible match with `gh issue view <num> --repo OWNER/REPO --comments` before you pick a branch below. Then:
+Run a second search with other words if the first finds nothing. The list shows titles only, so open each plausible match with `gh issue view <num> --repo OWNER/REPO --comments` before you pick a branch below. That view shows a closed issue as `CLOSED` but not why it was closed, so for each closed match also run:
+
+```
+gh issue view <num> --repo OWNER/REPO --json stateReason --jq .stateReason
+```
+
+It prints `COMPLETED`, `NOT_PLANNED`, or `DUPLICATE`. Then:
 
 - **An open issue covers the same gap:** comment on it instead of filing a new one. The comment adds your reproduction and evidence (see the template's comment form). If the issue already has a reproduction of the same case, tell the user and stop.
-- **A closed issue covers it, fixed in a version newer than the installed one:** tell the user to update the plugin. File nothing.
-- **A closed issue covers it and the installed version has the fix:** it is a regression. File a new issue and name the closed one in `## Evidence`.
+- **A closed issue covers it, closed as `DUPLICATE`:** follow it to the issue it duplicates and pick the branch for that issue instead. Do not comment on the duplicate. Get the number with `gh api graphql -f query='query{repository(owner:"OWNER",name:"REPO"){issue(number:<num>){duplicateOf{number}}}}' --jq '.data.repository.issue.duplicateOf.number'`. If it prints an empty line, take the number from the closing comment.
+- **A closed issue covers it, closed as `NOT_PLANNED`:** the maintainers declined this gap. Tell the user, with the reason from the thread, and file nothing: no new issue, and no comment on the closed one. This holds under a standing grant too, because a grant lets a report land without a prompt and does not decide whether one is due. A reproduction that the closed issue lacks is not a difference. File a new issue only when your case differs from the closed one in a way the maintainers' reason does not cover, such as another section or another failure. The new issue names the closed one and the difference in `## Evidence`.
+- **A closed issue covers it, closed as `COMPLETED` and fixed in a version newer than the installed one:** tell the user to update the plugin. File nothing.
+- **A closed issue covers it, closed as `COMPLETED`, and the installed version has the fix:** it is a regression. File a new issue and name the closed one in `## Evidence`.
 - **No match:** file a new issue.
 
 ## Step 4: draft the body from the template
@@ -91,4 +99,5 @@ Do not edit the installed copy of the skill under `${CLAUDE_PLUGIN_ROOT}`: the p
 | "I'll mention the project so they see it was a real case" | The repository is public. The generic shape is the real case; the names add only risk. |
 | "It's only a test key, I'll mask it" | Leave it out. A masked key still tells a reader what kind of secret leaked and where. |
 | "This is probably new, I'll skip the search" | A second issue splits the thread. Search first; a reproduction is worth more on the existing issue. |
+| "It was closed as not planned, but it had no reproduction, and the user asked me to report" | The maintainers declined the gap, not the report's form. Tell the user and file nothing. A new issue needs a difference that their reason does not cover. |
 | "I'll fix the installed skill file so it works now" | The cache is overwritten on update, and the fix needs the maintainer's RED baseline. Report it and keep the hand-added instruction in your prompts. |
