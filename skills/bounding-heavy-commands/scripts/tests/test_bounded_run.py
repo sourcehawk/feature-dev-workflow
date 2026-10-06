@@ -724,6 +724,70 @@ class RunningCountTest(unittest.TestCase):
         self.assertFalse(os.path.exists(path))
 
 
+class MemoryWaiterTest(unittest.TestCase):
+    def setUp(self):
+        self.base = tempfile.TemporaryDirectory()
+        self.addCleanup(self.base.cleanup)
+        self.directory = self.base.name
+
+    def mark(self, unit, budget=6144, slots=3, working="/work/project", command=("make", "test"), since=1000.0):
+        descriptor = bounded_run.write_wait_file(self.directory, unit, budget, slots, working, list(command), now=lambda: since)
+        self.addCleanup(lambda: os.close(descriptor) if self.is_open(descriptor) else None)
+        return descriptor
+
+    @staticmethod
+    def is_open(descriptor):
+        try:
+            os.fstat(descriptor)
+        except OSError:
+            return False
+        return True
+
+    def waiters(self, now=1042.0):
+        return bounded_run.memory_waiters(self.directory, now=lambda: now)
+
+    def test_names_the_budget_the_slots_the_age_the_directory_and_the_command_of_each_waiter(self):
+        self.mark("bounded-run-5-000005")
+        self.mark("bounded-run-6-000006", budget=2048, slots=1, working="/other", command=("tool",), since=1040.0)
+        self.assertEqual(self.waiters(), [
+            "unit=bounded-run-5-000005 for=memory budget=6144M slots=3 age=42s dir=/work/project command=make test",
+            "unit=bounded-run-6-000006 for=memory budget=2048M slots=1 age=2s dir=/other command=tool",
+        ])
+
+    def test_no_waiter_after_the_wait_file_is_removed(self):
+        descriptor = self.mark("bounded-run-5-000005")
+        bounded_run.remove_wait_file(self.directory, "bounded-run-5-000005", descriptor)
+        self.assertEqual(self.waiters(), [])
+        self.assertEqual(os.listdir(self.directory), [])
+
+    def test_a_wait_file_that_no_process_holds_is_removed_and_not_named(self):
+        os.close(self.mark("bounded-run-5-000005"))
+        self.assertEqual(self.waiters(), [])
+        self.assertEqual(os.listdir(self.directory), [])
+
+    def test_the_wait_file_holds_no_process_id(self):
+        self.mark("bounded-run-5-000005")
+        text = Path(self.directory, bounded_run.wait_file_name("bounded-run-5-000005")).read_text()
+        self.assertNotIn(str(os.getpid()), text)
+
+    def test_a_directory_that_cannot_be_read_gives_no_waiter(self):
+        self.assertEqual(bounded_run.memory_waiters(os.path.join(self.directory, "missing")), [])
+
+    def test_a_directory_and_a_command_with_line_breaks_stay_on_one_line(self):
+        self.mark("bounded-run-5-000005", working="/a\nb", command=("sh", "-c", "a\nb"))
+        self.assertEqual(self.waiters(), ["unit=bounded-run-5-000005 for=memory budget=6144M slots=3 age=42s dir=/a b command=sh -c a b"])
+
+    def test_a_long_command_is_cut(self):
+        self.mark("bounded-run-5-000005", command=("x" * 500,))
+        self.assertEqual(len(self.waiters()[0].split(" command=")[1]), bounded_run.HELD_COMMAND_CHARACTERS)
+
+    def test_slot_and_run_files_are_not_waiters(self):
+        for name in ("slot-000.lock", bounded_run.run_file_name("bounded-run-1-000001")):
+            descriptor = bounded_run._try_lock(os.path.join(self.directory, name))
+            self.addCleanup(os.close, descriptor)
+        self.assertEqual(self.waiters(), [])
+
+
 class MemoryReadTest(unittest.TestCase):
     def test_reads_the_available_memory_of_meminfo(self):
         text = "MemTotal:       32000000 kB\nMemFree:         1000000 kB\nMemAvailable:    8388608 kB\n"
@@ -926,6 +990,18 @@ class MemoryWaitTest(unittest.TestCase):
             lock=lambda: events.append("lock"), unlock=lambda: events.append("unlock"),
         )
         self.assertEqual(events, ["lock", "read", "unlock", "sleep", "lock", "read"])
+
+    def test_calls_on_wait_before_each_sleep_with_the_lock_released(self):
+        events = []
+        readings = [1000, 1000, 5000]
+        bounded_run.wait_for_memory(
+            4096, 300, 5.0, read_available=lambda: readings.pop(0), sleep=lambda seconds: events.append("sleep"),
+            lock=lambda: events.append("lock"), unlock=lambda: events.append("unlock"), on_wait=lambda: events.append("wait"),
+        )
+        self.assertEqual(events, ["lock", "unlock", "wait", "sleep", "lock", "unlock", "wait", "sleep", "lock"])
+
+    def test_does_not_call_on_wait_when_the_memory_is_free_at_once(self):
+        bounded_run.wait_for_memory(4096, 300, 5.0, read_available=lambda: 8000, on_wait=lambda: self.fail("waits"))
 
     def test_reads_the_unused_budgets_before_and_after_the_free_memory(self):
         events = []
@@ -2080,6 +2156,30 @@ class BoundedCleanupTest(unittest.TestCase):
         self.assertEqual(free, {"before the scope": False, "before the limit": False, "at the start": True})
         self.assertLess(time.monotonic() - started, 5)
 
+    def test_the_wait_file_names_the_held_slots_while_the_command_waits_and_is_gone_when_it_starts(self):
+        seen = []
+
+        def wait(*arguments, **keywords):
+            keywords["on_wait"]()
+            keywords["on_wait"]()
+            seen.append(bounded_run.memory_waiters(self.directory))
+
+        def fake_run_command(command, environ, on_start=None):
+            seen.append(bounded_run.memory_waiters(self.directory))
+            return 0, 0
+
+        options = bounded_run.Options()
+        options.memory = "1G"
+        options.command = [sys.executable, "-c", "pass"]
+        with mock.patch.object(bounded_run, "probe_cap", return_value=None), \
+                mock.patch.object(bounded_run, "wait_for_memory", wait), \
+                mock.patch.object(bounded_run, "run_command", fake_run_command):
+            self.assertEqual(bounded_run.bounded(options, self.environ), 0)
+        self.assertEqual(len(seen[0]), 1)
+        self.assertIn(" for=memory budget=1024M slots=1 ", seen[0][0])
+        self.assertEqual(seen[1], [])
+        self.assertEqual([name for name in os.listdir(self.directory) if name.startswith("wait-")], [])
+
     def test_the_wait_counts_no_unused_budget_without_a_cap(self):
         self.assertIsNone(self.wait_arguments(None)["read_outstanding"]())
 
@@ -2631,6 +2731,13 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(events[-1], "slots")
         self.assertIn("probe", events)
 
+    def test_names_each_command_that_waits_for_memory_also_without_a_cap(self):
+        descriptor = bounded_run.write_wait_file(self.directory, "bounded-run-5-000005", 6144, 3, "/w", ["tool"], now=time.time)
+        self.addCleanup(os.close, descriptor)
+        lines = self.check(["2G"])
+        self.assertRegex(lines[1], r"^check waiting unit=bounded-run-5-000005 for=memory budget=6144M slots=3 age=\d+s dir=/w command=tool$")
+        self.assertTrue(lines[2].startswith("check budget=2048M "), lines)
+
     def test_no_held_line_without_a_cap(self):
         self.hold("slot-000.lock")
         self.assertFalse(any(line.startswith("check held") for line in self.check(["2G"])))
@@ -3002,6 +3109,38 @@ class WrapperProcessTest(WrapperProcessCase):
         order = [line.split()[:2] for line in self.read_events()]
         self.assertLess(order.index(["end", "holder"]), order.index(["start", "large"]))
         self.assertLess(order.index(["start", "large"]), order.index(["start", "small"]))
+
+    def memory_waiter(self):
+        """Starts a holder, then a large command whose budget does not fit in the free memory, with five slots of 2 GiB.
+
+        Each wrapper reads 6000 MiB of free memory and keeps a headroom of 1228 MiB, so the large command needs 3 slots and
+        waits for memory while the holder runs. Returns the release file, the holder, and the large command, once the large
+        command waits for memory.
+        """
+        self.environ.update({"BOUNDED_RUN_TOTAL_MIB": "12288", "BOUNDED_RUN_FREE_MIB": "6000"})
+        release = os.path.join(self.base.name, "release")
+        holder = self.worker("holder", "2G", hold="300", release=release)  # runs until the test writes the release file
+        self.wait_for_event("start", "holder")
+        large = self.worker("large", "6G", hold="0")  # does not start: its budget never fits in the free memory
+        self.wait_for_stderr(large, "; waiting")
+        # The wrapper logs the wait before it writes its wait file.
+        deadline = time.time() + 60
+        while not any(name.startswith("wait-") and name.endswith(".lock") for name in os.listdir(self.environ["BOUNDED_RUN_LOCK_DIR"])):
+            self.assertLess(time.time(), deadline, "the large command wrote no wait file")
+            time.sleep(0.02)
+        return release, holder, large
+
+    def test_a_check_names_the_command_that_waits_for_memory(self):
+        release, holder, large = self.memory_waiter()
+        done = subprocess.run([sys.executable, WRAPPER, "--check"], env=self.environ, capture_output=True, text=True, timeout=60)
+        self.assertRegex(done.stderr, r"\nbounded-run: check waiting unit=bounded-run-%d-[0-9a-f]{6} for=memory budget=6144M slots=3 age=\d+s dir=%s command=%s -c import os, sys, time def event" % (
+            large.pid, re.escape(os.getcwd()), re.escape(sys.executable)))
+        # The holder holds 1 slot and the waiter 3 of the 5.
+        self.assertIn(" free-slots=1 ", done.stderr)
+        Path(release).write_text("")
+        self.assertEqual(holder.wait(timeout=60), 0)
+        self.assertEqual(large.wait(timeout=60), bounded_run.EXIT_NO_MEMORY)
+        self.assertEqual([name for name in os.listdir(self.environ["BOUNDED_RUN_LOCK_DIR"]) if name.startswith("wait-")], [])
 
     def test_a_hard_kill_of_the_wrapper_frees_the_slots_at_once(self):
         holder = self.worker("holder", "4G", hold="300")  # runs until the kill below ends it
