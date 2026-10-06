@@ -3179,6 +3179,11 @@ class WrapperProcessTest(WrapperProcessCase):
         self.wait_for_event("start", "holder")
         large = self.worker("large", "6G", hold="0")  # does not start: its budget never fits in the free memory
         self.wait_for_stderr(large, "; waiting")
+        # The wrapper logs the wait before it gives back its slots and writes its wait file.
+        deadline = time.time() + 60
+        while not any(name.startswith("wait-") and name.endswith(".lock") for name in os.listdir(self.environ["BOUNDED_RUN_LOCK_DIR"])):
+            self.assertLess(time.time(), deadline, "the large command wrote no wait file")
+            time.sleep(0.02)
         return release, holder, large
 
     def test_a_command_that_waits_for_memory_does_not_stop_a_smaller_command_that_fits(self):
