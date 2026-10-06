@@ -25,13 +25,13 @@ When you comment on an existing issue instead of filing a new one, the comment h
 ## Where in the plugin
 
 <!--
-Exactly these three lines:
+One Skill and Section pair for each skill, then one Plugin version line:
 
 - Skill: `feature-dev-workflow:<name>`
 - Section: `<the heading, copied from the installed SKILL.md, with its # marks>`
 - Plugin version: `<version from .claude-plugin/plugin.json>`
 
-When the failure is that a skill did not trigger, the section is `description` (the frontmatter trigger text). When more than one skill is involved, repeat the Skill and Section lines for each.
+When the failure is that a skill did not trigger, the section is `description` (the frontmatter trigger text). When more than one skill is involved, write the Skill and Section pair once for each skill, and the Plugin version line once at the end.
 -->
 
 <!-- optional -->
