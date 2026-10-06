@@ -45,7 +45,7 @@ Run a second search with other words if the first finds nothing. The list shows 
 gh issue view <num> --repo OWNER/REPO --json stateReason --jq .stateReason
 ```
 
-It prints `COMPLETED`, `NOT_PLANNED`, or `DUPLICATE`. Then:
+It prints `COMPLETED`, `NOT_PLANNED`, or `DUPLICATE`. If it prints an empty line, GitHub recorded no reason: take it from the closing comment, and if the comment does not say, ask the user which branch applies. Then:
 
 - **An open issue covers the same gap:** comment on it instead of filing a new one. The comment adds your reproduction and evidence (see the template's comment form). If the issue already has a reproduction of the same case, tell the user and stop.
 - **A closed issue covers it, closed as `DUPLICATE`:** follow it to the issue it duplicates and pick the branch for that issue instead. Do not comment on the duplicate. Get the number with `gh api graphql -f query='query{repository(owner:"OWNER",name:"REPO"){issue(number:<num>){duplicateOf{number}}}}' --jq '.data.repository.issue.duplicateOf.number'`. If it prints an empty line, take the number from the closing comment.
