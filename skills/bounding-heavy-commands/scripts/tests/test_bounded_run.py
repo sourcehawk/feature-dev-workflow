@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import errno
-import json
 import os
 import re
 import select
@@ -766,24 +765,6 @@ class MemoryWaiterTest(unittest.TestCase):
         self.assertEqual(self.waiters(), [])
         self.assertEqual(os.listdir(self.directory), [])
 
-    def test_a_new_wait_file_that_takes_the_name_after_the_lock_is_kept_and_named_on_the_next_read(self):
-        unit = "bounded-run-5-000005"
-        path = os.path.join(self.directory, bounded_run.wait_file_name(unit))
-        real_try_lock = bounded_run._try_lock
-
-        def try_lock_then_replace(name):
-            # The waiter writes its new wait file after the reader locked the old one.
-            descriptor = real_try_lock(name)
-            if name == path:
-                self.mark(unit)
-            return descriptor
-
-        open(path, "w").close()
-        with mock.patch.object(bounded_run, "_try_lock", try_lock_then_replace):
-            self.assertEqual(self.waiters(), [])
-        self.assertTrue(os.path.exists(path))
-        self.assertEqual(self.waiters(), ["unit=%s for=memory budget=6144M slots=3 age=42s dir=/work/project command=make test" % unit])
-
     def test_the_wait_file_holds_no_process_id(self):
         self.mark("bounded-run-5-000005")
         text = Path(self.directory, bounded_run.wait_file_name("bounded-run-5-000005")).read_text()
@@ -956,9 +937,8 @@ class MemoryWaitTest(unittest.TestCase):
             sleeps.append(seconds)
             now[0] += seconds * oversleep
 
-        # The last value stays, for the reading after the slots are taken again.
         bounded_run.wait_for_memory(
-            4096, limit, 5.0, headroom_mib=headroom, read_available=lambda: readings.pop(0) if len(readings) > 1 else readings[0],
+            4096, limit, 5.0, headroom_mib=headroom, read_available=lambda: readings.pop(0),
             read_outstanding=lambda: outstanding, sleep=sleep, clock=lambda: now[0],
         )
         return sleeps
@@ -1008,59 +988,20 @@ class MemoryWaitTest(unittest.TestCase):
         bounded_run.wait_for_memory(
             4096, 300, 5.0, read_available=read, sleep=lambda seconds: events.append("sleep"),
             lock=lambda: events.append("lock"), unlock=lambda: events.append("unlock"),
-            hold=lambda: readings.append(5000),
         )
-        self.assertEqual(events, ["lock", "read", "unlock", "sleep", "lock", "read", "unlock", "lock", "read"])
+        self.assertEqual(events, ["lock", "read", "unlock", "sleep", "lock", "read"])
 
-    def slot_events(self, values, running=1):
+    def test_calls_on_wait_before_each_sleep_with_the_lock_released(self):
         events = []
-        readings = list(values)
-
-        def read():
-            events.append("read")
-            return readings.pop(0)
-
+        readings = [1000, 1000, 5000]
         bounded_run.wait_for_memory(
-            4096, 300, 5.0, read_available=read, read_running=lambda: running, sleep=lambda seconds: events.append("sleep"),
-            lock=lambda: events.append("lock"), unlock=lambda: events.append("unlock"),
-            hold=lambda: events.append("hold"), release=lambda: events.append("release"),
+            4096, 300, 5.0, read_available=lambda: readings.pop(0), sleep=lambda seconds: events.append("sleep"),
+            lock=lambda: events.append("lock"), unlock=lambda: events.append("unlock"), on_wait=lambda: events.append("wait"),
         )
-        return events
+        self.assertEqual(events, ["lock", "unlock", "wait", "sleep", "lock", "unlock", "wait", "sleep", "lock"])
 
-    def test_keeps_the_slots_when_the_memory_is_free_at_once(self):
-        self.assertEqual(self.slot_events([8000]), ["lock", "read"])
-
-    def test_gives_back_the_slots_while_it_waits_and_takes_them_again_before_it_reads_the_memory_that_starts_it(self):
-        self.assertEqual(self.slot_events([1000, 1000, 8000, 8000]), [
-            "lock", "read", "unlock", "release", "sleep",
-            "lock", "read", "unlock", "sleep",
-            "lock", "read", "unlock", "hold",
-            "lock", "read",
-        ])
-
-    def test_gives_back_the_slots_again_when_the_memory_is_taken_while_it_waits_for_them(self):
-        self.assertEqual(self.slot_events([1000, 8000, 1000, 8000, 8000]), [
-            "lock", "read", "unlock", "release", "sleep",
-            "lock", "read", "unlock", "hold",
-            "lock", "read", "unlock", "release", "sleep",
-            "lock", "read", "unlock", "hold",
-            "lock", "read",
-        ])
-
-    def test_says_starting_only_when_it_holds_the_slots(self):
-        self.slot_events([1000, 8000, 8000])
-        starting = [line for line in self.lines() if line.endswith("; starting")]
-        self.assertEqual(len(starting), 1, self.lines())
-
-    def test_stops_without_the_slots_when_the_memory_does_not_come_free_and_no_bounded_command_runs_any_more(self):
-        running = [1, 0]
-        events = []
-        with self.assertRaises(bounded_run.NoMemory):
-            bounded_run.wait_for_memory(
-                4096, 300, 5.0, read_available=lambda: 1000, read_running=lambda: running.pop(0),
-                sleep=lambda seconds: None, hold=lambda: events.append("hold"), release=lambda: events.append("release"),
-            )
-        self.assertEqual(events, ["release"])
+    def test_does_not_call_on_wait_when_the_memory_is_free_at_once(self):
+        bounded_run.wait_for_memory(4096, 300, 5.0, read_available=lambda: 8000, on_wait=lambda: self.fail("waits"))
 
     def test_reads_the_unused_budgets_before_and_after_the_free_memory(self):
         events = []
@@ -1081,8 +1022,8 @@ class MemoryWaitTest(unittest.TestCase):
     def test_counts_the_larger_of_the_unused_budgets_read_before_and_after_the_free_memory(self):
         for first, second in ((1000, 3000), (3000, 1000)):
             with self.subTest(first=first, second=second):
-                unused = [first, second, 0, 0, 0, 0]
-                readings = [4000, 8000, 8000]
+                unused = [first, second, 0, 0]
+                readings = [4000, 8000]
                 sleeps = []
                 bounded_run.wait_for_memory(
                     2048, 300, 5.0, read_available=lambda: readings.pop(0), read_outstanding=lambda: unused.pop(0),
@@ -1115,7 +1056,7 @@ class MemoryWaitTest(unittest.TestCase):
         self.assertEqual(raised.exception.available, 1000)
 
     def test_waits_while_another_bounded_command_runs(self):
-        readings = [1000, 5000, 5000]
+        readings = [1000, 5000]
         sleeps = []
         bounded_run.wait_for_memory(4096, 300, 5.0, read_available=lambda: readings.pop(0), read_running=lambda: 1,
                                     sleep=sleeps.append)
@@ -2215,26 +2156,29 @@ class BoundedCleanupTest(unittest.TestCase):
         self.assertEqual(free, {"before the scope": False, "before the limit": False, "at the start": True})
         self.assertLess(time.monotonic() - started, 5)
 
-    def test_the_age_of_a_waiter_counts_from_its_first_wait_for_memory(self):
-        starts = []
+    def test_the_wait_file_names_the_held_slots_while_the_command_waits_and_is_gone_when_it_starts(self):
+        seen = []
 
         def wait(*arguments, **keywords):
-            for _ in range(2):
-                keywords["release"]()
-                path = os.path.join(self.directory, [name for name in os.listdir(self.directory) if name.startswith("wait-")][0])
-                starts.append(json.loads(Path(path).read_text())["since"])
-                time.sleep(0.05)
-                keywords["hold"]()
+            keywords["on_wait"]()
+            keywords["on_wait"]()
+            seen.append(bounded_run.memory_waiters(self.directory))
+
+        def fake_run_command(command, environ, on_start=None):
+            seen.append(bounded_run.memory_waiters(self.directory))
+            return 0, 0
 
         options = bounded_run.Options()
         options.memory = "1G"
         options.command = [sys.executable, "-c", "pass"]
         with mock.patch.object(bounded_run, "probe_cap", return_value=None), \
                 mock.patch.object(bounded_run, "wait_for_memory", wait), \
-                mock.patch.object(bounded_run, "run_command", return_value=(0, 0)):
+                mock.patch.object(bounded_run, "run_command", fake_run_command):
             self.assertEqual(bounded_run.bounded(options, self.environ), 0)
-        self.assertEqual(len(starts), 2)
-        self.assertEqual(starts[0], starts[1])
+        self.assertEqual(len(seen[0]), 1)
+        self.assertIn(" for=memory budget=1024M slots=1 ", seen[0][0])
+        self.assertEqual(seen[1], [])
+        self.assertEqual([name for name in os.listdir(self.directory) if name.startswith("wait-")], [])
 
     def test_the_wait_counts_no_unused_budget_without_a_cap(self):
         self.assertIsNone(self.wait_arguments(None)["read_outstanding"]())
@@ -3169,9 +3113,9 @@ class WrapperProcessTest(WrapperProcessCase):
     def memory_waiter(self):
         """Starts a holder, then a large command whose budget does not fit in the free memory, with five slots of 2 GiB.
 
-        Each wrapper reads 6000 MiB of free memory and keeps a headroom of 1228 MiB. The large command needs 3 slots,
-        and the 4 GiB command needs 2 of the 4 slots that the holder leaves. Returns the release file, the holder, and the
-        large command, once the large command waits for memory.
+        Each wrapper reads 6000 MiB of free memory and keeps a headroom of 1228 MiB, so the large command needs 3 slots and
+        waits for memory while the holder runs. Returns the release file, the holder, and the large command, once the large
+        command waits for memory.
         """
         self.environ.update({"BOUNDED_RUN_TOTAL_MIB": "12288", "BOUNDED_RUN_FREE_MIB": "6000"})
         release = os.path.join(self.base.name, "release")
@@ -3179,33 +3123,24 @@ class WrapperProcessTest(WrapperProcessCase):
         self.wait_for_event("start", "holder")
         large = self.worker("large", "6G", hold="0")  # does not start: its budget never fits in the free memory
         self.wait_for_stderr(large, "; waiting")
-        # The wrapper logs the wait before it gives back its slots and writes its wait file.
+        # The wrapper logs the wait before it writes its wait file.
         deadline = time.time() + 60
         while not any(name.startswith("wait-") and name.endswith(".lock") for name in os.listdir(self.environ["BOUNDED_RUN_LOCK_DIR"])):
             self.assertLess(time.time(), deadline, "the large command wrote no wait file")
             time.sleep(0.02)
         return release, holder, large
 
-    def test_a_command_that_waits_for_memory_does_not_stop_a_smaller_command_that_fits(self):
-        release, holder, large = self.memory_waiter()
-        small = self.worker("small", "4G", hold="0")  # ends at once; the test waits for it to end
-        self.assertEqual(small.wait(timeout=60), 0)
-        self.assertIsNone(holder.poll())
-        Path(release).write_text("")
-        self.assertEqual(holder.wait(timeout=60), 0)
-        self.assertEqual(large.wait(timeout=60), bounded_run.EXIT_NO_MEMORY)
-        self.assertNotIn(["start", "large"], [line.split()[:2] for line in self.read_events()])
-        self.assertEqual([name for name in os.listdir(self.environ["BOUNDED_RUN_LOCK_DIR"]) if name.startswith("wait-")], [])
-
     def test_a_check_names_the_command_that_waits_for_memory(self):
         release, holder, large = self.memory_waiter()
         done = subprocess.run([sys.executable, WRAPPER, "--check"], env=self.environ, capture_output=True, text=True, timeout=60)
         self.assertRegex(done.stderr, r"\nbounded-run: check waiting unit=bounded-run-%d-[0-9a-f]{6} for=memory budget=6144M slots=3 age=\d+s dir=%s command=%s -c import os, sys, time def event" % (
             large.pid, re.escape(os.getcwd()), re.escape(sys.executable)))
-        self.assertIn(" free-slots=4 ", done.stderr)
+        # The holder holds 1 slot and the waiter 3 of the 5.
+        self.assertIn(" free-slots=1 ", done.stderr)
         Path(release).write_text("")
-        holder.wait(timeout=60)
-        large.wait(timeout=60)
+        self.assertEqual(holder.wait(timeout=60), 0)
+        self.assertEqual(large.wait(timeout=60), bounded_run.EXIT_NO_MEMORY)
+        self.assertEqual([name for name in os.listdir(self.environ["BOUNDED_RUN_LOCK_DIR"]) if name.startswith("wait-")], [])
 
     def test_a_hard_kill_of_the_wrapper_frees_the_slots_at_once(self):
         holder = self.worker("holder", "4G", hold="300")  # runs until the kill below ends it

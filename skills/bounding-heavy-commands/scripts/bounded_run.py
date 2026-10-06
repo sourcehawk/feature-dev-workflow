@@ -64,9 +64,8 @@ outside the queue, a tenth of cpus rounded up. cpus-free is cpus less
 cpus-headroom and cpus-used, and at least 0. starts=yes means that a run of
 that budget would start now. It is not a reservation. fits is the largest
 budget whose memory, with its own headroom, is free now, in steps of 256M,
-or 0M when none is; it does not count slots or the line. A command that
-waits for memory holds none of the slots of its waiting line, so a smaller
-command whose budget fits can start before it.
+or 0M when none is; it does not count slots or the line. A waiting line is
+a command that holds its slots and waits for memory.
 
 A normal call sets none of the environment variables below. A person can
 set the tuning values in the profile of the shell, so that every session
@@ -528,7 +527,8 @@ def write_wait_file(
 ) -> int:
     """Writes the wait file of the unit and holds it locked. Returns its descriptor for remove_wait_file.
 
-    The file names the budget, the slots, the directory, and the command, for memory_waiters to read. It holds no process ID.
+    The file names the budget, the slots that the command holds, the directory, and the command, for memory_waiters to read.
+    It holds no process ID.
     """
     path = os.path.join(directory, wait_file_name(unit))
     partial = path + ".new"
@@ -570,13 +570,10 @@ def memory_waiters(directory: str, now: Callable[[], float] = time.time) -> List
         path = os.path.join(directory, name)
         descriptor = _try_lock(path)
         if descriptor is not None:
-            # A waiter puts a new wait file at the same name each time it gives back its slots, so the name can hold a
-            # new, held file by now.
-            if _is_the_file_at(path, descriptor):
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
             os.close(descriptor)
             continue
         try:
@@ -781,22 +778,16 @@ def wait_for_memory(
     lock: Callable[[], None] = lambda: None,
     unlock: Callable[[], None] = lambda: None,
     clock: Callable[[], float] = time.monotonic,
-    hold: Callable[[], None] = lambda: None,
-    release: Callable[[], None] = lambda: None,
+    on_wait: Callable[[], None] = lambda: None,
 ) -> None:
     """Returns when the free memory, less the unused budgets of running commands and the headroom, holds the budget.
-
-    The caller holds the slots of the command at the call. While the memory is not free, the call gives them back
-    with release, so that a smaller command can start with them. When the memory is free again, it takes them with
-    hold, with lock released, and reads the memory again before it returns. hold can wait in the line for minutes.
 
     There is no time limit while another bounded command runs, so the call can block for as long as the machine
     is full. Raises NoMemory, with lock released, when none runs, because then nothing in the queue frees memory.
     read_running gives the number of bounded commands that run, or None where it is not known: the call waits.
-    When the free memory cannot be read, the call returns without a wait for memory.
-    read_outstanding gives None where the unused budgets cannot be counted.
-    The call returns with lock held and the slots held: the caller calls unlock once the new command counts in read_outstanding.
-    NoMemory can come after the call gave the slots back.
+    Returns at once when the free memory cannot be read. read_outstanding gives None where the unused budgets cannot be counted.
+    The call returns with lock held: the caller calls unlock once the new command counts in read_outstanding.
+    on_wait is called, with lock released, before each sleep of the wait.
     """
     def read() -> Tuple[Optional[int], Optional[int]]:
         # A running command that grows or shrinks during the reads moves both values. The larger of the two unused
@@ -814,34 +805,32 @@ def wait_for_memory(
 
     started = clock()
     next_line: Optional[float] = None
-    held = True
     while True:
         lock()
         available, outstanding = read()
-        fits = available is None or memory_fits(budget_mib, available, outstanding, headroom_mib)
-        if not fits and read_running() == 0:
+        if available is None:
+            log("cannot read the free memory; starting")
+            return
+        if memory_fits(budget_mib, available, outstanding, headroom_mib):
+            log(state(available, outstanding) + "; starting")
+            return
+        if read_running() == 0:
             # A command ends without the memory lock, so the last one can free its memory after the reads above.
             available, outstanding = read()
-            fits = available is None or memory_fits(budget_mib, available, outstanding, headroom_mib)
-            if not fits:
-                unlock()
-                raise NoMemory(available, outstanding)
-        if fits:
-            if held:
-                log("cannot read the free memory; starting" if available is None else state(available, outstanding) + "; starting")
+            if available is None:
+                log("cannot read the free memory; starting")
+                return
+            if memory_fits(budget_mib, available, outstanding, headroom_mib):
+                log(state(available, outstanding) + "; starting")
                 return
             unlock()
-            hold()
-            held = True
-            continue
+            raise NoMemory(available, outstanding)
         waited = clock() - started
         if next_line is None or waited >= next_line:
             log(state(available, outstanding) + ("; waiting" if next_line is None else "; still waiting after %ds" % waited))
             next_line = waited + interval_seconds
         unlock()
-        if held:
-            release()
-            held = False
+        on_wait()
         sleep(poll_seconds)
 
 
@@ -1681,27 +1670,14 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
         working = os.getcwd()
     except OSError:
         working = "-"
-    reservations: List[Reservation] = []
     waiting: List[int] = []
-    # The age on the check line counts from the first wait for memory, also after the slots came back between two waits.
-    waiting_since: List[float] = []
 
-    def take_slots() -> None:
-        while waiting:
-            remove_wait_file(directory, unit, waiting.pop())
-        reservations.append(reserve(directory, count, needed, exclusive_files, settings.poll_seconds))
-
-    def give_back_slots() -> None:
-        while reservations:
-            reservations.pop().release()
-            log("giving back %d slot(s) while waiting for free memory" % needed)
-        if not waiting_since:
-            waiting_since.append(time.time())
+    def mark_waiting() -> None:
         if not waiting:
-            waiting.append(write_wait_file(directory, unit, wait_budget, needed, working, options.command, now=lambda: waiting_since[0]))
+            waiting.append(write_wait_file(directory, unit, wait_budget, needed, working, options.command))
 
     reported: Optional[int] = None
-    take_slots()
+    reservation = reserve(directory, count, needed, exclusive_files, settings.poll_seconds)
     try:
         try:
             wait_for_memory(
@@ -1709,13 +1685,15 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
                 headroom_mib=headroom_mib(settings.total_mib, wait_budget, most),
                 read_available=read_available, read_outstanding=read_outstanding,
                 read_running=read_running, lock=lock_memory, unlock=unlock_memory,
-                hold=take_slots, release=give_back_slots,
+                on_wait=mark_waiting,
             )
         except NoMemory as stop:
             log("no-memory budget=%dM free=%dM headroom=%dM fits=%dM" % (
                 wait_budget, stop.available - (stop.outstanding or 0), headroom_mib(settings.total_mib, wait_budget, most),
                 largest_fit_mib(stop.available, stop.outstanding, settings.total_mib, most)))
             raise
+        while waiting:
+            remove_wait_file(directory, unit, waiting.pop())
         code, maxrss = run_command(command, child_environ, on_start)
         tracked = trackers[0].finish() if trackers else None
         held = trackers[0].held if trackers else None
@@ -1732,8 +1710,7 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
             reported = read_peak_file(peak_file)
         while waiting:
             remove_wait_file(directory, unit, waiting.pop())
-        while reservations:
-            reservations.pop().release()
+        reservation.release()
 
     exact = reported is not None
     peak = max(reported or tracked or 0, rusage_peak_mib(maxrss))
