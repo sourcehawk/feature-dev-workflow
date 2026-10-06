@@ -27,7 +27,7 @@ The issue goes to the plugin's repository, never to the repository of the curren
 
 1. Read `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`. Its `repository` field holds the URL of the plugin's repository. Take `OWNER/REPO` from it (`https://github.com/OWNER/REPO` gives `OWNER/REPO`). Its `version` field is the plugin version for the report.
 2. If the file or the field is missing, ask the user for the repository. Do not take it from a README, a marketplace file, or the current remote.
-3. Pass `--repo OWNER/REPO` on every `gh issue` command this skill runs, and name the repository in the path of every `gh api` call (`repos/OWNER/REPO/...`): `gh api` takes no `--repo`.
+3. Pass `--repo OWNER/REPO` on every `gh issue` command this skill runs. `gh api` takes no `--repo`, so name the repository in the path of every REST call (`repos/OWNER/REPO/...`), and in the query of every GraphQL call (`repository(owner:"OWNER",name:"REPO")`).
 
 ## Step 2: locate the gap in the skill
 
