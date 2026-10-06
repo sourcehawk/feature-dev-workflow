@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import json
 import os
 import re
 import select
@@ -2213,6 +2214,27 @@ class BoundedCleanupTest(unittest.TestCase):
         free = self.run_with_scopes(appears=False)
         self.assertEqual(free, {"before the scope": False, "before the limit": False, "at the start": True})
         self.assertLess(time.monotonic() - started, 5)
+
+    def test_the_age_of_a_waiter_counts_from_its_first_wait_for_memory(self):
+        starts = []
+
+        def wait(*arguments, **keywords):
+            for _ in range(2):
+                keywords["release"]()
+                path = os.path.join(self.directory, [name for name in os.listdir(self.directory) if name.startswith("wait-")][0])
+                starts.append(json.loads(Path(path).read_text())["since"])
+                time.sleep(0.05)
+                keywords["hold"]()
+
+        options = bounded_run.Options()
+        options.memory = "1G"
+        options.command = [sys.executable, "-c", "pass"]
+        with mock.patch.object(bounded_run, "probe_cap", return_value=None), \
+                mock.patch.object(bounded_run, "wait_for_memory", wait), \
+                mock.patch.object(bounded_run, "run_command", return_value=(0, 0)):
+            self.assertEqual(bounded_run.bounded(options, self.environ), 0)
+        self.assertEqual(len(starts), 2)
+        self.assertEqual(starts[0], starts[1])
 
     def test_the_wait_counts_no_unused_budget_without_a_cap(self):
         self.assertIsNone(self.wait_arguments(None)["read_outstanding"]())

@@ -1682,6 +1682,8 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
         working = "-"
     reservations: List[Reservation] = []
     waiting: List[int] = []
+    # The age on the check line counts from the first wait for memory, also after the slots came back between two waits.
+    waiting_since: List[float] = []
 
     def take_slots() -> None:
         while waiting:
@@ -1692,8 +1694,10 @@ def bounded_once(options: Options, environ: Mapping[str, str]) -> Tuple[int, int
         while reservations:
             reservations.pop().release()
             log("giving back %d slot(s) while waiting for free memory" % needed)
+        if not waiting_since:
+            waiting_since.append(time.time())
         if not waiting:
-            waiting.append(write_wait_file(directory, unit, wait_budget, needed, working, options.command))
+            waiting.append(write_wait_file(directory, unit, wait_budget, needed, working, options.command, now=lambda: waiting_since[0]))
 
     reported: Optional[int] = None
     take_slots()
