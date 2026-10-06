@@ -793,9 +793,10 @@ def wait_for_memory(
     There is no time limit while another bounded command runs, so the call can block for as long as the machine
     is full. Raises NoMemory, with lock released, when none runs, because then nothing in the queue frees memory.
     read_running gives the number of bounded commands that run, or None where it is not known: the call waits.
-    Returns at once when the free memory cannot be read. read_outstanding gives None where the unused budgets cannot be counted.
+    When the free memory cannot be read, the call returns without a wait for memory.
+    read_outstanding gives None where the unused budgets cannot be counted.
     The call returns with lock held and the slots held: the caller calls unlock once the new command counts in read_outstanding.
-    NoMemory leaves the slots as they are.
+    NoMemory can come after the call gave the slots back.
     """
     def read() -> Tuple[Optional[int], Optional[int]]:
         # A running command that grows or shrinks during the reads moves both values. The larger of the two unused
