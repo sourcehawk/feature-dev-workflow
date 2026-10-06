@@ -12,7 +12,7 @@ When you comment on an existing issue instead of filing a new one, the comment h
 
 # <plain-english-title>
 
-<!-- Title rule: a human-readable sentence that names the skill and the failure. Example: "fanning-out-with-worktrees: parallel subagents overwrite each other's files in the shared scratch directory". -->
+<!-- Title rule: a human-readable sentence that names the skill and the failure. Example: "fanning-out-with-worktrees: parallel subagents overwrite each other's files in the shared scratch directory". When more than one skill is involved, name each of them, joined with "and". -->
 
 ## What happened
 
@@ -42,7 +42,7 @@ When the failure is that a skill did not trigger, the section is `description` (
 
 ## Reproduction
 
-<!-- Required. A self-contained scenario that a maintainer can hand to a fresh subagent as a RED baseline. It must run without access to this session or the user's project: every fact the agent needs is written here, in generic terms. -->
+<!-- Required. A self-contained scenario that a maintainer can hand to a fresh subagent as a RED baseline. It must run without access to this session or the user's project: every fact the agent needs is written here, in generic terms. When the gap spans an agent and the agents it dispatches, write one scenario for the agent that dispatches: the Task prompt is the message it receives, the Environment facts name the skill that each dispatched agent follows, and the Failure predicate checks the dispatch prompts and what the dispatched agents do, in the same run. -->
 
 ### Situation
 
