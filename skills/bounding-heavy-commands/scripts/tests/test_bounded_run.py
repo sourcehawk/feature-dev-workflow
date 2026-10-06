@@ -765,6 +765,24 @@ class MemoryWaiterTest(unittest.TestCase):
         self.assertEqual(self.waiters(), [])
         self.assertEqual(os.listdir(self.directory), [])
 
+    def test_a_new_wait_file_that_takes_the_name_after_the_lock_is_kept_and_named_on_the_next_read(self):
+        unit = "bounded-run-5-000005"
+        path = os.path.join(self.directory, bounded_run.wait_file_name(unit))
+        real_try_lock = bounded_run._try_lock
+
+        def try_lock_then_replace(name):
+            # The waiter writes its new wait file after the reader locked the old one.
+            descriptor = real_try_lock(name)
+            if name == path:
+                self.mark(unit)
+            return descriptor
+
+        open(path, "w").close()
+        with mock.patch.object(bounded_run, "_try_lock", try_lock_then_replace):
+            self.assertEqual(self.waiters(), [])
+        self.assertTrue(os.path.exists(path))
+        self.assertEqual(self.waiters(), ["unit=%s for=memory budget=6144M slots=3 age=42s dir=/work/project command=make test" % unit])
+
     def test_the_wait_file_holds_no_process_id(self):
         self.mark("bounded-run-5-000005")
         text = Path(self.directory, bounded_run.wait_file_name("bounded-run-5-000005")).read_text()

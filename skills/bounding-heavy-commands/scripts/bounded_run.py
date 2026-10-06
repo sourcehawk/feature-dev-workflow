@@ -570,10 +570,13 @@ def memory_waiters(directory: str, now: Callable[[], float] = time.time) -> List
         path = os.path.join(directory, name)
         descriptor = _try_lock(path)
         if descriptor is not None:
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
+            # A waiter puts a new wait file at the same name each time it gives back its slots, so the name can hold a
+            # new, held file by now.
+            if _is_the_file_at(path, descriptor):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
             os.close(descriptor)
             continue
         try:
