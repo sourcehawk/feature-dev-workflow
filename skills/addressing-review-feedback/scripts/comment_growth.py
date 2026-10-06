@@ -42,6 +42,11 @@ class Family:
 
 
 SLASH = Family("slash", ("//",), (("/*", "*/"),), AFTER)
+# A comment between JSX tags stands in braces, {/* ... */}. Only these file
+# types read a line that starts with {/* as a comment: in the others it is code.
+# A line that starts with "{//" or "{ //" is not a comment, because an object
+# literal can open that way.
+JSX = Family("jsx", ("//",), (("/*", "*/"), ("{/*", "*/"), ("{ /*", "*/")), AFTER)
 HASH = Family("hash", ("#",), (), AFTER)
 HASH_ANGLE = Family("hash-angle", ("#",), (("<#", "#>"),), AFTER)
 HASH_BEGIN = Family("hash-begin", ("#",), (("=begin", "=end"),), AFTER)
@@ -54,7 +59,8 @@ PERCENT = Family("percent", ("%",), (), AFTER)
 
 EXTENSIONS: Dict[str, Family] = {}
 for _family, _extensions in (
-    (SLASH, ".c .h .cc .cpp .cxx .hpp .cs .java .js .jsx .mjs .cjs .ts .tsx .go .rs .swift .kt .kts .scala .dart .php .m .mm .proto .groovy .gradle .zig .css .scss .less .v .sv"),
+    (SLASH, ".c .h .cc .cpp .cxx .hpp .cs .java .mjs .cjs .ts .go .rs .swift .kt .kts .scala .dart .php .m .mm .proto .groovy .gradle .zig .css .scss .less .v .sv"),
+    (JSX, ".js .jsx .tsx"),
     (HASH, ".sh .bash .zsh .fish .pl .pm .yaml .yml .toml .tf .tfvars .hcl .r .ex .exs .nix .mk .cmake .conf .cfg .properties .tcl .awk"),
     (HASH_ANGLE, ".ps1 .psm1"),
     (HASH_BEGIN, ".rb"),

@@ -255,6 +255,77 @@ class BlockFormTest(unittest.TestCase):
                 self.assertEqual(self.grown(path, old, new), [(gate.GREW, 1, 2, True)])
 
 
+class JsxCommentTest(unittest.TestCase):
+    def scan(self, path, source):
+        return gate.scan(source, gate.family_for(path))
+
+    def grown(self, path, old, new):
+        family = gate.family_for(path)
+        return [(f.status, f.old_length, f.new_length, f.flagged) for f in gate.compare(path, old, new, family)]
+
+    def test_comment_in_braces_on_one_line_is_a_block(self):
+        source = "<div>\n  {/* about */}\n  <code />\n</div>\n"
+        for path in ("a.jsx", "a.tsx"):
+            with self.subTest(path=path):
+                self.assertEqual(self.scan(path, source), [gate.Block(2, ("{/* about */}",), "<code />")])
+
+    def test_comment_in_braces_runs_to_its_closing_delimiter(self):
+        source = "<div>\n  {/*\n    about\n  */}\n  <code />\n</div>\n"
+        self.assertEqual(self.scan("a.tsx", source), [gate.Block(2, ("{/*", "about", "*/}"), "<code />")])
+
+    def test_comment_in_braces_that_grew_is_flagged(self):
+        old = "<div>\n  {/* about */}\n  <code />\n</div>\n"
+        new = "<div>\n  {/*\n    about\n    and more\n  */}\n  <code />\n</div>\n"
+        self.assertEqual(self.grown("a.tsx", old, new), [(gate.GREW, 1, 4, True)])
+
+    def test_comment_in_braces_that_changed_is_listed(self):
+        old = "<div>\n  {/* about */}\n  <code />\n</div>\n"
+        new = "<div>\n  {/* other */}\n  <code />\n</div>\n"
+        self.assertEqual(self.grown("a.jsx", old, new), [(gate.CHANGED, 1, 1, False)])
+
+    def test_slash_comments_still_count_in_these_file_types(self):
+        source = "// about\nconst a = 1;\n/* more */\nconst b = 2;\n"
+        self.assertEqual(
+            self.scan("a.tsx", source),
+            [gate.Block(1, ("// about",), "const a = 1;"), gate.Block(3, ("/* more */",), "const b = 2;")],
+        )
+
+    def test_braces_before_a_comment_are_code_in_other_slash_file_types(self):
+        source = "int run(void)\n{/* empty */}\n"
+        for path in ("a.ts", "a.mjs", "a.cjs", "a.c"):
+            with self.subTest(path=path):
+                self.assertEqual(self.scan(path, source), [])
+
+    def test_js_files_read_comments_in_braces(self):
+        source = "<div>\n  {/* about */}\n  <code />\n</div>\n"
+        self.assertEqual(self.scan("a.js", source), [gate.Block(2, ("{/* about */}",), "<code />")])
+
+    def test_comment_in_braces_after_a_space_is_a_block(self):
+        source = "<div>\n  { /* about */ }\n  <code />\n</div>\n"
+        for path in ("a.js", "a.jsx", "a.tsx"):
+            with self.subTest(path=path):
+                self.assertEqual(self.scan(path, source), [gate.Block(2, ("{ /* about */ }",), "<code />")])
+
+    def test_line_comment_inside_braces_is_a_block(self):
+        source = "<div>\n  {\n    // about\n  }\n  <code />\n</div>\n"
+        for path in ("a.js", "a.jsx", "a.tsx"):
+            with self.subTest(path=path):
+                self.assertEqual(self.scan(path, source), [gate.Block(3, ("// about",), "}")])
+
+    def test_empty_body_that_holds_a_comment_is_code(self):
+        source = "function stop() {/* nothing to free */}\nstop();\n"
+        for path in ("a.js", "a.jsx", "a.tsx"):
+            with self.subTest(path=path):
+                self.assertEqual(self.scan(path, source), [])
+
+    def test_object_that_opens_with_a_line_comment_is_code(self):
+        for opening in ("{ // home", "{// home"):
+            source = "const routes = [\n  %s\n    path: '/',\n  },\n];\n" % opening
+            for path in ("a.js", "a.jsx", "a.tsx"):
+                with self.subTest(path=path, opening=opening):
+                    self.assertEqual(self.scan(path, source), [])
+
+
 def statuses(old, new, family=gate.SLASH):
     return [(f.status, f.old_length, f.new_length, f.flagged) for f in gate.compare("f", old, new, family)]
 
@@ -826,6 +897,20 @@ class RunTest(unittest.TestCase):
         self.repo.commit("shorten the comment on main")
         sh(self.repo.path, "git", "checkout", "-q", "topic")
         self.assertEqual(gate.run(self.repo.path, "main").findings, ())
+
+    def test_changed_jsx_comment_is_listed_like_a_slash_comment(self):
+        self.repo.write("a.tsx", "export function A() {\n  return (\n    <div>\n      {/* short note */}\n      <code />\n    </div>\n  );\n}\n")
+        self.repo.write("b.ts", "export function B() {\n  // short note\n  return 1;\n}\n")
+        base = self.repo.commit("add a and b")
+        longer = "a much longer note that grew well past the first one, with more words"
+        for name in ("a.tsx", "b.ts"):
+            with open(os.path.join(self.repo.path, name), encoding="utf-8") as handle:
+                self.repo.write(name, handle.read().replace("short note", longer))
+        report = gate.run(self.repo.path, base)
+        self.assertEqual(
+            [(f.path, f.line, f.status) for f in report.findings],
+            [("a.tsx", 4, gate.CHANGED), ("b.ts", 2, gate.CHANGED)],
+        )
 
     def test_untracked_file_is_scanned(self):
         self.repo.write("new.go", OLD)
