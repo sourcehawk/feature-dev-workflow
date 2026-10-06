@@ -292,7 +292,35 @@ class JsxCommentTest(unittest.TestCase):
 
     def test_braces_before_a_comment_are_code_in_other_slash_file_types(self):
         source = "int run(void)\n{/* empty */}\n"
-        for path in ("a.ts", "a.js", "a.c"):
+        for path in ("a.ts", "a.mjs", "a.cjs", "a.c"):
+            with self.subTest(path=path):
+                self.assertEqual(self.scan(path, source), [])
+
+    def test_js_files_read_comments_in_braces(self):
+        source = "<div>\n  {/* about */}\n  <code />\n</div>\n"
+        self.assertEqual(self.scan("a.js", source), [gate.Block(2, ("{/* about */}",), "<code />")])
+
+    def test_comment_in_braces_after_a_space_is_a_block(self):
+        source = "<div>\n  { /* about */ }\n  <code />\n</div>\n"
+        for path in ("a.js", "a.jsx", "a.tsx"):
+            with self.subTest(path=path):
+                self.assertEqual(self.scan(path, source), [gate.Block(2, ("{ /* about */ }",), "<code />")])
+
+    def test_line_comment_after_a_brace_is_a_block(self):
+        source = "<div>\n  {// about\n  }\n  <code />\n</div>\n"
+        for path in ("a.js", "a.jsx", "a.tsx"):
+            with self.subTest(path=path):
+                self.assertEqual(self.scan(path, source), [gate.Block(2, ("{// about",), "}")])
+
+    def test_empty_body_that_holds_a_comment_is_code(self):
+        source = "function stop() {/* nothing to free */}\nstop();\n"
+        for path in ("a.js", "a.jsx", "a.tsx"):
+            with self.subTest(path=path):
+                self.assertEqual(self.scan(path, source), [])
+
+    def test_object_that_opens_with_a_line_comment_is_code(self):
+        source = "const routes = [\n  { // home\n    path: '/',\n  },\n];\n"
+        for path in ("a.js", "a.jsx", "a.tsx"):
             with self.subTest(path=path):
                 self.assertEqual(self.scan(path, source), [])
 
