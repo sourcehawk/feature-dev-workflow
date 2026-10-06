@@ -306,11 +306,11 @@ class JsxCommentTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(self.scan(path, source), [gate.Block(2, ("{ /* about */ }",), "<code />")])
 
-    def test_line_comment_after_a_brace_is_a_block(self):
-        source = "<div>\n  {// about\n  }\n  <code />\n</div>\n"
+    def test_line_comment_inside_braces_is_a_block(self):
+        source = "<div>\n  {\n    // about\n  }\n  <code />\n</div>\n"
         for path in ("a.js", "a.jsx", "a.tsx"):
             with self.subTest(path=path):
-                self.assertEqual(self.scan(path, source), [gate.Block(2, ("{// about",), "}")])
+                self.assertEqual(self.scan(path, source), [gate.Block(3, ("// about",), "}")])
 
     def test_empty_body_that_holds_a_comment_is_code(self):
         source = "function stop() {/* nothing to free */}\nstop();\n"
@@ -319,10 +319,11 @@ class JsxCommentTest(unittest.TestCase):
                 self.assertEqual(self.scan(path, source), [])
 
     def test_object_that_opens_with_a_line_comment_is_code(self):
-        source = "const routes = [\n  { // home\n    path: '/',\n  },\n];\n"
-        for path in ("a.js", "a.jsx", "a.tsx"):
-            with self.subTest(path=path):
-                self.assertEqual(self.scan(path, source), [])
+        for opening in ("{ // home", "{// home"):
+            source = "const routes = [\n  %s\n    path: '/',\n  },\n];\n" % opening
+            for path in ("a.js", "a.jsx", "a.tsx"):
+                with self.subTest(path=path, opening=opening):
+                    self.assertEqual(self.scan(path, source), [])
 
 
 def statuses(old, new, family=gate.SLASH):

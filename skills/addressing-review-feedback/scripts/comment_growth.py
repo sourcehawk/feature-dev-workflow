@@ -44,8 +44,9 @@ class Family:
 SLASH = Family("slash", ("//",), (("/*", "*/"),), AFTER)
 # A comment between JSX tags stands in braces, {/* ... */}. Only these file
 # types read a line that starts with {/* as a comment: in the others it is code.
-# "{ //" is not a marker, because an object literal can open that way.
-JSX = Family("jsx", ("//", "{//"), (("/*", "*/"), ("{/*", "*/"), ("{ /*", "*/")), AFTER)
+# A line that starts with "{//" or "{ //" is not a comment, because an object
+# literal can open that way.
+JSX = Family("jsx", ("//",), (("/*", "*/"), ("{/*", "*/"), ("{ /*", "*/")), AFTER)
 HASH = Family("hash", ("#",), (), AFTER)
 HASH_ANGLE = Family("hash-angle", ("#",), (("<#", "#>"),), AFTER)
 HASH_BEGIN = Family("hash-begin", ("#",), (("=begin", "=end"),), AFTER)
