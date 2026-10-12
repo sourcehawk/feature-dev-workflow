@@ -54,7 +54,7 @@ Copilot code review runs at one of two effort levels. **Lite** is the default: f
 - **Interactive (standalone, or the PR-to-main gate):** when the change is substantive, say so before requesting and ask the user to select balanced — in the Reviewers selector for a one-off, or in repository settings if the repo auto-reviews on push. Then request.
 - **Autonomous multi-PR fan-out (sub-PR gate):** do not pause for it. The repository default governs; if a sub-PR is substantive enough that a lite review is a real gap, log it as a bubble-up concern in the state file's `## Bubble-up log` and continue.
 
-**Nothing in the review payload records which level produced it.** Do not report that a review was balanced, and do not infer the level from how thorough the review looks.
+**The review body is the only record of the level, and not every review carries it.** A review can state its level in a labelled line of its body, `**Review effort:** <level>`, sometimes after an emoji and not always as the last line. Step 4 reads the body each round: when that line is present, report the level it states and name the line as your source. When it is absent, say that this review does not state its level, and report none. A missing line does not mean lite, a mention of effort elsewhere in the body is not the line, and how thorough the review looks is evidence of nothing.
 
 ## The loop
 
@@ -108,7 +108,7 @@ One cycle, in order:
    ```
 
    It polls `gh api .../pulls/<pr>/reviews` for a Copilot review newer than `$SINCE` and exits 0 (printing the review) when one lands, or 124 on timeout. The harness re-invokes the session when it exits. Do **not** write a foreground `sleep`/`until` loop — foreground sleep is blocked and it freezes the session.
-4. **Triage every finding the review carries — the comments it posted *and* the comments it suppressed** — plus any human comments already on the PR. Copilot posts some findings as inline comments and withholds others into a `Suppressed comments (N)` block in the review body; a review can carry both, or carry suppressed findings alone with nothing posted at all. Read the body every round, not only the comment threads, or the loop triages a fraction of the review it was handed:
+4. **Triage every finding the review carries — the comments it posted *and* the comments it suppressed** — plus any human comments already on the PR. Copilot posts some findings as inline comments and withholds others into a `Suppressed comments (N)` block in the review body; a review can carry both, or carry suppressed findings alone with nothing posted at all. The body is also where a review states its effort level, when it states one (§Review effort level is a precondition). Read the body every round, not only the comment threads, or the loop triages a fraction of the review it was handed:
 
    ```
    gh api repos/{owner}/{repo}/pulls/<pr>/reviews --paginate \
