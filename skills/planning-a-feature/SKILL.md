@@ -104,6 +104,8 @@ Sub-issues reference only the parent epic in their `## Context` section — GitH
 
 **REQUIRED SUB-SKILL:** Invoke `superpowers:writing-plans` to produce `docs/superpowers/plans/YYYY-MM-DD-<slug>-plan.md`. The plan is HOW: ordered tasks, dependencies, review checkpoints, PR-by-PR breakdown.
 
+**The sub-skill ends at its self-review.** Use `superpowers:writing-plans` for the plan and its self-review, then return here and continue with step 7. Step 9 of this workflow replaces its closing "Execution Handoff" section: when the plan is saved, do not ask the user to choose an execution method (subagent-driven or native), and do not start execution from that section. `feature-dev-workflow:developing-a-feature` decides how the work runs and which execution skill it uses, and it asks its own setup questions.
+
 **During plan-writing, identify parallelism and define contracts.** For every pair of PRs that could run in parallel, ask: what does each side need to know about the other's wire shape, API surface, or data layout to start work without blocking? That's a contract. Document each in a `## Contracts` section of the plan:
 
 | Name                       | Producer (issue) | Consumer (issue) | Shape                                                 | Realization              |
@@ -167,4 +169,5 @@ Spec + plan + state file committed and pushed on `<type>/<slug>`, issues aligned
 | "I'll skip user review on the spec, it's just an internal doc"     | An unreviewed spec is a draft. Drafts don't get tickets filed against them.                          |
 | "The feature branch is created later in `feature-dev-workflow:developing-a-feature`, so the spec/plan/state commit to `main` first" | Planning owns the branch's birth. Create `<type>/<slug>` in step 2 before the first commit; `feature-dev-workflow:developing-a-feature` reuses it. Nothing about the feature reaches `main` except through a PR. |
 | "This is running the feature-development flow, so the branch is `feature/…`"                                                       | The type comes from the change, not from the workflow. A bug fix planned through this flow is still `fix/…`. |
+| "The plan is saved, so I ask the user: subagent-driven or native?"                                                                  | That question is the handoff of `superpowers:writing-plans`, and step 9 replaces it. Continue with steps 7 and 8, then invoke `feature-dev-workflow:developing-a-feature`, which asks its own setup questions. |
 | "The slug can be refined once I see how the work lands"                                                                            | Every sub-branch, worktree path, and state-file row derives from it. Name the subject and its effect now (step 2); renaming later touches all of them. |
