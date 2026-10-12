@@ -104,7 +104,7 @@ Sub-issues reference only the parent epic in their `## Context` section — GitH
 
 **REQUIRED SUB-SKILL:** Invoke `superpowers:writing-plans` to produce `docs/superpowers/plans/YYYY-MM-DD-<slug>-plan.md`. The plan is HOW: ordered tasks, dependencies, review checkpoints, PR-by-PR breakdown.
 
-**The sub-skill ends at its self-review.** Use `superpowers:writing-plans` for the plan and its self-review, then return here and continue with step 7. Its closing "Execution Handoff" section is replaced by step 9 of this workflow: do not ask the user to choose an execution method (subagent-driven or native), and do not invoke `superpowers:subagent-driven-development` or `superpowers:executing-plans`. `feature-dev-workflow:developing-a-feature` decides how the work runs and asks its own setup questions.
+**The sub-skill ends at its self-review.** Use `superpowers:writing-plans` for the plan and its self-review, then return here and continue with step 7. Step 9 of this workflow replaces its closing "Execution Handoff" section: when the plan is saved, do not ask the user to choose an execution method (subagent-driven or native), and do not start execution from that section. `feature-dev-workflow:developing-a-feature` decides how the work runs and which execution skill it uses, and it asks its own setup questions.
 
 **During plan-writing, identify parallelism and define contracts.** For every pair of PRs that could run in parallel, ask: what does each side need to know about the other's wire shape, API surface, or data layout to start work without blocking? That's a contract. Document each in a `## Contracts` section of the plan:
 
