@@ -112,7 +112,7 @@ One cycle, in order:
    **That one background shell is the whole wait.** Its exit is the signal, and its output file holds the result. A subagent waits the same way as a top-level session:
 
    - **End your turn after the launch.** The harness re-invokes the session when the script exits.
-   - **On every wake, read the script's output file.** A review or a timeout message means the script has ended: go on to Step 4, or to Step 6's timeout rule. An empty file means it is still running: end your turn again.
+   - **On every wake, read the task's status and exit code from the harness, then its output file.** Exit 0: go on to Step 4 with the review it printed. Exit 124: go to Step 6's timeout rule. Any other exit: the script failed before it could wait, so report the exit code and its output, and do not wait again. Still running: end your turn again. An empty output file alone does not show that the script still runs, because a failed script can exit without output.
    - **If your harness gives no wake on a background exit, or you cannot tell that it does, run the same script in the foreground instead,** with an interval and a timeout below your tool's command limit, for example `await-copilot-review.sh <pr> "$SINCE" 30 540`. It ends by itself, so nothing is left running.
 
    Never start a second command to learn when the wait script has ended. A watcher such as `until ! pgrep -f "await-copilot-review.sh <pr>"` never exits: `pgrep -f` matches whole command lines, and the watcher's own `bash -c` line holds the pattern, so it always finds itself. The same holds for `ps | grep` on that name.
@@ -191,7 +191,7 @@ Not every GitHub mutation in the loop is the same kind of action, and conflating
 | --- | --- |
 | "I'll `gh api .../requested_reviewers` to add Copilot" | That endpoint rejects Copilot (422). Only `gh pr edit --add-reviewer "@copilot"` works. |
 | "I'll `sleep` in a loop until the review lands" | Foreground sleep is blocked and freezes the session. Use the background wait script; the harness wakes you. |
-| "I'm a subagent and may not be woken, so I'll background a second loop that tells me when the wait script ends" | The second loop has the same wake problem, and a `pgrep -f` loop on the script's name matches itself and never ends. Read the script's output file on each wake. With no wake at all, run the script in the foreground with a timeout below the tool's limit. |
+| "I'm a subagent and may not be woken, so I'll background a second loop that tells me when the wait script ends" | The second loop has the same wake problem, and a `pgrep -f` loop on the script's name matches itself and never ends. On each wake, read the task's exit code and output file. With no wake at all, run the script in the foreground with a timeout below the tool's limit. |
 | "The round is done, so I can report back" | Not while a background shell you started still runs. Stop it first, or the finished agent stays alive. |
 | "The command exited 0, so Copilot is reviewing" | `gh pr edit` can exit 0 without attaching. Confirm via `reviewRequests` before waiting. |
 | "Copilot suggested it, so apply it" | Copilot is confidently wrong often. Triage via `receiving-code-review`; verify before applying. |
