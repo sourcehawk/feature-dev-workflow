@@ -107,7 +107,17 @@ One cycle, in order:
    ${CLAUDE_PLUGIN_ROOT}/skills/copilot-review-loop/templates/await-copilot-review.sh <pr> "$SINCE"
    ```
 
-   It polls `gh api .../pulls/<pr>/reviews` for a Copilot review newer than `$SINCE` and exits 0 (printing the review) when one lands, or 124 on timeout. The harness re-invokes the session when it exits. Do **not** write a foreground `sleep`/`until` loop — foreground sleep is blocked and it freezes the session.
+   It polls `gh api .../pulls/<pr>/reviews` for a Copilot review newer than `$SINCE` and exits 0 (printing the review) when one lands, or 124 on timeout. Do **not** write a foreground `sleep`/`until` loop — foreground sleep is blocked and it freezes the session.
+
+   **That one background shell is the whole wait.** Its exit is the signal, and its output file holds the result. A subagent waits the same way as a top-level session:
+
+   - **End your turn after the launch.** The harness re-invokes the session when the script exits.
+   - **On every wake, read the task's status and exit code from the harness, then its output file.** Exit 0: go on to Step 4 with the review it printed. Exit 124: go to Step 6's timeout rule. Any other exit: the script failed before it could wait, so report the exit code and its output, and do not wait again. Still running: end your turn again. An empty output file alone does not show that the script still runs, because a failed script can exit without output.
+   - **If your harness gives no wake on a background exit, or you cannot tell that it does, run the same script in the foreground instead,** with an interval and a timeout below your tool's command limit, for example `await-copilot-review.sh <pr> "$SINCE" 30 540`. It ends by itself, so nothing is left running.
+
+   Never start a second command to learn when the wait script has ended. A watcher such as `until ! pgrep -f "await-copilot-review.sh <pr>"` never exits: `pgrep -f` matches whole command lines, and the watcher's own `bash -c` line holds the pattern, so it always finds itself. The same holds for `ps | grep` on that name.
+
+   **Before you report back or hand off, no background shell you started may still run.** List your background tasks and stop any that is still live, such as a wait script that you left behind when you stopped early. A finished subagent with a live background shell stays alive, and the user sees it as still running.
 4. **Triage every finding the review carries — the comments it posted *and* the comments it suppressed** — plus any human comments already on the PR. Copilot posts some findings as inline comments and withholds others into a `Suppressed comments (N)` block in the review body; a review can carry both, or carry suppressed findings alone with nothing posted at all. The body is also where a review states its effort level, when it states one (§Review effort level is a precondition). Read the body every round, not only the comment threads, or the loop triages a fraction of the review it was handed:
 
    ```
@@ -181,6 +191,8 @@ Not every GitHub mutation in the loop is the same kind of action, and conflating
 | --- | --- |
 | "I'll `gh api .../requested_reviewers` to add Copilot" | That endpoint rejects Copilot (422). Only `gh pr edit --add-reviewer "@copilot"` works. |
 | "I'll `sleep` in a loop until the review lands" | Foreground sleep is blocked and freezes the session. Use the background wait script; the harness wakes you. |
+| "I'm a subagent and may not be woken, so I'll background a second loop that tells me when the wait script ends" | The second loop has the same wake problem, and a `pgrep -f` loop on the script's name matches itself and never ends. On each wake, read the task's exit code and output file. With no wake at all, run the script in the foreground with a timeout below the tool's limit. |
+| "The round is done, so I can report back" | Not while a background shell you started still runs. Stop it first, or the finished agent stays alive. |
 | "The command exited 0, so Copilot is reviewing" | `gh pr edit` can exit 0 without attaching. Confirm via `reviewRequests` before waiting. |
 | "Copilot suggested it, so apply it" | Copilot is confidently wrong often. Triage via `receiving-code-review`; verify before applying. |
 | "The finding says the doc comment is incomplete, so I extend it" | A finding is input to judge. `feature-dev-workflow:addressing-review-feedback` finds its case first: a fact that a caller needs is added, and a description of how the body works is declined. Its script runs before the push. |
