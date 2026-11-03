@@ -17,7 +17,14 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         python: ["3.9", "3.x"]
+        # actions/setup-python has no Python 3.9 build for Ubuntu 26.04, the
+        # image behind ubuntu-latest. 3.9 is end of life, so none will come.
+        exclude:
+          - os: ubuntu-latest
+            python: "3.9"
         include:
+          - os: ubuntu-24.04
+            python: "3.9"
           # The interpreter that ships with the developer tools of macOS.
           - os: macos-latest
             python: system
