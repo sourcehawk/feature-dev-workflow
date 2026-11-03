@@ -101,7 +101,7 @@ Opening and flipping aren't the only moments the body has to be true. Commits la
 
 The mechanic:
 
-1. **Rewrite the affected sections** from the template the PR already uses (draft or ready) so they match the diff. Leave the opening issue-link keyword and the title unchanged — neither the linkage nor the type/area changed. Do not flip the lifecycle state; this is a body edit, not a `gh pr ready`.
+1. **Rewrite the affected sections** from the template the PR already uses (draft or ready) so they describe what the branch does now. "Match the diff" means the body's claims hold for the branch, not that the body retells the diff: each new commit's change is written as the template asks, as a difference a user or an operator will notice, with what it replaces. Leave the opening issue-link keyword and the title unchanged — neither the linkage nor the type/area changed. Do not flip the lifecycle state; this is a body edit, not a `gh pr ready`.
 2. **Confirm the exact body** (§Core principle) — paste it inline under an "About to update #<num>'s body to match the diff — body only, PR stays as-is. Confirm?" line, and wait for an explicit yes. Under a standing grant for PR body edits, skip the prompt and show the new body in your reply.
 3. **Run the single mutation** once confirmed: `gh pr edit <num> --body "$(cat <<'EOF' … EOF)"`.
 
@@ -109,6 +109,7 @@ The mechanic:
 
 - **Lifecycle suffix in PR titles** (`... wip`, `... draft`, `... scaffolding`). The title outlives the state that named it. The body and GitHub's chip carry lifecycle; the title doesn't need to.
 - **Mechanic-first titles** (`... move the check above the lookup`, `... reorder the gates`, `... extract the handler`). They describe the code motion, which is the one thing the diff already shows. Lead with the effect or the cause (§PR title).
+- **Change lines that retell the diff** (`The handler reads the timeout from the config`, `The sync loop re-queues each entry every 10 minutes`). The title's mechanic failure, one level down: each line names a component and what it does, and the reader still cannot tell what they will see differently. Write each line as the difference a user or an operator will notice, and what it replaces (the template's guidance for `## What lands here` or `## Changes`).
 - **`Challenges` as the body's overflow section.** Consequences, tradeoffs, follow-up work, and the history of review rounds all get filed there because the heading is sitting in the template. Each has a home: the Description's third part, `Related`, or the commits. The section earns its place only when the diff hides a system fact a reviewer needs — otherwise the heading gets deleted.
 - **Flipping ready with the draft body unchanged.** Different shape, different audience. Rewrite from the ready template.
 - **Marking ready before the Testing section is filled in.** That section is what gives the reviewer confidence the PR is shippable; leaving it blank silently drops the claim.
