@@ -24,7 +24,9 @@ Write it for a dev arriving without context. Lean on Changes (below) for the "wh
 ## Changes
 
 <!--
-Over-arching changes that affect behavior or user-visible surface. Don't list "renamed foo to bar" or file-level diffs unless they are genuinely the headline change. Bullets, one line each, lead with the biggest.
+The outcomes this PR delivers. Bullets, one line each, lead with the biggest.
+
+Each bullet is a difference that a user, an operator, or a calling system will notice: what they get with this PR and, when it replaces something they had, what that was. A new user-visible surface (a flag, an endpoint, a setting) counts: name it and what it lets them do. Write it from where they stand. The subject is what they see (a request, a record, a status, an alert), not the component or code path that does the work; the diff and the commits already carry which code changed and where. Fit each sentence to its change rather than one pattern for every bullet: a fix often reads best from the symptom it ends, a new capability from what it lets them do, a changed default from the old value to the new one.
 -->
 
 ## Challenges
